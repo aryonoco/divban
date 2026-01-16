@@ -1,0 +1,36 @@
+[Unit]
+Description=Immich Valkey Cache
+After=immich-network.service
+Requires=immich-network.service
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Container]
+ContainerName=immich-redis
+HostName=immich-redis
+
+Image=docker.io/valkey/valkey:8@sha256:81db6d39e1bba3b3ff32bd3a1b19a6d69690f94a3954ec131277b9a26b95b3aa
+AutoUpdate=registry
+
+Network=immich.network
+
+HealthCmd=valkey-cli ping | grep -q PONG
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+Notify=healthy
+HealthOnFailure=kill
+
+NoNewPrivileges=true
+ReadOnlyRootfs=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

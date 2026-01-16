@@ -1,0 +1,39 @@
+[Unit]
+Description=Immich Machine Learning 
+After=immich-network.service immich-model-cache-volume.service
+Requires=immich-network.service immich-model-cache-volume.service
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Container]
+ContainerName=immich-machine-learning
+HostName=immich-machine-learning
+
+Image=ghcr.io/immich-app/immich-machine-learning:v1.124.2
+AutoUpdate=registry
+
+Network=immich.network
+
+EnvironmentFile=/home/immich/.config/containers/systemd/immich.env
+
+Volume=immich-model-cache.volume:/cache:
+
+HealthCmd=wget -q --spider http://localhost:3003/ping || exit 1
+HealthInterval=60s
+HealthTimeout=30s
+HealthRetries=3
+HealthStartPeriod=300s
+Notify=healthy
+HealthOnFailure=kill
+
+NoNewPrivileges=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=600
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Immich PostgreSQL Data Volume
+
+[Volume]
+VolumeName=immich-postgres-data
+
+[Install]
+WantedBy=default.target

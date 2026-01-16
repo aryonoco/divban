@@ -1,0 +1,10 @@
+[Unit]
+Description=Immich Internal Network
+
+[Network]
+NetworkName=immich-net
+Driver=bridge
+Internal=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Immich Photo Upload Volume
+
+[Volume]
+VolumeName=immich-upload
+
+[Install]
+WantedBy=default.target

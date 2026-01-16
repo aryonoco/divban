@@ -1,0 +1,44 @@
+[Unit]
+Description=Immich PostgreSQL with VectorChord
+After=immich-network.service immich-postgres-data-volume.service
+Requires=immich-network.service immich-postgres-data-volume.service
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Container]
+ContainerName=immich-postgres
+HostName=immich-postgres
+
+Image=ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+AutoUpdate=registry
+
+Network=immich.network
+
+EnvironmentFile=/home/immich/.config/containers/systemd/immich.env
+
+Volume=immich-postgres-data.volume:/var/lib/postgresql/data:
+
+UserNS=keep-id:uid=999,gid=999
+
+ShmSize=256m
+
+HealthCmd=pg_isready -U immich -d immich
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=5
+HealthStartPeriod=60s
+Notify=healthy
+HealthOnFailure=kill
+
+NoNewPrivileges=true
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+# PostgreSQL needs more time for graceful shutdown
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target
