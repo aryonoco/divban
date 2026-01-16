@@ -5,7 +5,10 @@
       "WebFetch(domain:docs.podman.io)",
       "WebFetch(domain:github.com)",
       "Bash(ls:*)",
-      "WebFetch(domain:just.systems)"
+      "WebFetch(domain:just.systems)",
+      "WebFetch(domain:bun.com)",
+      "Bash(bun --version:*)",
+      "Bash(~/.bun/bin/bun test:*)"
     ]
   }
 }

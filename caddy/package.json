@@ -1,0 +1,16 @@
+{
+  "name": "caddy-setup",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "bun run setup.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
