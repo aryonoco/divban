@@ -8,7 +8,10 @@
       "WebFetch(domain:just.systems)",
       "WebFetch(domain:bun.com)",
       "Bash(bun --version:*)",
-      "Bash(~/.bun/bin/bun test:*)"
+      "Bash(~/.bun/bin/bun test:*)",
+      "WebFetch(domain:caddyserver.com)",
+      "Bash(bun run setup.ts:*)",
+      "Bash(bun add:*)"
     ]
   }
 }

@@ -17,7 +17,6 @@ PublishPort=127.0.0.1:5006:5006
 
 Volume=actual-data.volume:/data
 
-# Health check using wget
 HealthCmd=wget -q --spider http://localhost:5006/ || exit 1
 HealthInterval=60s
 HealthTimeout=10s

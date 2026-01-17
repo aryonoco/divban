@@ -1,8 +1,0 @@
-[Unit]
-Description=Caddy TLS Certificates Volume
-
-[Volume]
-VolumeName=caddy-data
-
-[Install]
-WantedBy=default.target

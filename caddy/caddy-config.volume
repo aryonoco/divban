@@ -1,8 +1,0 @@
-[Unit]
-Description=Caddy Config Volume
-
-[Volume]
-VolumeName=caddy-config
-
-[Install]
-WantedBy=default.target

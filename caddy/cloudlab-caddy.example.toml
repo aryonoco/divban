@@ -1,0 +1,382 @@
+# cloudlab-caddy.example.toml - Generic Caddy Configuration
+# SPDX-License-Identifier: MIT
+#
+# This is a comprehensive example demonstrating all features of the
+# generic TOML-based Caddy configuration system.
+#
+# Usage:
+#   bun run setup.ts validate -c cloudlab-caddy.example.toml
+#   bun run setup.ts generate -c cloudlab-caddy.example.toml -o ./out
+#   sudo bun run setup.ts setup -c cloudlab-caddy.example.toml
+
+#═══════════════════════════════════════════════════════════════════════════════
+# SERVICE CONFIGURATION (for rootless Podman setup)
+#═══════════════════════════════════════════════════════════════════════════════
+
+[service]
+user = "caddy"
+uid = 1100
+subuid_start = 100000
+subuid_range = 65536  # Optional, defaults to 65536
+
+[paths]
+data_dir = "/srv/caddy"
+
+#═══════════════════════════════════════════════════════════════════════════════
+# CONTAINER CONFIGURATION (optional - has sensible defaults)
+#═══════════════════════════════════════════════════════════════════════════════
+
+[container]
+image = "docker.io/library/caddy:2-alpine"
+network_mode = "pasta"  # or "slirp4netns"
+
+[[container.ports]]
+host = 80
+container = 80
+
+[[container.ports]]
+host = 443
+container = 443
+
+[[container.ports]]
+host = 443
+container = 443
+protocol = "udp"  # For HTTP/3 (QUIC)
+
+#═══════════════════════════════════════════════════════════════════════════════
+# CADDYFILE CONFIGURATION (generic - supports any valid Caddyfile)
+#═══════════════════════════════════════════════════════════════════════════════
+
+[caddyfile]
+
+#───────────────────────────────────────────────────────────────────────────────
+# Global Options Block (optional)
+# These settings apply to the entire Caddy instance
+#───────────────────────────────────────────────────────────────────────────────
+
+[caddyfile.global]
+email = "admin@example.com"
+# Uncomment for staging/testing:
+# acme_ca = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# Other global options examples (uncomment as needed):
+# debug = true
+# http_port = 80
+# https_port = 443
+# auto_https = "off"
+# admin = "off"
+
+#───────────────────────────────────────────────────────────────────────────────
+# Snippets - Reusable Configuration Blocks
+# These can be imported into any site with: import <snippet_name>
+#───────────────────────────────────────────────────────────────────────────────
+
+# Security headers snippet using structured directives
+[[caddyfile.snippets]]
+name = "security_headers"
+[[caddyfile.snippets.directives]]
+directive = "header"
+args = [
+  { field = "Strict-Transport-Security", value = "max-age=31536000; includeSubDomains; preload" },
+  { field = "X-Frame-Options", value = "SAMEORIGIN" },
+  { field = "X-Content-Type-Options", value = "nosniff" },
+  { field = "X-XSS-Protection", value = "1; mode=block" },
+  { field = "Referrer-Policy", value = "strict-origin-when-cross-origin" },
+  { field = "-Server" },  # Delete Server header (no value = delete)
+]
+
+# Compression snippet using raw Caddyfile syntax (simpler for some configs)
+[[caddyfile.snippets]]
+name = "compression"
+raw = "encode zstd gzip"
+
+# CORS headers snippet
+[[caddyfile.snippets]]
+name = "cors"
+raw = """
+header Access-Control-Allow-Origin "*"
+header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+header Access-Control-Allow-Headers "Content-Type, Authorization"
+"""
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 1: Simple Reverse Proxy (e.g., Immich photos)
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["photos.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["security_headers"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+[[caddyfile.sites.directives]]
+directive = "reverse_proxy"
+args = ["localhost:2283"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 2: Reverse Proxy with Load Balancing and Health Checks
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["api.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+[[caddyfile.sites.directives]]
+directive = "reverse_proxy"
+args = ["backend1:8080", "backend2:8080"]
+[[caddyfile.sites.directives.block]]
+directive = "lb_policy"
+args = ["round_robin"]
+[[caddyfile.sites.directives.block]]
+directive = "health_uri"
+args = ["/health"]
+[[caddyfile.sites.directives.block]]
+directive = "health_interval"
+args = ["10s"]
+[[caddyfile.sites.directives.block]]
+directive = "header_up"
+args = ["Host", "{upstream_hostport}"]
+[[caddyfile.sites.directives.block]]
+directive = "header_down"
+args = ["-Server"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 3: Handle Blocks (mutually exclusive routing)
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["blog.example.com"]
+
+# Named matchers for this site
+[[caddyfile.sites.matchers]]
+name = "api"
+path = ["/api/*"]
+
+[[caddyfile.sites.matchers]]
+name = "static"
+path = ["*.css", "*.js", "*.png", "*.jpg", "*.svg", "*.woff2"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+# Handle API requests
+[[caddyfile.sites.directives]]
+directive = "handle"
+matcher = "@api"
+[[caddyfile.sites.directives.block]]
+directive = "reverse_proxy"
+args = ["localhost:3000"]
+
+# Handle static files with caching
+[[caddyfile.sites.directives]]
+directive = "handle"
+matcher = "@static"
+[[caddyfile.sites.directives.block]]
+directive = "header"
+args = ["Cache-Control", "public, max-age=31536000"]
+[[caddyfile.sites.directives.block]]
+directive = "file_server"
+
+# Handle everything else - proxy to app
+[[caddyfile.sites.directives]]
+directive = "handle"
+[[caddyfile.sites.directives.block]]
+directive = "reverse_proxy"
+args = ["localhost:8080"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 4: File Server with All Options
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["files.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["security_headers"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+[[caddyfile.sites.directives]]
+directive = "root"
+args = ["*", "/srv/files"]
+
+[[caddyfile.sites.directives]]
+directive = "file_server"
+[[caddyfile.sites.directives.block]]
+directive = "browse"
+[[caddyfile.sites.directives.block]]
+directive = "precompressed"
+args = ["zstd", "gzip"]
+[[caddyfile.sites.directives.block]]
+directive = "hide"
+args = [".git", ".env", "*.secret"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 5: SPA (Single Page Application) with Try Files
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["app.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["security_headers"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+[[caddyfile.sites.directives]]
+directive = "root"
+args = ["*", "/srv/app"]
+
+# API routes proxy to backend
+[[caddyfile.sites.directives]]
+directive = "handle"
+matcher = "/api/*"
+[[caddyfile.sites.directives.block]]
+directive = "reverse_proxy"
+args = ["localhost:3000"]
+
+# Static assets and SPA fallback
+[[caddyfile.sites.directives]]
+directive = "handle"
+[[caddyfile.sites.directives.block]]
+directive = "try_files"
+args = ["{path}", "/index.html"]
+[[caddyfile.sites.directives.block]]
+directive = "file_server"
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 6: WebSocket Support
+# Using raw block for complex matcher syntax
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["ws.example.com"]
+raw = """
+	encode zstd gzip
+
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	reverse_proxy @websocket localhost:8081
+
+	@notwebsocket {
+		not {
+			header Connection *Upgrade*
+		}
+	}
+	reverse_proxy @notwebsocket localhost:8080 {
+		lb_policy round_robin
+		health_uri /healthz
+	}
+"""
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 7: Multiple Addresses (Same Config for Multiple Domains)
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["www.example.com", "example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["security_headers"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+[[caddyfile.sites.directives]]
+directive = "reverse_proxy"
+args = ["localhost:8080"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 8: Redirect Example
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["old.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "redir"
+args = ["https://new.example.com{uri}", "permanent"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 9: Basic Authentication
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["admin.example.com"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["security_headers"]
+
+# Note: Generate password hash with: caddy hash-password
+[[caddyfile.sites.directives]]
+directive = "basicauth"
+args = ["*"]
+[[caddyfile.sites.directives.block]]
+directive = "admin"
+args = ["$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG"]
+
+[[caddyfile.sites.directives]]
+directive = "reverse_proxy"
+args = ["localhost:8080"]
+
+#───────────────────────────────────────────────────────────────────────────────
+# SITE 10: Rate Limiting and Request Matchers
+#───────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.sites]]
+addresses = ["rate-limited.example.com"]
+
+# Complex matcher with multiple conditions
+[[caddyfile.sites.matchers]]
+name = "sensitive"
+path = ["/login", "/api/auth/*"]
+method = ["POST"]
+
+[[caddyfile.sites.matchers]]
+name = "internal"
+remote_ip = ["192.168.0.0/16", "10.0.0.0/8"]
+
+[[caddyfile.sites.directives]]
+directive = "import"
+args = ["compression"]
+
+# Rate limit sensitive endpoints
+[[caddyfile.sites.directives]]
+directive = "rate_limit"
+matcher = "@sensitive"
+args = ["{remote_host}", "10r/m"]
+
+# Allow internal IPs without rate limiting
+[[caddyfile.sites.directives]]
+directive = "handle"
+matcher = "@internal"
+[[caddyfile.sites.directives.block]]
+directive = "reverse_proxy"
+args = ["localhost:8080"]
+
+# Default handling
+[[caddyfile.sites.directives]]
+directive = "handle"
+[[caddyfile.sites.directives.block]]
+directive = "reverse_proxy"
+args = ["localhost:8080"]
