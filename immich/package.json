@@ -1,0 +1,19 @@
+{
+  "name": "immich-setup",
+  "version": "1.0.0",
+  "description": "Generic TOML-based Immich configuration generator for rootless Podman",
+  "type": "module",
+  "scripts": {
+    "setup": "bun run setup.ts",
+    "test": "bun test",
+    "typecheck": "bun --bun tsc --noEmit",
+    "build": "bun build --compile --minify ./setup.ts --outfile immich-setup"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -11,7 +11,22 @@
       "Bash(~/.bun/bin/bun test:*)",
       "WebFetch(domain:caddyserver.com)",
       "Bash(bun run setup.ts:*)",
-      "Bash(bun add:*)"
+      "Bash(bun add:*)",
+      "Bash(tree:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.immich.app)",
+      "WebFetch(domain:immich.app)",
+      "Bash(bun install:*)",
+      "Bash(bun test:*)",
+      "Bash(bun --bun tsc:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(for f in *.container *.volume *.network *.env.example)",
+      "Bash(do if [ -f \"$f\" ])",
+      "Bash(then mv \"$f\" \"$f.bak\")",
+      "Bash(echo:*)",
+      "Bash(fi)",
+      "Bash(done)",
+      "WebFetch(domain:www.toptal.com)"
     ]
   }
 }

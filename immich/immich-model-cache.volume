@@ -1,8 +1,0 @@
-[Unit]
-Description=Immich ML Model Cache Volume
-
-[Volume]
-VolumeName=immich-model-cache
-
-[Install]
-WantedBy=default.target

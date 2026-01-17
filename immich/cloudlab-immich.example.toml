@@ -1,0 +1,334 @@
+#===============================================================================
+# immich.toml - Complete Immich Configuration
+# Supports ALL official Immich configuration options
+# See: https://docs.immich.app/install/environment-variables
+#===============================================================================
+
+#-------------------------------------------------------------------------------
+# Service User Configuration
+#-------------------------------------------------------------------------------
+
+[service]
+user = "immich"
+uid = 1102
+subuid_start = 200000
+subuid_range = 65536
+
+#-------------------------------------------------------------------------------
+# Directory Paths
+#-------------------------------------------------------------------------------
+
+[paths]
+data_dir = "/srv/immich"                    # Base data directory
+upload_location = "/srv/immich/library"     # Where uploads are stored
+db_data_location = "/srv/immich/postgres"   # PostgreSQL data (must be local SSD)
+
+#-------------------------------------------------------------------------------
+# Network Configuration
+#-------------------------------------------------------------------------------
+
+[network]
+name = "immich-net"
+driver = "bridge"
+internal = true
+
+#-------------------------------------------------------------------------------
+# Environment Variables - ALL Official Immich Variables Supported
+# See: https://docs.immich.app/install/environment-variables
+#-------------------------------------------------------------------------------
+
+[environment.general]
+TZ = "Australia/Melbourne"
+IMMICH_LOG_LEVEL = "log"                    # verbose, debug, log, warn, error
+# IMMICH_ENV = "production"
+# IMMICH_MEDIA_LOCATION = "/data"           # Default: /data inside container
+# IMMICH_CONFIG_FILE = "/config/immich.json" # Optional JSON/YAML config file
+# NO_COLOR = false                           # Disable color-coded log output
+# CPU_CORES = 4                              # Auto-detected if not set
+# IMMICH_HOST = "0.0.0.0"                    # Listening host
+# IMMICH_PORT = 2283                         # Listening port (server)
+# IMMICH_TRUSTED_PROXIES = ""                # Comma-separated trusted proxy IPs
+# IMMICH_IGNORE_MOUNT_CHECK_ERRORS = false   # Ignore mount verification errors
+# IMMICH_PROCESS_INVALID_IMAGES = false      # Generate thumbnails for invalid images
+
+[environment.database]
+DB_HOSTNAME = "immich-postgres"
+DB_PORT = 5432
+DB_USERNAME = "immich"
+DB_PASSWORD = "CHANGE_THIS_SECURE_PASSWORD"
+DB_DATABASE_NAME = "immich"
+# DB_URL = ""                                # Alternative: full connection string
+# DB_SSL_MODE = ""                           # disable, allow, prefer, require, verify-ca, verify-full
+# DB_VECTOR_EXTENSION = "vectorchord"        # Auto-detected: vectorchord, pgvector, pgvecto.rs
+# DB_SKIP_MIGRATIONS = false                 # For restore operations
+# DB_STORAGE_TYPE = "SSD"                    # SSD or HDD (IO optimization)
+
+# Secrets support: use _FILE suffix to read from file instead
+# DB_PASSWORD_FILE = "/run/secrets/db_password"
+# DB_USERNAME_FILE = "/run/secrets/db_username"
+# DB_URL_FILE = "/run/secrets/db_url"
+
+[environment.postgres]
+POSTGRES_USER = "immich"
+POSTGRES_PASSWORD = "CHANGE_THIS_SECURE_PASSWORD"
+POSTGRES_DB = "immich"
+POSTGRES_INITDB_ARGS = "--data-checksums"
+
+[environment.redis]
+REDIS_HOSTNAME = "immich-redis"
+REDIS_PORT = 6379
+# REDIS_URL = ""                             # Alternative: full connection string
+# REDIS_SOCKET = ""                          # Unix socket path
+# REDIS_USERNAME = ""
+# REDIS_PASSWORD = ""
+# REDIS_DBINDEX = 0
+# REDIS_PASSWORD_FILE = "/run/secrets/redis_password"  # Secrets support
+
+[environment.machine_learning]
+IMMICH_MACHINE_LEARNING_URL = "http://immich-machine-learning:3003"
+# MACHINE_LEARNING_MODEL_TTL = 300           # Seconds before unloading model
+# MACHINE_LEARNING_MODEL_TTL_POLL_S = 10     # TTL check interval
+# MACHINE_LEARNING_CACHE_FOLDER = "/cache"   # Model download directory
+# MACHINE_LEARNING_REQUEST_THREADS = 4       # Auto: CPU core count
+# MACHINE_LEARNING_MODEL_INTER_OP_THREADS = 1 # Parallel model operations
+# MACHINE_LEARNING_MODEL_INTRA_OP_THREADS = 2 # Threads per model operation
+# MACHINE_LEARNING_WORKERS = 1               # Worker processes to spawn
+# MACHINE_LEARNING_WORKER_TIMEOUT = 120      # 300 for OpenVINO
+# MACHINE_LEARNING_HTTP_KEEPALIVE_TIMEOUT_S = 2
+# MACHINE_LEARNING_MODEL_ARENA = true        # Pre-allocate CPU memory
+
+# Model preloading (optional - speeds up first request)
+# MACHINE_LEARNING_PRELOAD__CLIP__TEXTUAL = ""
+# MACHINE_LEARNING_PRELOAD__CLIP__VISUAL = ""
+# MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION = ""
+# MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION = ""
+
+# Batch size limits
+# MACHINE_LEARNING_MAX_BATCH_SIZE__FACIAL_RECOGNITION = ""  # None, 1 for OpenVINO
+# MACHINE_LEARNING_MAX_BATCH_SIZE__OCR = 6
+
+# GPU Acceleration (uncomment for your hardware)
+# MACHINE_LEARNING_DEVICE_IDS = "0"          # For multi-GPU: "0,1"
+
+# ARM-NN (Mali GPU)
+# MACHINE_LEARNING_ANN = true
+# MACHINE_LEARNING_ANN_FP16_TURBO = false    # Lower accuracy, higher performance
+# MACHINE_LEARNING_ANN_TUNING_LEVEL = 2      # 1: rapid, 2: normal, 3: exhaustive
+
+# RKNN (Rockchip NPU)
+# MACHINE_LEARNING_RKNN = true
+# MACHINE_LEARNING_RKNN_THREADS = 1          # 2-3 for RK3576/RK3588
+
+# OpenVINO (Intel GPU)
+# MACHINE_LEARNING_OPENVINO_PRECISION = "FP32" # FP16 or FP32
+
+# [environment.workers]
+# IMMICH_WORKERS_INCLUDE = ""                # Only run these workers
+# IMMICH_WORKERS_EXCLUDE = ""                # Exclude these workers
+
+# [environment.telemetry]
+# IMMICH_API_METRICS_PORT = 8081
+# IMMICH_MICROSERVICES_METRICS_PORT = 8082
+# IMMICH_TELEMETRY_INCLUDE = ""              # host, api, io, repo, job, all
+# IMMICH_TELEMETRY_EXCLUDE = ""
+
+#-------------------------------------------------------------------------------
+# Secrets (Optional - file-based secrets for sensitive values)
+# Maps environment variable name to file path containing the secret value
+#-------------------------------------------------------------------------------
+
+# [secrets]
+# DB_PASSWORD = "/run/secrets/immich_db_password"
+# DB_USERNAME = "/run/secrets/immich_db_username"
+# REDIS_PASSWORD = "/run/secrets/immich_redis_password"
+
+#-------------------------------------------------------------------------------
+# Volume Definitions
+#-------------------------------------------------------------------------------
+
+[[volumes]]
+name = "immich-model-cache"
+description = "ML Model Cache"
+
+[[volumes]]
+name = "immich-upload"
+description = "Photo Upload Volume"
+
+[[volumes]]
+name = "immich-postgres-data"
+description = "PostgreSQL Data Volume"
+
+# Note: upload and postgres use bind mounts from paths.* settings
+
+#-------------------------------------------------------------------------------
+# External Libraries (Optional - for scanning existing photo collections)
+# Add as many as needed - they will be mounted read-only
+#-------------------------------------------------------------------------------
+
+# [[external_libraries]]
+# host_path = "/mnt/photos/family"
+# container_path = "/external/family"
+# read_only = true
+
+# [[external_libraries]]
+# host_path = "/mnt/nas/photos"
+# container_path = "/external/nas"
+# read_only = true
+
+#-------------------------------------------------------------------------------
+# Hardware Acceleration (Optional)
+# Supported: nvenc, qsv, rkmpp, vaapi, vaapi-wsl (transcoding)
+#           cuda, openvino, openvino-wsl, armnn, rknn, rocm (ML)
+#-------------------------------------------------------------------------------
+
+# [hardware.transcoding]
+# backend = "nvenc"                          # nvenc, qsv, rkmpp, vaapi, vaapi-wsl
+
+# [hardware.machine_learning]
+# backend = "cuda"                           # cuda, openvino, armnn, rknn, rocm
+# device_ids = ["0"]                         # For multi-GPU
+
+#-------------------------------------------------------------------------------
+# Container Definitions (Generic - supports any container configuration)
+#-------------------------------------------------------------------------------
+
+[[containers]]
+name = "immich-server"
+description = "Immich Server - Photo & Video Management"
+image = "ghcr.io/immich-app/immich-server:v1.124.2"
+requires = ["immich-redis", "immich-postgres"]
+wants = ["immich-machine-learning"]
+env_groups = ["general", "database", "redis", "machine_learning"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[[containers.ports]]
+host_ip = "127.0.0.1"
+host = 2283
+container = 2283
+
+[[containers.volumes]]
+source = "${UPLOAD_LOCATION}"               # From paths.upload_location
+target = "/usr/src/app/upload"
+
+[[containers.volumes]]
+source = "/etc/localtime"
+target = "/etc/localtime"
+options = "ro"
+
+# External libraries are auto-added based on [[external_libraries]] config
+
+[containers.health]
+cmd = "wget -q --spider http://localhost:2283/api/server/ping || exit 1"
+interval = "60s"
+timeout = "10s"
+retries = 3
+start_period = "60s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 300
+timeout_stop_sec = 30
+
+[[containers]]
+name = "immich-postgres"
+description = "PostgreSQL with Vector Extensions"
+image = "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0"
+image_digest = "sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
+requires = []
+env_groups = ["postgres"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+shm_size = "256m"
+
+[containers.user_ns]
+mode = "keep-id"
+uid = 999
+gid = 999
+
+[[containers.volumes]]
+source = "${DB_DATA_LOCATION}"              # From paths.db_data_location
+target = "/var/lib/postgresql/data"
+
+[containers.health]
+cmd = "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE_NAME}"
+interval = "30s"
+timeout = "10s"
+retries = 5
+start_period = "60s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 300
+timeout_stop_sec = 60
+
+[[containers]]
+name = "immich-redis"
+description = "Valkey Cache (Redis-compatible)"
+image = "docker.io/valkey/valkey:8"
+image_digest = "sha256:81db6d39e1bba3b3ff32bd3a1b19a6d69690f94a3954ec131277b9a26b95b3aa"
+requires = []
+env_groups = []
+auto_update = "registry"
+read_only_rootfs = true
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[containers.health]
+cmd = "valkey-cli ping | grep -q PONG"
+interval = "30s"
+timeout = "5s"
+retries = 3
+start_period = "10s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 5
+timeout_start_sec = 60
+timeout_stop_sec = 30
+
+[[containers]]
+name = "immich-machine-learning"
+description = "Machine Learning Service"
+image = "ghcr.io/immich-app/immich-machine-learning:v1.124.2"
+# For GPU: append backend suffix e.g., ":v1.124.2-cuda"
+requires = []
+env_groups = ["machine_learning"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[[containers.volumes]]
+source = "immich-model-cache.volume"
+target = "/cache"
+
+[containers.health]
+cmd = "wget -q --spider http://localhost:3003/ping || exit 1"
+interval = "60s"
+timeout = "30s"
+retries = 3
+start_period = "300s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 600
+timeout_stop_sec = 30
+
+#-------------------------------------------------------------------------------
+# GPU Device Configuration (populated based on hardware.* settings)
+#-------------------------------------------------------------------------------
+
+# Container-specific devices are auto-populated based on hardware settings:
+# - Intel QSV / AMD VAAPI: "/dev/dri:/dev/dri"
+# - NVIDIA: uses GPU reservation (deploy.resources.reservations)
+# - ARM Mali: "/dev/mali0:/dev/mali0"
+# - Rockchip RGA/MPP: "/dev/rga:/dev/rga", "/dev/mpp_service:/dev/mpp_service"

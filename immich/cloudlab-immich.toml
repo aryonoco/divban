@@ -1,0 +1,197 @@
+#===============================================================================
+# immich.toml - Immich Configuration (matches original quadlet files)
+#===============================================================================
+
+[service]
+user = "immich"
+uid = 1102
+subuid_start = 200000
+subuid_range = 65536
+
+[paths]
+data_dir = "/srv/immich"
+upload_location = "/srv/immich/library"
+db_data_location = "/srv/immich/postgres"
+
+[network]
+name = "immich-net"
+description = "Immich Internal Network"
+driver = "bridge"
+internal = true
+
+#-------------------------------------------------------------------------------
+# Environment Variables
+#-------------------------------------------------------------------------------
+
+[environment.general]
+TZ = "Australia/Melbourne"
+LOG_LEVEL = "log"
+IMMICH_VERSION = "v1.124.2"
+
+[environment.database]
+DB_HOSTNAME = "immich-postgres"
+DB_PORT = 5432
+DB_USERNAME = "immich"
+DB_PASSWORD = "CHANGE_THIS_PASSWORD"
+DB_DATABASE_NAME = "immich"
+
+[environment.postgres]
+POSTGRES_USER = "immich"
+POSTGRES_PASSWORD = "CHANGE_THIS_PASSWORD"
+POSTGRES_DB = "immich"
+POSTGRES_INITDB_ARGS = "--data-checksums"
+
+[environment.redis]
+REDIS_HOSTNAME = "immich-redis"
+REDIS_PORT = 6379
+
+[environment.machine_learning]
+IMMICH_MACHINE_LEARNING_URL = "http://immich-machine-learning:3003"
+
+#-------------------------------------------------------------------------------
+# Volumes
+#-------------------------------------------------------------------------------
+
+[[volumes]]
+name = "immich-upload"
+description = "Immich Photo Upload Volume"
+
+[[volumes]]
+name = "immich-model-cache"
+description = "Immich ML Model Cache Volume"
+
+[[volumes]]
+name = "immich-postgres-data"
+description = "Immich PostgreSQL Data Volume"
+
+#-------------------------------------------------------------------------------
+# Containers
+#-------------------------------------------------------------------------------
+
+[[containers]]
+name = "immich-server"
+description = "Immich Server - Photo and Video Management"
+image = "ghcr.io/immich-app/immich-server:v1.124.2"
+requires = ["immich-redis", "immich-postgres"]
+wants = ["immich-machine-learning"]
+env_groups = ["general", "database", "redis", "machine_learning"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[[containers.ports]]
+host_ip = "127.0.0.1"
+host = 2283
+container = 2283
+
+[[containers.volumes]]
+source = "immich-upload.volume"
+target = "/usr/src/app/upload"
+
+[[containers.volumes]]
+source = "/etc/localtime"
+target = "/etc/localtime"
+options = "ro"
+
+[containers.health]
+cmd = "wget -q --spider http://localhost:2283/api/server/ping || exit 1"
+interval = "60s"
+timeout = "10s"
+retries = 3
+start_period = "60s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 300
+timeout_stop_sec = 30
+
+[[containers]]
+name = "immich-postgres"
+description = "Immich PostgreSQL with VectorChord"
+image = "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0"
+image_digest = "sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
+requires = []
+env_groups = ["postgres"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+shm_size = "256m"
+
+[containers.user_ns]
+mode = "keep-id"
+uid = 999
+gid = 999
+
+[[containers.volumes]]
+source = "immich-postgres-data.volume"
+target = "/var/lib/postgresql/data"
+
+[containers.health]
+cmd = "pg_isready -U immich -d immich"
+interval = "30s"
+timeout = "10s"
+retries = 5
+start_period = "60s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 300
+timeout_stop_sec = 60
+
+[[containers]]
+name = "immich-redis"
+description = "Immich Valkey Cache"
+image = "docker.io/valkey/valkey:8"
+image_digest = "sha256:81db6d39e1bba3b3ff32bd3a1b19a6d69690f94a3954ec131277b9a26b95b3aa"
+requires = []
+env_groups = []
+auto_update = "registry"
+read_only_rootfs = true
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[containers.health]
+cmd = "valkey-cli ping | grep -q PONG"
+interval = "30s"
+timeout = "5s"
+retries = 3
+start_period = "10s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 5
+timeout_start_sec = 60
+timeout_stop_sec = 30
+
+[[containers]]
+name = "immich-machine-learning"
+description = "Immich Machine Learning"
+image = "ghcr.io/immich-app/immich-machine-learning:v1.124.2"
+requires = []
+env_groups = ["machine_learning"]
+auto_update = "registry"
+start_limit_burst = 5
+start_limit_interval_sec = 300
+
+[[containers.volumes]]
+source = "immich-model-cache.volume"
+target = "/cache"
+
+[containers.health]
+cmd = "wget -q --spider http://localhost:3003/ping || exit 1"
+interval = "60s"
+timeout = "30s"
+retries = 3
+start_period = "300s"
+on_failure = "kill"
+
+[containers.service]
+restart = "on-failure"
+restart_sec = 10
+timeout_start_sec = 600
+timeout_stop_sec = 30
