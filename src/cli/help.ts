@@ -44,6 +44,7 @@ COMMANDS:
 
 GLOBAL OPTIONS:
   -h, --help           Show help
+  -V, --version        Show version
   -v, --verbose        Verbose output (debug logging)
   --dry-run            Show what would be done without doing it
   -f, --force          Force operation (skip confirmations)

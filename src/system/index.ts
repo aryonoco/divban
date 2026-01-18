@@ -9,8 +9,14 @@ export {
   execAsUser,
   execOutput,
   execSuccess,
+  shell,
+  shellAsUser,
+  shellBlob,
+  shellJson,
+  shellLines,
+  shellText,
 } from "./exec";
-export type { ExecOptions, ExecResult } from "./exec";
+export type { ExecOptions, ExecResult, ShellOptions } from "./exec";
 
 // FS - Filesystem operations
 export {
@@ -18,15 +24,49 @@ export {
   atomicWrite,
   backupFile,
   copyFile,
+  deleteFile,
+  deleteFileIfExists,
+  directoryExists,
   fileExists,
   filesEqual,
   getFileSize,
+  globFiles,
+  globMatch,
+  hashContent,
+  hashFile,
   isDirectory,
+  listDirectory,
+  objectsEqual,
   readFile,
   readFileOrEmpty,
   readLines,
+  sha256File,
+  watchFile,
   writeFile,
 } from "./fs";
+
+// Compress - Compression utilities (gzip, deflate, zstd)
+export {
+  compressFile,
+  compressFileZstd,
+  compressionRatio,
+  decompressFile,
+  decompressFileZstd,
+  deflateSync,
+  gunzipString,
+  gunzipSync,
+  gzipString,
+  gzipSync,
+  inflateSync,
+  spaceSavings,
+  zstdCompress,
+  zstdCompressString,
+  zstdCompressSync,
+  zstdDecompress,
+  zstdDecompressString,
+  zstdDecompressSync,
+} from "./compress";
+export type { CompressionLevel, GzipOptions, ZstdLevel, ZstdOptions } from "./compress";
 
 // UID Allocator - Dynamic UID/subuid allocation
 export {

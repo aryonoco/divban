@@ -7,11 +7,14 @@
 export {
   AbsolutePath,
   ContainerName,
+  getEnv,
+  getEnvOrDefault,
   GroupId,
   isAbsolutePath,
   isServiceName,
   isUsername,
   NetworkName,
+  requireEnv,
   ServiceName,
   SubordinateId,
   UserId,
@@ -79,3 +82,81 @@ export {
   isPositiveInteger,
 } from "./assert";
 export type { NonEmptyArray } from "./assert";
+
+// Utils - Bun standard library utilities
+export {
+  base64Decode,
+  base64DecodeBytes,
+  base64Encode,
+  base64EncodeBytes,
+  base64UrlEncode,
+  bunRevision,
+  bunVersion,
+  center,
+  colorize,
+  escapeHTML,
+  fileURLToPath,
+  generateId,
+  generateIdBase64,
+  generateIdBuffer,
+  generateUUID,
+  getAnsiColor,
+  isFulfilled,
+  isMain,
+  isPending,
+  isRejected,
+  mainPath,
+  padEnd,
+  padStart,
+  pathToFileURL,
+  peekPromise,
+  promiseStatus,
+  resolveModule,
+  sleep,
+  sleepSync,
+  streamToArray,
+  streamToBlob,
+  streamToBytes,
+  streamToJSON,
+  streamToText,
+  stringWidth,
+  supportsColor,
+  truncate,
+} from "./utils";
+export type { StringWidthOptions } from "./utils";
+
+// Semver - Version comparison (20x faster than node-semver)
+export {
+  compare as semverCompare,
+  eq as semverEq,
+  filterSatisfying,
+  gt as semverGt,
+  gte as semverGte,
+  isValid as semverIsValid,
+  lt as semverLt,
+  lte as semverLte,
+  maxSatisfying,
+  maxVersion,
+  minSatisfying,
+  minVersion,
+  neq as semverNeq,
+  satisfies,
+  sortVersions,
+  sortVersionsDesc,
+} from "./semver";
+
+// Timing - High-precision timing utilities
+export {
+  debounce,
+  delay,
+  formatDuration,
+  measure,
+  measureSync,
+  microseconds,
+  milliseconds,
+  nanoseconds,
+  stopwatch,
+  throttle,
+  withDeadline,
+} from "./timing";
+export type { Stopwatch, TimedResult } from "./timing";

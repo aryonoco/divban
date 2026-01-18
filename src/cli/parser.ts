@@ -48,6 +48,8 @@ export interface ParsedArgs {
   // Flags
   /** Show help */
   help: boolean;
+  /** Show version */
+  version: boolean;
   /** Verbose output */
   verbose: boolean;
   /** Dry run mode */
@@ -75,6 +77,7 @@ const defaultArgs: ParsedArgs = {
   service: "",
   command: "help",
   help: false,
+  version: false,
   verbose: false,
   dryRun: false,
   force: false,
@@ -102,6 +105,7 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
       args: argv,
       options: {
         help: { type: "boolean", short: "h" },
+        version: { type: "boolean", short: "V" },
         verbose: { type: "boolean", short: "v" },
         "dry-run": { type: "boolean" },
         force: { type: "boolean", short: "f" },
@@ -120,6 +124,9 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     // Apply parsed flags
     if (values.help) {
       args.help = true;
+    }
+    if (values.version) {
+      args.version = true;
     }
     if (values.verbose) {
       args.verbose = true;

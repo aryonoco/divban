@@ -7,10 +7,12 @@
     "divban": "./src/index.ts"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --compile --minify --sourcemap --outfile divban",
-    "build:linux-x64": "bun build ./src/index.ts --compile --minify --target=bun-linux-x64 --outfile divban-linux-x64",
-    "build:linux-arm64": "bun build ./src/index.ts --compile --minify --target=bun-linux-arm64 --outfile divban-linux-arm64",
-    "build:all": "bun run build && bun run build:linux-x64 && bun run build:linux-arm64",
+    "build": "bun build ./src/index.ts --compile --minify --bytecode --sourcemap --define 'process.env.NODE_ENV=\"production\"' --drop=debugger --outfile divban",
+    "build:release": "bun build ./src/index.ts --compile --minify --bytecode --sourcemap --define 'process.env.NODE_ENV=\"production\"' --drop=debugger --outfile divban",
+    "build:linux-x64": "bun build ./src/index.ts --compile --minify --bytecode --sourcemap --target=bun-linux-x64 --define 'process.env.NODE_ENV=\"production\"' --drop=debugger --outfile divban-linux-x64",
+    "build:linux-x64-modern": "bun build ./src/index.ts --compile --minify --bytecode --sourcemap --target=bun-linux-x64-modern --define 'process.env.NODE_ENV=\"production\"' --drop=debugger --outfile divban-linux-x64-modern",
+    "build:linux-arm64": "bun build ./src/index.ts --compile --minify --bytecode --sourcemap --target=bun-linux-arm64 --define 'process.env.NODE_ENV=\"production\"' --drop=debugger --outfile divban-linux-arm64",
+    "build:all": "bun run build:linux-x64 && bun run build:linux-x64-modern && bun run build:linux-arm64",
     "dev": "bun run ./src/index.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",

@@ -1,0 +1,34 @@
+# =============================================================================
+# Antidote Plugin Configuration for divban
+# https://antidote.sh/
+#
+# To add OMZ plugins: ohmyzsh/ohmyzsh path:plugins/PLUGIN_NAME
+# Full list: https://github.com/ohmyzsh/ohmyzsh/tree/master/plugins
+# =============================================================================
+
+# Foundation (load first)
+getantidote/use-omz
+ohmyzsh/ohmyzsh path:lib
+
+# OMZ Core Plugins - Immediate
+ohmyzsh/ohmyzsh path:plugins/git
+ohmyzsh/ohmyzsh path:plugins/debian
+ohmyzsh/ohmyzsh path:plugins/z
+ohmyzsh/ohmyzsh path:plugins/sudo
+ohmyzsh/ohmyzsh path:plugins/history
+ohmyzsh/ohmyzsh path:plugins/colored-man-pages
+ohmyzsh/ohmyzsh path:plugins/copypath
+ohmyzsh/ohmyzsh path:plugins/copyfile
+ohmyzsh/ohmyzsh path:plugins/fzf
+
+# OMZ Dev Tool Plugins - Deferred for faster startup
+ohmyzsh/ohmyzsh path:plugins/docker kind:defer
+ohmyzsh/ohmyzsh path:plugins/bun kind:defer
+ohmyzsh/ohmyzsh path:plugins/gh kind:defer
+
+# External Plugins (syntax-highlighting MUST be last before theme)
+zsh-users/zsh-autosuggestions
+zsh-users/zsh-syntax-highlighting
+
+# Theme
+romkatv/powerlevel10k

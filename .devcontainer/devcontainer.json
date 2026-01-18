@@ -1,0 +1,116 @@
+{
+  "name": "divban",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "BUN_VERSION": "1.2.8"
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "installOhMyZsh": false,
+      "configureZshAsDefaultShell": true,
+      "username": "vscode",
+      "userUid": "1000",
+      "userGid": "1000",
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "moby": false,
+      "dockerDashComposeVersion": "v2",
+      "installDockerBuildx": true
+    },
+    "ghcr.io/jsburckhardt/devcontainer-features/just:1": {}
+  },
+
+  "containerUser": "vscode",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+
+  "containerEnv": {
+    "BUN_VERSION": "1.2.8",
+    "EDITOR": "code --wait",
+    "VISUAL": "code --wait"
+  },
+
+  "mounts": [
+    "source=divban-bun-cache,target=/home/vscode/.bun/install/cache,type=volume"
+  ],
+
+  "initializeCommand": "docker volume create divban-bun-cache || true",
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "runArgs": [
+    "--init",
+    "--cap-drop=ALL",
+    "--cap-add=NET_BIND_SERVICE",
+    "--cap-add=DAC_OVERRIDE"
+  ],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "oven.bun-vscode",
+        "biomejs.biome",
+        "eamodio.gitlens",
+        "usernamehw.errorlens",
+        "streetsidesoftware.code-spell-checker",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "timonwong.shellcheck",
+        "foxundermoon.shell-format",
+        "github.vscode-github-actions"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/bin/zsh"
+          }
+        },
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "biomejs.biome",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.rulers": [100],
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "files.associations": {
+          "*.json": "jsonc",
+          "justfile": "just"
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "[jsonc]": {
+          "editor.defaultFormatter": "biomejs.biome"
+        },
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true,
+
+        "cSpell.language": "en-GB"
+      }
+    }
+  },
+
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb",
+    "storage": "16gb"
+  }
+}

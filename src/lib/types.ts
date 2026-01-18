@@ -114,3 +114,30 @@ export const VolumeName = (s: string): VolumeName => {
 export const isAbsolutePath = (s: string): s is AbsolutePath => s.startsWith("/");
 export const isUsername = (s: string): s is Username => USERNAME_REGEX.test(s) && s.length <= 32;
 export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX.test(s);
+
+// ============================================================================
+// Environment Variable Helpers (using Bun.env)
+// ============================================================================
+
+/**
+ * Get an environment variable value.
+ */
+export const getEnv = (key: string): string | undefined => Bun.env[key];
+
+/**
+ * Get a required environment variable, throwing if not set.
+ */
+export const requireEnv = (key: string): string => {
+  const value = Bun.env[key];
+  if (value === undefined) {
+    throw new Error(`Required environment variable ${key} is not set`);
+  }
+  return value;
+};
+
+/**
+ * Get environment variable with a default fallback.
+ */
+export const getEnvOrDefault = (key: string, defaultValue: string): string => {
+  return Bun.env[key] ?? defaultValue;
+};

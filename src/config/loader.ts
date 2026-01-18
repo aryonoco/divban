@@ -75,7 +75,7 @@ export const loadGlobalConfig = async (
     ? [configPath]
     : ([
         "/etc/divban/divban.toml",
-        `${process.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
+        `${Bun.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
         "./divban.toml",
       ] as AbsolutePath[]);
 

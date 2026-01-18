@@ -233,7 +233,7 @@ export const journalctl = async (
   // For follow mode, we run interactively
   const proc = Bun.spawn(["sudo", "-u", options.user, ...args], {
     env: {
-      ...process.env,
+      ...Bun.env,
       XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
     },
     stdout: "inherit",

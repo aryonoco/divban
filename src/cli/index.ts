@@ -41,15 +41,23 @@ export const run = async (argv: string[]): Promise<number> => {
 
   const args = argsResult.value;
 
+  // Handle version flag early
+  if (args.version) {
+    const pkg = await import("../../package.json");
+    console.log(`divban ${pkg.version}`);
+    return 0;
+  }
+
   // Create logger
   const logger = createLogger({
     level: args.logLevel,
     format: args.format,
   });
 
-  // Handle help - displays help text (handled by parser output)
+  // Handle help
   if (args.help || args.command === "help") {
-    // Help output is printed during arg parsing, just return success
+    const { getMainHelp } = await import("./help");
+    console.log(getMainHelp());
     return 0;
   }
 

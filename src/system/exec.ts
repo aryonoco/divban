@@ -54,7 +54,7 @@ export const exec = async (
 
   // Build environment
   const env = {
-    ...process.env,
+    ...Bun.env,
     ...options.env,
   };
 
@@ -92,11 +92,11 @@ export const exec = async (
 
       const stdout =
         options.captureStdout !== false && proc.stdout
-          ? await new Response(proc.stdout as ReadableStream).text()
+          ? await Bun.readableStreamToText(proc.stdout as ReadableStream)
           : "";
       const stderr =
         options.captureStderr !== false && proc.stderr
-          ? await new Response(proc.stderr as ReadableStream).text()
+          ? await Bun.readableStreamToText(proc.stderr as ReadableStream)
           : "";
 
       return { exitCode, stdout, stderr };
@@ -203,7 +203,7 @@ export const shell = async (
       }
 
       const env = {
-        ...process.env,
+        ...Bun.env,
         ...options.env,
         ...(options.uid
           ? {
@@ -242,7 +242,7 @@ export const shellText = (
       }
 
       const env = {
-        ...process.env,
+        ...Bun.env,
         ...options.env,
         ...(options.uid
           ? {
@@ -276,7 +276,7 @@ export const shellLines = async (
       }
 
       const env = {
-        ...process.env,
+        ...Bun.env,
         ...options.env,
         ...(options.uid
           ? {
@@ -308,4 +308,72 @@ export const shellAsUser = (
 ): Promise<Result<ExecResult, DivbanError>> => {
   const escapedCommand = command.replace(/'/g, "'\\''");
   return shell(`sudo -u ${user} -- sh -c '${escapedCommand}'`, { uid });
+};
+
+/**
+ * Execute a shell command and parse stdout as JSON.
+ * Uses Bun Shell's native .json() method for optimal parsing.
+ */
+export const shellJson = async <T>(
+  command: string,
+  options: ShellOptions = {}
+): Promise<Result<T, DivbanError>> => {
+  return tryCatch(
+    async () => {
+      let cmd = $`${{ raw: command }}`.quiet();
+
+      if (options.cwd) {
+        cmd = cmd.cwd(options.cwd);
+      }
+
+      const env = {
+        ...Bun.env,
+        ...options.env,
+        ...(options.uid
+          ? {
+              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+            }
+          : {}),
+      };
+      cmd = cmd.env(env);
+
+      return (await cmd.json()) as T;
+    },
+    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell JSON command failed: ${command}`)
+  );
+};
+
+/**
+ * Execute a shell command and return stdout as a Blob.
+ * Useful for binary data handling.
+ */
+export const shellBlob = async (
+  command: string,
+  options: ShellOptions = {}
+): Promise<Result<Blob, DivbanError>> => {
+  return tryCatch(
+    async () => {
+      let cmd = $`${{ raw: command }}`.quiet();
+
+      if (options.cwd) {
+        cmd = cmd.cwd(options.cwd);
+      }
+
+      const env = {
+        ...Bun.env,
+        ...options.env,
+        ...(options.uid
+          ? {
+              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+            }
+          : {}),
+      };
+      cmd = cmd.env(env);
+
+      return await cmd.blob();
+    },
+    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell blob command failed: ${command}`)
+  );
 };

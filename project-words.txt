@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: CC-BY-4.0
+# Podman & Containers
+podman
+Podman
+quadlet
+quadlets
+Quadlet
+Quadlets
+rootless
+cgroup
+cgroups
+subgid
+subuid
+userns
+
+# systemd
+journald
+linger
+loginctl
+systemctl
+systemd
+SIGINT
+SIGTERM
+
+# Services
+caddy
+Caddy
+caddyfile
+Caddyfile
+immich
+Immich
+actualbudget
+
+# Bun & TypeScript
+biomejs
+Biome
+bunfig
+bunx
+Zod
+
+# Technical Terms
+healthcheck
+healthchecks
+semver
+stdout
+stderr
+gzip
+zstd
+
+# Project-Specific
+divban
+
+# British English Variants
+behaviour
+colour
+serialisation
+serialise
+deserialisation
+deserialise
+normalised
+materialisation
+materialise
+
+# DevOps & Tools
+devcontainer
+devcontainers
+Antidote
+powerlevel
+
+# VS Code Extensions (author names)
+Ameri
+eamodio
+errorlens
+foxundermoon
+tamasfe
+timonwong
+usernamehw

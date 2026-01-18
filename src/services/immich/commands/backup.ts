@@ -108,7 +108,7 @@ export const backupDatabase = async (
   }
 
   // Compress in-memory using Bun compression - no subprocess needed
-  const dumpData = new Uint8Array(Buffer.from(dumpResult.value.stdout));
+  const dumpData = new TextEncoder().encode(dumpResult.value.stdout);
   const compressed = compressData(dumpData, compression);
 
   // Write compressed data to file

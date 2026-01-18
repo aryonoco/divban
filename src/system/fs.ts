@@ -3,7 +3,8 @@
  * Uses Bun.file, Bun.write, Bun.Glob, and node:fs for optimal performance.
  */
 
-import { mkdir, readdir, rename, stat } from "node:fs/promises";
+import { watch } from "node:fs";
+import { appendFile as fsAppendFile, mkdir, readdir, rename } from "node:fs/promises";
 import { Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
@@ -54,15 +55,18 @@ export const writeFile = async (
 
 /**
  * Append content to a file.
+ * Uses native node:fs appendFile for optimal performance.
  */
 export const appendFile = async (
   path: AbsolutePath,
   content: string
 ): Promise<Result<void, DivbanError>> => {
-  const existingResult = await readFile(path);
-  const existing = existingResult.ok ? existingResult.value : "";
-
-  return writeFile(path, existing + content);
+  return tryCatch(
+    async () => {
+      await fsAppendFile(path, content);
+    },
+    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to append to file: ${path}`)
+  );
 };
 
 /**
@@ -130,7 +134,7 @@ export const atomicWrite = async (
   path: AbsolutePath,
   content: string
 ): Promise<Result<void, DivbanError>> => {
-  const tempPath = `${path}.tmp.${Date.now()}` as AbsolutePath;
+  const tempPath = `${path}.tmp.${Bun.nanoseconds()}` as AbsolutePath;
 
   const writeResult = await writeFile(tempPath, content);
   if (!writeResult.ok) {
@@ -177,12 +181,13 @@ export const getFileSize = async (path: AbsolutePath): Promise<Result<number, Di
 
 /**
  * Check if a directory exists.
- * Uses node:fs stat for synchronous check without subprocess.
+ * Uses Bun.file().stat() for optimal performance.
  */
 export const directoryExists = async (path: AbsolutePath): Promise<boolean> => {
   try {
-    const s = await stat(path);
-    return s.isDirectory();
+    const file = Bun.file(path);
+    const s = await file.stat();
+    return s?.isDirectory() ?? false;
   } catch {
     return false;
   }
@@ -331,4 +336,21 @@ export const sha256File = async (path: AbsolutePath): Promise<Result<string, Div
  */
 export const objectsEqual = <T>(a: T, b: T, strict = false): boolean => {
   return Bun.deepEquals(a, b, strict);
+};
+
+/**
+ * Watch a file for changes using node:fs file watcher.
+ * Returns a cleanup function to stop watching.
+ */
+export const watchFile = (
+  path: AbsolutePath,
+  callback: (eventType: string) => void
+): (() => void) => {
+  const watcher = watch(path, (eventType: string) => {
+    callback(eventType);
+  });
+  const cleanup = (): void => {
+    watcher.close();
+  };
+  return cleanup;
 };
