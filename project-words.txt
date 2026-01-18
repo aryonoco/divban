@@ -77,3 +77,105 @@ foxundermoon
 tamasfe
 timonwong
 usernamehw
+
+# Hardware Acceleration
+nvenc
+NVENC
+vaapi
+VAAPI
+rkmpp
+Rockchip
+cuda
+CUDA
+armnn
+rknn
+rocm
+
+# Database
+pgvecto
+tensorchord
+
+# Networking
+slirp
+netns
+SAMEORIGIN
+nosniff
+redir
+
+# Linux/Unix
+nologin
+Nologin
+seccomp
+Rootfs
+journalctl
+userdel
+nogroup
+clonefile
+sbin
+
+# Linux Capabilities
+SETFCAP
+FOWNER
+MKNOD
+CHOWN
+SETPCAP
+SETUID
+SETGID
+AUDITCTL
+AUDITWRITE
+BLOCKSUSPEND
+FSETID
+PERFMON
+
+# Programming
+nonexistent
+nothrow
+teardown
+vars
+quot
+
+# Misc
+Filenaming
+justfile
+Perepelitsa
+Zstandard
+caddyformat
+colored
+mhello
+
+# Container/Podman
+tmpfs
+Tmpfs
+conmon
+PUID
+PGID
+Relabeled
+relabeling
+RENDERNODE
+nvidiactl
+cpuset
+Cpuset
+blkio
+Blkio
+localtime
+LOCALTIME
+macvlan
+ipvlan
+
+# Caddy
+basicauth
+fastcgi
+
+# PostgreSQL
+dumpall
+psql
+INITDB
+isready
+
+# OCaml Reference
+Caml
+Caml's
+
+# Units
+kmgt
+KMGT

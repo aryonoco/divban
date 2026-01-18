@@ -11,7 +11,6 @@
 
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
-import { configFilePath } from "../../lib/paths";
 import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
@@ -95,12 +94,13 @@ const generate = (
   // Generate container quadlet
   const containerQuadlet = generateContainerQuadlet({
     name: "caddy",
+    containerName: "caddy",
     description: "Caddy reverse proxy",
     image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
     ports: config.container?.ports ?? [
-      { host: 80, container: 80, protocol: "tcp" },
-      { host: 443, container: 443, protocol: "tcp" },
-      { host: 443, container: 443, protocol: "udp" },
+      { hostIp: "0.0.0.0", host: 80, container: 80, protocol: "tcp" },
+      { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
+      { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "udp" },
     ],
     volumes: [
       {
@@ -120,6 +120,10 @@ const generate = (
     }),
     noNewPrivileges: true,
     autoUpdate: config.container?.autoUpdate ?? "registry",
+    // Allow binding to privileged ports (80, 443) in rootless container
+    sysctl: {
+      "net.ipv4.ip_unprivileged_port_start": 70,
+    },
     service: {
       restart: config.container?.restart ?? "always",
       restartSec: 10,
@@ -169,10 +173,10 @@ const setup = async (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, Div
  */
 const reload = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
   return reloadCaddy({
-    caddyfilePath: configFilePath(ctx.paths.configDir, "Caddyfile"),
     user: ctx.user.name,
     uid: ctx.user.uid,
     logger: ctx.logger,
+    containerName: "caddy",
   });
 };
 

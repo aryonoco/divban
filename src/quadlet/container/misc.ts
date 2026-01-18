@@ -38,6 +38,8 @@ export interface ContainerMiscConfig {
   containerName?: string | undefined;
   /** Pod name to join */
   pod?: string | undefined;
+  /** Sysctl settings for the container */
+  sysctl?: Record<string, string | number> | undefined;
 }
 
 /**
@@ -72,6 +74,13 @@ export const addMiscEntries = (
   if (config.annotations) {
     for (const [key, value] of Object.entries(config.annotations)) {
       entries.push({ key: "Annotation", value: `${key}=${value}` });
+    }
+  }
+
+  // Sysctl settings
+  if (config.sysctl) {
+    for (const [key, value] of Object.entries(config.sysctl)) {
+      entries.push({ key: "Sysctl", value: `${key}=${value}` });
     }
   }
 };

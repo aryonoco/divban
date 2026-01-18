@@ -16,7 +16,7 @@ import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
-import { ensureDirectory } from "../../system/fs";
+import { ensureDirectories } from "../../system/directories";
 import {
   createSingleContainerOps,
   reloadAndEnableServices,
@@ -88,6 +88,7 @@ const generate = (
 
   const quadletConfig: Parameters<typeof generateContainerQuadlet>[0] = {
     name: CONTAINER_NAME,
+    containerName: CONTAINER_NAME,
     description: "Actual Budget Server",
     image: config.container?.image ?? "docker.io/actualbudget/actual-server:latest",
 
@@ -158,12 +159,15 @@ const setup = async (ctx: ServiceContext<ActualConfig>): Promise<Result<void, Di
   // 2. Create data directories
   logger.step(2, 4, "Creating data directories...");
   const dataDir = config.paths.dataDir;
-  const dirs = [dataDir, `${dataDir}/server-files`, `${dataDir}/user-files`, `${dataDir}/backups`];
-  for (const dir of dirs) {
-    const result = await ensureDirectory(dir as AbsolutePath);
-    if (!result.ok) {
-      return result;
-    }
+  const dirs = [
+    dataDir,
+    `${dataDir}/server-files`,
+    `${dataDir}/user-files`,
+    `${dataDir}/backups`,
+  ] as AbsolutePath[];
+  const dirsResult = await ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
+  if (!dirsResult.ok) {
+    return dirsResult;
   }
 
   // 3. Write quadlet files

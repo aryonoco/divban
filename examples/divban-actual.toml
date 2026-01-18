@@ -2,9 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 #
 # divban-actual.toml - Actual Budget configuration
-#
-# Actual is a local-first personal finance application.
-# It's a simple single-container service.
+
 
 [paths]
 # Directory for Actual data (SQLite database, user files)
@@ -19,7 +17,6 @@ dataDir = "/srv/divban-actual"
 image = "docker.io/actualbudget/actual-server:latest"
 
 # Auto-update policy
-# Options: "registry" (check for new images), "local" (use local images)
 autoUpdate = "registry"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -31,8 +28,8 @@ autoUpdate = "registry"
 port = 5006
 
 # Host IP to bind to
-# Default: 127.0.0.1 (localhost only - recommended for security)
-# Set to 0.0.0.0 to expose on all interfaces
+# Default: 127.0.0.1
+# Set to 0.0.0.0 to expose on all interfaces (insecure)
 host = "127.0.0.1"
 
 # ─────────────────────────────────────────────────────────────────────────────

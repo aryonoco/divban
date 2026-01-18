@@ -51,6 +51,8 @@ const containerToQuadlet = (
 
   return {
     name: container.name,
+    // Set explicit container name for DNS resolution in podman networks
+    containerName: container.name,
     description: container.description ?? `${stack.name} - ${container.name}`,
     image: container.image,
     imageDigest: container.imageDigest,

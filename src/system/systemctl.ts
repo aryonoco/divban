@@ -149,6 +149,8 @@ export const reloadService = async (
 
 /**
  * Enable a systemd user service.
+ * Note: Quadlet-generated units are auto-enabled and will return an error
+ * about being "transient or generated" - we ignore this specific error.
  */
 export const enableService = async (
   unit: string,
@@ -156,6 +158,10 @@ export const enableService = async (
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("enable", unit, options);
   if (!result.ok) {
+    // Quadlet-generated units can't be enabled (they're auto-enabled)
+    if (result.error.message.includes("transient or generated")) {
+      return Ok(undefined);
+    }
     return Err(result.error);
   }
   return Ok(undefined);

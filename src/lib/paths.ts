@@ -25,6 +25,7 @@ export const SYSTEM_PATHS: {
   readonly usrSbin: AbsolutePath;
   readonly sbin: AbsolutePath;
   readonly nologinPaths: readonly [AbsolutePath, AbsolutePath];
+  readonly sysctlUnprivilegedPorts: AbsolutePath;
 } = {
   passwd: unsafePath("/etc/passwd"),
   subuid: unsafePath("/etc/subuid"),
@@ -33,6 +34,7 @@ export const SYSTEM_PATHS: {
   usrSbin: unsafePath("/usr/sbin"),
   sbin: unsafePath("/sbin"),
   nologinPaths: [unsafePath("/usr/sbin/nologin"), unsafePath("/sbin/nologin")],
+  sysctlUnprivilegedPorts: unsafePath("/etc/sysctl.d/50-divban-unprivileged-ports.conf"),
 };
 
 // ============================================================================

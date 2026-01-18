@@ -125,6 +125,7 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
   );
 
   // Misc configuration
+  // Default containerName to name for DNS resolution in podman networks
   addMiscEntries(
     entries,
     defined({
@@ -134,6 +135,8 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
       exec: config.exec,
       workdir: config.workdir,
       devices: config.devices,
+      sysctl: config.sysctl,
+      containerName: config.containerName ?? config.name,
     })
   );
 

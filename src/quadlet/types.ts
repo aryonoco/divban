@@ -147,6 +147,11 @@ export interface ContainerQuadlet {
   workdir?: string | undefined;
   user?: string | undefined;
   group?: string | undefined;
+  /** Explicit container name (for DNS resolution in networks) */
+  containerName?: string | undefined;
+
+  /** Sysctl settings for the container */
+  sysctl?: Record<string, string | number> | undefined;
 
   /** Auto-update configuration */
   autoUpdate?: "registry" | "local" | false | undefined;

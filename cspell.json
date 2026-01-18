@@ -26,7 +26,10 @@
     "*.lock",
     ".git/**",
     "divban",
-    "divban-linux-*"
+    "divban-linux-*",
+    "LICENSE*",
+    "LICENSES/**",
+    ".devcontainer/p10k.zsh"
   ],
   "ignoreRegExpList": ["/[a-f0-9]{32,}/gi", "/ghcr\\.io\\/[\\w\\-\\/]+/gi"]
 }

@@ -3,8 +3,6 @@
 #
 # divban-caddy.toml - Caddy reverse proxy configuration
 #
-# Caddy is a powerful, enterprise-ready web server with automatic HTTPS.
-# This configuration generates both Caddyfile and Quadlet files.
 
 [paths]
 # Directory for Caddy data (certificates, config, etc.)

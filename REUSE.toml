@@ -21,6 +21,16 @@ SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
 SPDX-License-Identifier = "MPL-2.0"
 
 # =============================================================================
+# Third-party files (MIT)
+# =============================================================================
+
+[[annotations]]
+path = [".devcontainer/p10k.zsh"]
+precedence = "override"
+SPDX-FileCopyrightText = "2019 Roman Perepelitsa"
+SPDX-License-Identifier = "MIT"
+
+# =============================================================================
 # Plumbing/Config (0BSD) - Configuration without substantial logic
 # =============================================================================
 

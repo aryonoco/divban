@@ -153,3 +153,12 @@ export {
   systemctl,
 } from "./systemctl";
 export type { SystemctlCommand, SystemctlOptions } from "./systemctl";
+
+// Sysctl - System configuration for unprivileged ports
+export {
+  configureUnprivilegedPorts,
+  DEFAULT_UNPRIVILEGED_PORT_START,
+  ensureUnprivilegedPorts,
+  getUnprivilegedPortStart,
+  isUnprivilegedPortEnabled,
+} from "./sysctl";

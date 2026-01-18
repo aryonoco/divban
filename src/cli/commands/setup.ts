@@ -20,6 +20,7 @@ import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { ensureServiceDirectories } from "../../system/directories";
 import { enableLinger } from "../../system/linger";
+import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { createServiceUser, getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { getContextOptions, getDataDirFromConfig } from "./utils";
@@ -64,16 +65,31 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
 
   if (args.dryRun) {
     logger.info("Dry run mode - showing what would be done:");
-    logger.info(`  1. Create user: ${username}`);
-    logger.info(`  2. Enable linger for: ${username}`);
-    logger.info("  3. Create data directories");
-    logger.info("  4. Generate and install quadlet files");
-    logger.info("  5. Reload systemd daemon");
-    logger.info("  6. Enable services");
+    if (service.definition.name === "caddy") {
+      logger.info("  1. Configure privileged port binding (sysctl)");
+      logger.info(`  2. Create user: ${username}`);
+      logger.info(`  3. Enable linger for: ${username}`);
+      logger.info("  4. Create data directories");
+      logger.info("  5. Generate and install quadlet files");
+      logger.info("  6. Reload systemd daemon");
+      logger.info("  7. Enable services");
+    } else {
+      logger.info(`  1. Create user: ${username}`);
+      logger.info(`  2. Enable linger for: ${username}`);
+      logger.info("  3. Create data directories");
+      logger.info("  4. Generate and install quadlet files");
+      logger.info("  5. Reload systemd daemon");
+      logger.info("  6. Enable services");
+    }
     return Ok(undefined);
   }
 
-  // Check if running as root (required for user creation)
+  // For caddy, check if privileged port binding needs to be configured
+  const needsSysctl = service.definition.name === "caddy" && !(await isUnprivilegedPortEnabled());
+  const totalSteps = needsSysctl ? 7 : 6;
+  let currentStep = 0;
+
+  // Check if running as root (required for user creation and sysctl)
   if (process.getuid?.() !== 0) {
     // Check if user already exists
     const existingUser = await getUserByName(username);
@@ -85,10 +101,30 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
         )
       );
     }
+    // For caddy, also check if sysctl needs root
+    if (needsSysctl) {
+      return Err(
+        new DivbanError(
+          ErrorCode.ROOT_REQUIRED,
+          "Root privileges required to configure privileged port binding. Run with sudo."
+        )
+      );
+    }
   }
 
-  // Step 1: Create service user (or get existing)
-  logger.step(1, 6, `Creating service user: ${username}...`);
+  // Step 1 (caddy only): Configure privileged port binding
+  if (needsSysctl) {
+    currentStep++;
+    logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
+    const sysctlResult = await ensureUnprivilegedPorts(70, service.definition.name);
+    if (!sysctlResult.ok) {
+      return sysctlResult;
+    }
+  }
+
+  // Step: Create service user (or get existing)
+  currentStep++;
+  logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
   const userResult = await createServiceUser(service.definition.name);
   if (!userResult.ok) {
     return userResult;
@@ -96,15 +132,17 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   const { uid, homeDir } = userResult.value;
   const gid = userIdToGroupId(uid);
 
-  // Step 2: Enable linger
-  logger.step(2, 6, "Enabling user linger...");
-  const lingerResult = await enableLinger(username);
+  // Step: Enable linger
+  currentStep++;
+  logger.step(currentStep, totalSteps, "Enabling user linger...");
+  const lingerResult = await enableLinger(username, uid);
   if (!lingerResult.ok) {
     return lingerResult;
   }
 
-  // Step 3: Create service directories
-  logger.step(3, 6, "Creating service directories...");
+  // Step: Create service directories
+  currentStep++;
+  logger.step(currentStep, totalSteps, "Creating service directories...");
   const dataDir = getDataDirFromConfig(configResult.value, userDataDir(homeDir));
   const dirsResult = await ensureServiceDirectories(dataDir, homeDir, { uid, gid });
   if (!dirsResult.ok) {
@@ -128,8 +166,9 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
     options: getContextOptions(args),
   };
 
-  // Step 4-6: Delegate to service's setup method
-  logger.step(4, 6, "Running service-specific setup...");
+  // Step: Delegate to service's setup method (handles remaining steps)
+  currentStep++;
+  logger.step(currentStep, totalSteps, "Running service-specific setup...");
   const setupResult = await service.setup(ctx);
   if (!setupResult.ok) {
     return setupResult;

@@ -68,7 +68,15 @@ export const exec = async (
   // Handle user switching with sudo
   let finalCommand: string[];
   if (options.user) {
-    finalCommand = ["sudo", "-u", options.user, "--", cmd, ...args];
+    finalCommand = [
+      "sudo",
+      "--preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS",
+      "-u",
+      options.user,
+      "--",
+      cmd,
+      ...args,
+    ];
   } else {
     finalCommand = [cmd, ...args];
   }
@@ -334,7 +342,10 @@ export const shellAsUser = (
   command: string
 ): Promise<Result<ExecResult, DivbanError>> => {
   const escapedCommand = $.escape(command);
-  return shell(`sudo -u ${user} -- sh -c ${escapedCommand}`, { uid });
+  return shell(
+    `sudo --preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS -u ${user} -- sh -c ${escapedCommand}`,
+    { uid }
+  );
 };
 
 /**

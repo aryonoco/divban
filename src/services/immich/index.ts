@@ -30,7 +30,7 @@ import {
   stopStack,
 } from "../../stack";
 import type { StackContainer } from "../../stack/types";
-import { ensureDirectory } from "../../system/fs";
+import { ensureDirectory } from "../../system/directories";
 import { daemonReload, enableService, journalctl } from "../../system/systemctl";
 import { wrapBackupResult, writeGeneratedFiles } from "../helpers";
 import type {
@@ -198,7 +198,8 @@ const generate = (
       config.containers?.machineLearning?.enabled !== false
         ? ["immich-machine-learning"]
         : undefined,
-    ports: [{ host: 2283, container: 2283 }],
+    // Bind to localhost only - access via reverse proxy
+    ports: [{ hostIp: "127.0.0.1", host: 2283, container: 2283 }],
     volumes: [
       { source: uploadDir, target: "/upload" },
       { source: profileDir, target: "/profile" },
@@ -284,6 +285,7 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
   // 2. Create data directories
   logger.step(2, 5, "Creating data directories...");
   const dataDir = config.paths.dataDir;
+  const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
   const dirs = [
     `${dataDir}/upload`,
     `${dataDir}/profile`,
@@ -294,7 +296,7 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
     `${dataDir}/backups`,
   ];
   for (const dir of dirs) {
-    const result = await ensureDirectory(dir as AbsolutePath);
+    const result = await ensureDirectory(dir as AbsolutePath, owner);
     if (!result.ok) {
       return result;
     }

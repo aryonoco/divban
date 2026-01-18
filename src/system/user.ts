@@ -106,7 +106,7 @@ export const createServiceUser = async (
     "--shell",
     shell,
     "--comment",
-    `divban service: ${serviceName}`,
+    `divban service - ${serviceName}`,
     username,
   ]);
 

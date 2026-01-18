@@ -3,12 +3,6 @@
 #
 # divban-immich.toml - Immich photo management configuration
 #
-# Immich is a self-hosted photo and video management solution.
-# This is a multi-container service with:
-#   - immich-server (main application)
-#   - immich-machine-learning (ML/AI features)
-#   - immich-redis (caching)
-#   - immich-postgres (database with pgvecto.rs)
 
 [paths]
 # Directory for all Immich data

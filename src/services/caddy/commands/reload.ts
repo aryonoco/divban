@@ -13,36 +13,37 @@
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
-import type { AbsolutePath, UserId, Username } from "../../../lib/types";
+import type { UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 
 export interface ReloadOptions {
-  /** Path to Caddyfile */
-  caddyfilePath: AbsolutePath;
   /** Service user */
   user: Username;
   /** Service user UID */
   uid: UserId;
   /** Logger instance */
   logger: Logger;
-  /** Admin API endpoint (default: localhost:2019) */
-  adminEndpoint?: string;
+  /** Container name (default: caddy) */
+  containerName?: string;
 }
 
 /**
  * Reload Caddy configuration using the admin API.
+ * Uses podman exec to run caddy commands inside the container.
  * This is preferred over systemctl restart as it's graceful.
  */
 export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, DivbanError>> => {
-  const { logger, caddyfilePath, user, uid, adminEndpoint = "localhost:2019" } = options;
+  const { logger, user, uid, containerName = "caddy" } = options;
+  // Caddyfile path inside the container
+  const containerCaddyfile = "/etc/caddy/Caddyfile";
 
   logger.info("Validating Caddyfile...");
 
-  // First, validate the Caddyfile
+  // First, validate the Caddyfile using podman exec
   const validateResult = await execAsUser(
     user,
     uid,
-    ["caddy", "validate", "--config", caddyfilePath],
+    ["podman", "exec", containerName, "caddy", "validate", "--config", containerCaddyfile],
     {
       captureStdout: true,
       captureStderr: true,
@@ -58,12 +59,11 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
 
   logger.info("Caddyfile is valid, reloading...");
 
-  // Reload via admin API
-  // caddy reload --config <path> --address <admin>
+  // Reload via admin API using podman exec
   const reloadResult = await execAsUser(
     user,
     uid,
-    ["caddy", "reload", "--config", caddyfilePath, "--address", adminEndpoint],
+    ["podman", "exec", containerName, "caddy", "reload", "--config", containerCaddyfile],
     {
       captureStdout: true,
       captureStderr: true,
@@ -95,16 +95,23 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
 
 /**
  * Validate a Caddyfile without reloading.
+ * Uses podman exec to run caddy validate inside the container.
  */
 export const validateCaddyfile = async (
-  caddyfilePath: AbsolutePath,
   user: Username,
-  uid: UserId
+  uid: UserId,
+  containerName = "caddy"
 ): Promise<Result<void, DivbanError>> => {
-  const result = await execAsUser(user, uid, ["caddy", "validate", "--config", caddyfilePath], {
-    captureStdout: true,
-    captureStderr: true,
-  });
+  const containerCaddyfile = "/etc/caddy/Caddyfile";
+  const result = await execAsUser(
+    user,
+    uid,
+    ["podman", "exec", containerName, "caddy", "validate", "--config", containerCaddyfile],
+    {
+      captureStdout: true,
+      captureStderr: true,
+    }
+  );
 
   if (!result.ok) {
     return Err(
@@ -130,17 +137,24 @@ export const validateCaddyfile = async (
 
 /**
  * Format a Caddyfile using caddy fmt.
+ * Uses podman exec to run caddy fmt inside the container.
  */
 export const formatCaddyfile = async (
   content: string,
   user: Username,
-  uid: UserId
+  uid: UserId,
+  containerName = "caddy"
 ): Promise<Result<string, DivbanError>> => {
-  const result = await execAsUser(user, uid, ["caddy", "fmt", "-"], {
-    captureStdout: true,
-    captureStderr: true,
-    stdin: content,
-  });
+  const result = await execAsUser(
+    user,
+    uid,
+    ["podman", "exec", "-i", containerName, "caddy", "fmt", "-"],
+    {
+      captureStdout: true,
+      captureStderr: true,
+      stdin: content,
+    }
+  );
 
   if (!result.ok) {
     return Err(
