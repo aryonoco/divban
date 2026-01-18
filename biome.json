@@ -9,7 +9,6 @@
       "all": true,
       "correctness": {
         "noNodejsModules": "off",
-        "noUndeclaredDependencies": "off",
         "useImportExtensions": "off"
       },
       "nursery": {
@@ -19,7 +18,7 @@
         "noSecrets": "off"
       },
       "style": {
-        "noDefaultExport": "off",
+        "noDefaultExport": "error",
         "useNamingConvention": {
           "level": "error",
           "options": {
@@ -59,8 +58,7 @@
         "noConsole": "off"
       },
       "performance": {
-        "noBarrelFile": "off",
-        "noReExportAll": "off"
+        "noBarrelFile": "off"
       },
       "complexity": {
         "useLiteralKeys": "off"

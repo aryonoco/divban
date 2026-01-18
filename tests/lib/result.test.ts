@@ -6,7 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import { DivbanError, ErrorCode } from "../../src/lib/errors";
+import { DivbanError, ErrorCode } from "../../src/lib/errors.ts";
 import {
   Err,
   Ok,
@@ -18,7 +18,7 @@ import {
   mapResult,
   tryCatchSync,
   unwrapOr,
-} from "../../src/lib/result";
+} from "../../src/lib/result.ts";
 
 describe("Result", () => {
   describe("Ok", () => {

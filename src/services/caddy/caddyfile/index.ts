@@ -49,9 +49,34 @@ export const generateCaddyfile = (config: CaddyfileConfig): string => {
 };
 
 // Re-export all sub-modules
-export * from "./format";
-export * from "./global";
-export * from "./snippets";
-export * from "./matchers";
-export * from "./directives";
-export * from "./sites";
+
+// format.ts
+export {
+  escapeValue,
+  indent,
+  joinArgs,
+  openBlock,
+  formatLine,
+  CaddyfileBuilder,
+  createBuilder,
+} from "./format";
+
+// global.ts
+export { generateGlobalOptions, hasGlobalOptions } from "./global";
+
+// snippets.ts
+export { generateSnippet, generateSnippets, importSnippet } from "./snippets";
+
+// matchers.ts
+export {
+  generateNamedMatcher,
+  generateNamedMatchers,
+  matcherRef,
+  isEmptyMatcher,
+} from "./matchers";
+
+// directives.ts
+export { renderDirective, renderDirectives, Directives } from "./directives";
+
+// sites.ts
+export { generateRoute, generateSite, generateSites, Sites } from "./sites";

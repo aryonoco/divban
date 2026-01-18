@@ -178,13 +178,97 @@ export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQua
 };
 
 // Re-export all container modules
-export * from "./capabilities";
-export * from "./environment";
-export * from "./health";
-export * from "./image";
-export * from "./misc";
-export * from "./network";
-export * from "./resources";
-export * from "./security";
-export * from "./user";
-export * from "./volumes";
+
+// capabilities.ts
+export type { ContainerCapabilitiesConfig } from "./capabilities";
+export {
+  addCapabilityEntries,
+  Capabilities,
+  dropAllExcept,
+  CapabilityProfiles,
+  isValidCapability,
+} from "./capabilities";
+
+// environment.ts
+export type { ContainerEnvironmentConfig } from "./environment";
+export {
+  addEnvironmentEntries,
+  formatEnvironmentFile,
+  createSecretFileEnv,
+  CommonEnvVars,
+  mergeEnvironments,
+  filterEnvByPrefix,
+} from "./environment";
+
+// health.ts
+export {
+  addHealthCheckEntries,
+  createHealthCheck,
+  createHttpHealthCheck,
+  createWgetHealthCheck,
+  createPostgresHealthCheck,
+  createRedisHealthCheck,
+  createNoopHealthCheck,
+  HealthOnFailure,
+} from "./health";
+
+// image.ts
+export type { ImageConfig } from "./image";
+export { addImageEntries, parseImageReference, buildImageReference, Registries } from "./image";
+
+// misc.ts
+export type { ContainerMiscConfig } from "./misc";
+export { addMiscEntries, LogDrivers, StopSignals, PullPolicies, CommonDevices } from "./misc";
+
+// network.ts
+export type { ContainerNetworkConfig } from "./network";
+export {
+  formatPortMapping,
+  addNetworkEntries,
+  createPort,
+  createLocalhostPort,
+  CommonPorts,
+} from "./network";
+
+// resources.ts
+export type { ContainerResourcesConfig } from "./resources";
+export {
+  addResourceEntries,
+  parseMemorySize,
+  formatMemorySize,
+  ResourceProfiles,
+} from "./resources";
+
+// security.ts
+export type { ContainerSecurityConfig } from "./security";
+export {
+  addSecurityEntries,
+  createHardenedSecurity,
+  createMinimalSecurity,
+  SecurityProfiles,
+  SeccompProfiles,
+} from "./security";
+
+// user.ts
+export {
+  addUserNsEntries,
+  createKeepIdNs,
+  createAutoNs,
+  createHostNs,
+  UserNsModes,
+  recommendUserNs,
+} from "./user";
+
+// volumes.ts
+export type { ContainerVolumeConfig } from "./volumes";
+export {
+  formatVolumeMount,
+  addVolumeEntries,
+  createBindMount,
+  createReadOnlyMount,
+  createNamedVolumeMount,
+  createRelabeledMount,
+  CommonMounts,
+  isNamedVolume,
+  isBindMount,
+} from "./volumes";

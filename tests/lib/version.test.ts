@@ -13,7 +13,7 @@ import {
   satisfiesVersion,
   sortVersions,
   sortVersionsDesc,
-} from "../../src/lib/version";
+} from "../../src/lib/version.ts";
 
 describe("version", () => {
   describe("satisfiesVersion", () => {

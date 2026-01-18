@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import type { AbsolutePath } from "../../src/lib/types";
+import type { AbsolutePath } from "../../src/lib/types.ts";
 import {
   atomicWrite,
   directoryExists,
@@ -18,7 +18,7 @@ import {
   listDirectory,
   readFile,
   writeFile,
-} from "../../src/system/fs";
+} from "../../src/system/fs.ts";
 
 const TEST_DIR = "/tmp/divban-test" as AbsolutePath;
 const TEST_FILE = `${TEST_DIR}/test.txt` as AbsolutePath;

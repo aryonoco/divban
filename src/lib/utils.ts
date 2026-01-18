@@ -269,7 +269,7 @@ export const mainPath = (): string => Bun.main;
  *
  * @example
  * resolveModule("zod", process.cwd())
- * // "/path/to/project/node_modules/zod/index.ts"
+ * // "/path/to/project/node_modules/zod/index"
  */
 export const resolveModule = (specifier: string, from: string): string => {
   return Bun.resolveSync(specifier, from);
