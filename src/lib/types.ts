@@ -10,6 +10,8 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
+import type { Option } from "./option";
+
 /** User ID (1000-65534 range for regular users) */
 export type UserId = number & { readonly __brand: "UserId" };
 
@@ -129,7 +131,7 @@ export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX
 /**
  * Get an environment variable value.
  */
-export const getEnv = (key: string): string | undefined => Bun.env[key];
+export const getEnv = (key: string): Option<string> => Bun.env[key] ?? null;
 
 /**
  * Get a required environment variable, throwing if not set.

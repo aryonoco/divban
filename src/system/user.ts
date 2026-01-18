@@ -12,6 +12,7 @@
 
 import { getServiceUsername } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
+import type { Option } from "../lib/option";
 import { Err, Ok, type Result } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { execSuccess } from "./exec";
@@ -175,7 +176,7 @@ export const configureSubordinateIds = async (
  */
 export const getServiceUser = async (
   serviceName: string
-): Promise<Result<ServiceUser | null, DivbanError>> => {
+): Promise<Result<Option<ServiceUser>, DivbanError>> => {
   const usernameResult = getServiceUsername(serviceName);
   if (!usernameResult.ok) {
     return usernameResult;

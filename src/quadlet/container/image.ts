@@ -9,6 +9,7 @@
  * Container image configuration for quadlet files.
  */
 
+import type { Option } from "../../lib/option";
 import { addEntry } from "../format";
 
 export interface ImageConfig {
@@ -56,9 +57,9 @@ export const parseImageReference = (
   digest?: string;
 } => {
   let remaining = ref;
-  let digest: string | undefined;
-  let tag: string | undefined;
-  let registry: string | undefined;
+  let digest: Option<string> = null;
+  let tag: Option<string> = null;
+  let registry: Option<string> = null;
 
   // Extract digest
   const digestIndex = remaining.indexOf("@");
@@ -93,13 +94,13 @@ export const parseImageReference = (
     digest?: string;
   } = { name: remaining };
 
-  if (registry !== undefined) {
+  if (registry !== null) {
     result.registry = registry;
   }
-  if (tag !== undefined) {
+  if (tag !== null) {
     result.tag = tag;
   }
-  if (digest !== undefined) {
+  if (digest !== null) {
     result.digest = digest;
   }
 
@@ -135,9 +136,9 @@ export const buildImageReference = (components: {
 /**
  * Common container registries.
  */
-export const Registries = {
+export const Registries: Record<string, string> = {
   DOCKER_HUB: "docker.io",
   GHCR: "ghcr.io",
   QUAY: "quay.io",
   GCR: "gcr.io",
-} as const;
+} as const satisfies Record<string, string>;

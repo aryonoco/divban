@@ -9,6 +9,7 @@
  * Hardware acceleration device mappings for transcoding.
  */
 
+import type { Option } from "../../../lib/option";
 import type { TranscodingBackend } from "../schema";
 
 /**
@@ -70,7 +71,7 @@ const getRkmppDevices = (): TranscodingDevices => ({
 /**
  * Get device mappings for a transcoding backend.
  */
-export const getTranscodingDevices = (backend: TranscodingBackend): TranscodingDevices | null => {
+export const getTranscodingDevices = (backend: TranscodingBackend): Option<TranscodingDevices> => {
   switch (backend) {
     case "nvenc":
       return getNvencDevices();

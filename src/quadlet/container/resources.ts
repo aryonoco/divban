@@ -100,7 +100,7 @@ export const formatMemorySize = (bytes: number): string => {
 /**
  * Common resource profiles.
  */
-export const ResourceProfiles = {
+export const ResourceProfiles: Record<string, ContainerResourcesConfig> = {
   /** Minimal resources for lightweight containers */
   MINIMAL: {
     memory: "128m",
@@ -127,4 +127,4 @@ export const ResourceProfiles = {
     shmSize: "1g",
     pidsLimit: 1000,
   } as ContainerResourcesConfig,
-} as const;
+} as const satisfies Record<string, ContainerResourcesConfig>;

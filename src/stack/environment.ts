@@ -186,7 +186,10 @@ export const mergeEnv = (
 /**
  * Create common environment groups.
  */
-export const CommonEnvGroups = {
+export const CommonEnvGroups: Record<
+  string,
+  (config: Record<string, string | number | undefined>) => EnvGroup
+> = {
   /** Database connection */
   database: (config: {
     host?: string;

@@ -79,7 +79,7 @@ export const addMiscEntries = (
 /**
  * Common log drivers.
  */
-export const LogDrivers = {
+export const LogDrivers: Record<string, string> = {
   /** Journald (default for systemd) */
   JOURNALD: "journald",
   /** JSON file logging */
@@ -90,12 +90,12 @@ export const LogDrivers = {
   PASSTHROUGH: "passthrough",
   /** syslog */
   SYSLOG: "syslog",
-} as const;
+} as const satisfies Record<string, string>;
 
 /**
  * Common stop signals.
  */
-export const StopSignals = {
+export const StopSignals: Record<string, string> = {
   TERM: "SIGTERM",
   INT: "SIGINT",
   QUIT: "SIGQUIT",
@@ -103,12 +103,12 @@ export const StopSignals = {
   HUP: "SIGHUP",
   USR1: "SIGUSR1",
   USR2: "SIGUSR2",
-} as const;
+} as const satisfies Record<string, string>;
 
 /**
  * Pull policies.
  */
-export const PullPolicies = {
+export const PullPolicies: Record<string, string> = {
   /** Always pull the image */
   ALWAYS: "always",
   /** Pull only if not present locally */
@@ -117,12 +117,12 @@ export const PullPolicies = {
   NEVER: "never",
   /** Pull if remote is newer */
   NEWER: "newer",
-} as const;
+} as const satisfies Record<string, string>;
 
 /**
  * Common device mappings.
  */
-export const CommonDevices = {
+export const CommonDevices: Record<string, string> = {
   /** GPU devices for NVIDIA */
   NVIDIA_GPU: "/dev/nvidia0",
   NVIDIA_CTL: "/dev/nvidiactl",
@@ -136,4 +136,4 @@ export const CommonDevices = {
   SND: "/dev/snd",
   /** Fuse device */
   FUSE: "/dev/fuse",
-} as const;
+} as const satisfies Record<string, string>;

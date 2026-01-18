@@ -16,7 +16,7 @@ import { Err, Ok, type Result } from "../lib/result";
 /**
  * Available commands.
  */
-export const COMMANDS = [
+export const COMMANDS: readonly string[] = [
   "validate",
   "generate",
   "diff",
@@ -31,7 +31,7 @@ export const COMMANDS = [
   "restore",
   "reload",
   "help",
-] as const;
+] as const satisfies readonly string[];
 
 export type Command = (typeof COMMANDS)[number];
 

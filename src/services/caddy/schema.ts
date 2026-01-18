@@ -10,7 +10,7 @@
  */
 
 import { z } from "zod";
-import { absolutePathSchema, containerBaseSchema, portSchema } from "../../config/schema";
+import { type ContainerBaseConfig, absolutePathSchema, portSchema } from "../../config/schema";
 
 /**
  * Directive schema - recursive for nested directives.
@@ -76,41 +76,81 @@ export const namedMatcherSchema: z.ZodType<NamedMatcher> = baseNamedMatcherSchem
 /**
  * Snippet schema.
  */
-export const snippetSchema = z.object({
+/** Caddyfile snippet */
+export interface Snippet {
+  name: string;
+  args?: string[] | undefined;
+  directives: Directive[];
+}
+
+export const snippetSchema: z.ZodType<Snippet> = z.object({
   name: z.string(),
   args: z.array(z.string()).optional(),
   directives: z.array(directiveSchema),
 });
 
-export type Snippet = z.infer<typeof snippetSchema>;
-
 /**
- * Route schema.
+ * Caddyfile route.
  */
-export const routeSchema = z.object({
+export interface Route {
+  name?: string | undefined;
+  match?: string[] | undefined;
+  directives: Directive[];
+}
+
+export const routeSchema: z.ZodType<Route> = z.object({
   name: z.string().optional(),
   match: z.array(z.string()).optional(),
   directives: z.array(directiveSchema),
 });
 
-export type Route = z.infer<typeof routeSchema>;
-
 /**
- * Site schema.
+ * Caddyfile site.
  */
-export const siteSchema = z.object({
+export interface Site {
+  addresses: string[];
+  matchers?: NamedMatcher[] | undefined;
+  routes?: Route[] | undefined;
+  directives?: Directive[] | undefined;
+}
+
+export const siteSchema: z.ZodType<Site> = z.object({
   addresses: z.array(z.string()),
   matchers: z.array(namedMatcherSchema).optional(),
   routes: z.array(routeSchema).optional(),
   directives: z.array(directiveSchema).optional(),
 });
 
-export type Site = z.infer<typeof siteSchema>;
-
 /**
- * Global options schema.
+ * Caddy global options.
  */
-export const globalOptionsSchema = z.object({
+export interface GlobalOptions {
+  debug?: boolean | undefined;
+  email?: string | undefined;
+  acmeCA?: string | undefined;
+  acmeCaRoot?: string | undefined;
+  localCerts?: boolean | undefined;
+  skipInstallTrust?: boolean | undefined;
+  adminOff?: boolean | undefined;
+  adminEnforceOrigin?: boolean | undefined;
+  httpPort?: number | undefined;
+  httpsPort?: number | undefined;
+  autoHttps?: "off" | "disable_redirects" | "disable_certs" | "ignore_loaded_certs" | undefined;
+  servers?:
+    | Record<
+        string,
+        {
+          listen?: string[] | undefined;
+          protocols?: string[] | undefined;
+          strictSniHost?: boolean | undefined;
+        }
+      >
+    | undefined;
+  logFormat?: "console" | "json" | undefined;
+  logLevel?: "DEBUG" | "INFO" | "WARN" | "ERROR" | undefined;
+}
+
+export const globalOptionsSchema: z.ZodType<GlobalOptions> = z.object({
   debug: z.boolean().optional(),
   email: z.string().email().optional(),
   acmeCA: z.string().url().optional(),
@@ -137,39 +177,82 @@ export const globalOptionsSchema = z.object({
   logLevel: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
 });
 
-export type GlobalOptions = z.infer<typeof globalOptionsSchema>;
-
 /**
- * Caddyfile configuration schema.
+ * Caddyfile configuration.
  */
-export const caddyfileSchema = z.object({
+export interface CaddyfileConfig {
+  global?: GlobalOptions | undefined;
+  snippets?: Snippet[] | undefined;
+  sites: Site[];
+}
+
+export const caddyfileSchema: z.ZodType<CaddyfileConfig> = z.object({
   global: globalOptionsSchema.optional(),
   snippets: z.array(snippetSchema).optional(),
   sites: z.array(siteSchema),
 });
 
-export type CaddyfileConfig = z.infer<typeof caddyfileSchema>;
-
 /**
  * Container configuration schema (extends base).
  */
-export const caddyContainerSchema = containerBaseSchema.extend({
+const caddyContainerSchemaRaw = z.object({
+  image: z.string().regex(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/),
+  imageDigest: z.string().optional(),
+  networkMode: z.enum(["pasta", "slirp4netns", "host", "none"]).default("pasta"),
   ports: z.array(portSchema).default([
     { host: 80, container: 80, protocol: "tcp" as const },
     { host: 443, container: 443, protocol: "tcp" as const },
     { host: 443, container: 443, protocol: "udp" as const },
   ]),
+  volumes: z
+    .array(z.object({ source: z.string(), target: z.string(), options: z.string().optional() }))
+    .optional(),
+  environment: z.record(z.string()).optional(),
+  environmentFiles: z.array(z.string()).optional(),
+  healthCheck: z
+    .object({
+      cmd: z.string(),
+      interval: z.string().default("30s"),
+      timeout: z.string().default("30s"),
+      retries: z.number().int().min(1).default(3),
+      startPeriod: z.string().default("0s"),
+      onFailure: z.enum(["none", "kill", "restart", "stop"]).default("none"),
+    })
+    .optional(),
+  readOnlyRootfs: z.boolean().default(false),
+  noNewPrivileges: z.boolean().default(true),
+  capAdd: z.array(z.string()).optional(),
+  capDrop: z.array(z.string()).optional(),
+  seccompProfile: z.string().optional(),
+  shmSize: z.string().optional(),
+  devices: z.array(z.string()).optional(),
+  autoUpdate: z.enum(["registry", "local"]).or(z.literal(false)).default("registry"),
+  restart: z
+    .enum(["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"])
+    .default("on-failure"),
+  restartSec: z.number().int().min(0).optional(),
+  timeoutStartSec: z.number().int().min(0).optional(),
+  timeoutStopSec: z.number().int().min(0).optional(),
 });
 
+export const caddyContainerSchema: z.ZodType<ContainerBaseConfig> =
+  caddyContainerSchemaRaw as z.ZodType<ContainerBaseConfig>;
+
 /**
- * Full Caddy service configuration schema.
+ * Full Caddy service configuration.
  */
-export const caddyConfigSchema = z.object({
+export interface CaddyConfig {
+  paths: {
+    dataDir: string;
+  };
+  container?: ContainerBaseConfig | undefined;
+  caddyfile: CaddyfileConfig;
+}
+
+export const caddyConfigSchema: z.ZodType<CaddyConfig> = z.object({
   paths: z.object({
     dataDir: absolutePathSchema,
   }),
-  container: caddyContainerSchema.optional(),
+  container: caddyContainerSchemaRaw.optional(),
   caddyfile: caddyfileSchema,
-});
-
-export type CaddyConfig = z.infer<typeof caddyConfigSchema>;
+}) as z.ZodType<CaddyConfig>;

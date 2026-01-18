@@ -16,7 +16,10 @@ import type { ContainerBaseConfig, GlobalConfig } from "./schema";
  * Deep merge two objects, with source values taking precedence.
  * Arrays are replaced, not merged.
  */
-export const deepMerge = <T extends Record<string, unknown>>(target: T, source: Partial<T>): T => {
+export const deepMerge = <T extends Record<string, unknown>>(
+  target: T,
+  source: Partial<NoInfer<T>>
+): T => {
   const result = { ...target };
 
   for (const key of Object.keys(source) as (keyof T)[]) {

@@ -82,7 +82,7 @@ export const createHostNs = (): UserNamespace => ({
 /**
  * User namespace modes.
  */
-export const UserNsModes = {
+export const UserNsModes: Record<string, string> = {
   /**
    * keep-id: Map container UID 0 to host user's UID.
    * Best for rootless containers that need to access host files.
@@ -98,7 +98,7 @@ export const UserNsModes = {
    * Use sparingly - reduces isolation.
    */
   HOST: "host",
-} as const;
+} as const satisfies Record<string, string>;
 
 /**
  * Determine the best user namespace mode for a use case.

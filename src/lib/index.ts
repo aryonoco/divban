@@ -59,6 +59,24 @@ export {
 } from "./result";
 export type { Result } from "./result";
 
+// Option - Explicit nullable value handling
+export {
+  filter as filterOption,
+  flatMapOption,
+  fromNullable,
+  fromUndefined,
+  getOrElse,
+  getOrElseLazy,
+  isNone,
+  isSome,
+  mapOption,
+  None,
+  okOr,
+  Some,
+  zip as zipOption,
+} from "./option";
+export type { Option } from "./option";
+
 // Errors - Error codes and DivbanError class
 export {
   DivbanError,

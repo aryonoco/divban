@@ -27,6 +27,7 @@
 
     // TypeScript 5.8+ Erasable Syntax
     "erasableSyntaxOnly": true,
+    "isolatedDeclarations": true,
 
     // Module Settings
     "module": "ESNext",

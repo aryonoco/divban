@@ -32,11 +32,11 @@ export const buildInstallSection = (config: InstallConfig = {}): IniSection => {
 /**
  * Common install targets.
  */
-export const InstallTargets = {
+export const InstallTargets: Record<string, string> = {
   /** Default user target (most common) */
   DEFAULT: "default.target",
   /** Multi-user system target */
   MULTI_USER: "multi-user.target",
   /** Graphical target */
   GRAPHICAL: "graphical.target",
-} as const;
+} as const satisfies Record<string, string>;

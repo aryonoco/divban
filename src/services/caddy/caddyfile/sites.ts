@@ -97,7 +97,7 @@ export const generateSites = (sites: Site[]): string => {
 /**
  * Common site builders.
  */
-export const Sites = {
+export const Sites: Record<string, (...args: never[]) => Site> = {
   /**
    * Simple reverse proxy site
    */

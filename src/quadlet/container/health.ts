@@ -108,7 +108,7 @@ export const createNoopHealthCheck = (): HealthCheck =>
 /**
  * Health check on failure actions.
  */
-export const HealthOnFailure = {
+export const HealthOnFailure: Record<string, string> = {
   /** Do nothing */
   NONE: "none",
   /** Kill the container */
@@ -117,4 +117,4 @@ export const HealthOnFailure = {
   RESTART: "restart",
   /** Stop the container */
   STOP: "stop",
-} as const;
+} as const satisfies Record<string, string>;

@@ -68,21 +68,21 @@ export const createMinimalSecurity = (): ContainerSecurityConfig => ({
 /**
  * Security profiles for common use cases.
  */
-export const SecurityProfiles = {
+export const SecurityProfiles: Record<string, ContainerSecurityConfig> = {
   /** Maximum security - read-only rootfs, no privilege escalation */
   HARDENED: createHardenedSecurity(),
   /** Minimal restrictions */
   MINIMAL: createMinimalSecurity(),
   /** No restrictions (use sparingly) */
   NONE: {} as ContainerSecurityConfig,
-} as const;
+} as const satisfies Record<string, ContainerSecurityConfig>;
 
 /**
  * Common seccomp profile locations.
  */
-export const SeccompProfiles = {
+export const SeccompProfiles: Record<string, string> = {
   /** Default Podman seccomp profile */
   DEFAULT: "default",
   /** Chrome/Chromium seccomp profile */
   CHROME: "/usr/share/containers/seccomp/chrome.json",
-} as const;
+} as const satisfies Record<string, string>;

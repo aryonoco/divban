@@ -49,7 +49,7 @@ export const renderDirectives = (directives: Directive[], level = 0): string => 
 /**
  * Common directive builders.
  */
-export const Directives = {
+export const Directives: Record<string, (...args: never[]) => Directive> = {
   /**
    * reverse_proxy directive
    */

@@ -109,7 +109,7 @@ export const createLocalhostPort = (
 /**
  * Create port mappings for common services.
  */
-export const CommonPorts = {
+export const CommonPorts: Record<string, PortMapping> = {
   HTTP: createPort(80, 80),
   HTTPS: createPort(443, 443),
   HTTPS_UDP: createPort(443, 443, "udp"), // For HTTP/3
@@ -117,4 +117,4 @@ export const CommonPorts = {
   POSTGRES: createLocalhostPort(5432, 5432),
   REDIS: createLocalhostPort(6379, 6379),
   MYSQL: createLocalhostPort(3306, 3306),
-} as const;
+} as const satisfies Record<string, PortMapping>;

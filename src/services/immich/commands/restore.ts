@@ -12,6 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
+import type { Option } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -38,7 +39,7 @@ export interface RestoreOptions {
 /**
  * Detect compression type from file extension.
  */
-const detectCompression = (path: string): "gzip" | "zstd" | null => {
+const detectCompression = (path: string): Option<"gzip" | "zstd"> => {
   if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
     return "gzip";
   }

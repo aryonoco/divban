@@ -30,10 +30,35 @@ export const addCapabilityEntries = (
 };
 
 /**
+ * Linux capabilities interface for isolatedDeclarations compatibility.
+ */
+interface CapabilitiesMap {
+  readonly SYS_ADMIN: "SYS_ADMIN";
+  readonly SYS_CHROOT: "SYS_CHROOT";
+  readonly SYS_PTRACE: "SYS_PTRACE";
+  readonly NET_RAW: "NET_RAW";
+  readonly NET_BIND_SERVICE: "NET_BIND_SERVICE";
+  readonly NET_ADMIN: "NET_ADMIN";
+  readonly CHOWN: "CHOWN";
+  readonly SETFCAP: "SETFCAP";
+  readonly SETUID: "SETUID";
+  readonly SETGID: "SETGID";
+  readonly DAC_OVERRIDE: "DAC_OVERRIDE";
+  readonly DAC_READ_SEARCH: "DAC_READ_SEARCH";
+  readonly FOWNER: "FOWNER";
+  readonly IPC_LOCK: "IPC_LOCK";
+  readonly KILL: "KILL";
+  readonly MKNOD: "MKNOD";
+  readonly SYS_TIME: "SYS_TIME";
+  readonly AUDIT_WRITE: "AUDIT_WRITE";
+  readonly ALL: "ALL";
+}
+
+/**
  * Linux capabilities.
  * See capabilities(7) man page for full documentation.
  */
-export const Capabilities = {
+export const Capabilities: CapabilitiesMap = {
   /** Required for mounting filesystems */
   SYS_ADMIN: "SYS_ADMIN",
   /** Required for chroot */
@@ -72,7 +97,7 @@ export const Capabilities = {
   AUDIT_WRITE: "AUDIT_WRITE",
   /** All capabilities */
   ALL: "ALL",
-} as const;
+};
 
 /**
  * Drop all capabilities except those needed.
@@ -86,7 +111,7 @@ export const dropAllExcept = (keep: string[]): ContainerCapabilitiesConfig => ({
 /**
  * Common capability profiles.
  */
-export const CapabilityProfiles = {
+export const CapabilityProfiles: Record<string, ContainerCapabilitiesConfig> = {
   /** Drop all capabilities (most secure) */
   DROP_ALL: { capDrop: [Capabilities.ALL] } as ContainerCapabilitiesConfig,
 
@@ -108,7 +133,7 @@ export const CapabilityProfiles = {
   BROWSER: {
     capAdd: [Capabilities.SYS_ADMIN], // Needed for sandboxing
   } as ContainerCapabilitiesConfig,
-} as const;
+} as const satisfies Record<string, ContainerCapabilitiesConfig>;
 
 /**
  * Check if a capability name is valid.

@@ -115,14 +115,14 @@ export const addEnvironment = (
 /**
  * Standard section ordering for quadlet files.
  */
-export const SECTION_ORDER = [
+export const SECTION_ORDER: readonly string[] = [
   "Unit",
   "Container",
   "Network",
   "Volume",
   "Service",
   "Install",
-] as const;
+] as const satisfies readonly string[];
 
 /**
  * Sort sections in the standard order.

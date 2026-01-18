@@ -81,7 +81,7 @@ export const unwrap = <T, E extends Error>(result: Result<T, E>): T => {
 /**
  * Unwrap a result with a default value for errors.
  */
-export const unwrapOr = <T, E>(result: Result<T, E>, defaultValue: T): T =>
+export const unwrapOr = <T, E>(result: Result<T, E>, defaultValue: NoInfer<T>): T =>
   result.ok ? result.value : defaultValue;
 
 /**

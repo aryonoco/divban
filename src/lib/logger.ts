@@ -10,6 +10,8 @@
  * Uses Bun.color() for automatic terminal capability detection.
  */
 
+import type { Option } from "./option";
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -179,7 +181,7 @@ export const createLogger = (options: LoggerOptions): Logger => {
 /**
  * Default logger for quick access.
  */
-let defaultLogger: Logger | null = null;
+let defaultLogger: Option<Logger> = null;
 
 export const getLogger = (): Logger => {
   if (!defaultLogger) {

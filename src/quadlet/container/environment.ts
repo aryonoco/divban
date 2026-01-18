@@ -66,7 +66,10 @@ export const createSecretFileEnv = (varName: string, filePath: string): Record<s
 /**
  * Common environment variables.
  */
-export const CommonEnvVars = {
+export const CommonEnvVars: Record<
+  string,
+  ((...args: never[]) => Record<string, string>) | Record<string, string>
+> = {
   /** Timezone */
   TZ: (tz: string): Record<string, string> => ({ TZ: tz }),
   /** User ID */
@@ -75,7 +78,10 @@ export const CommonEnvVars = {
   PGID: (gid: number): Record<string, string> => ({ PGID: String(gid) }),
   /** Disable telemetry */
   NO_TELEMETRY: { DO_NOT_TRACK: "1" },
-} as const;
+} as const satisfies Record<
+  string,
+  ((...args: never[]) => Record<string, string>) | Record<string, string>
+>;
 
 /**
  * Merge multiple environment configurations.

@@ -380,7 +380,7 @@ export const sha256File = async (path: AbsolutePath): Promise<Result<string, Div
 /**
  * Deep equality comparison using Bun.deepEquals.
  */
-export const objectsEqual = <T>(a: T, b: T, strict = false): boolean => {
+export const objectsEqual = <T>(a: T, b: NoInfer<T>, strict = false): boolean => {
   return Bun.deepEquals(a, b, strict);
 };
 

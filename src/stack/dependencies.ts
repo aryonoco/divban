@@ -11,6 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
+import type { Option } from "../lib/option";
 import { Err, Ok, type Result } from "../lib/result";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
@@ -55,7 +56,7 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
   const recursionStack = new Set<string>();
   const nodeMap = new Map(nodes.map((n) => [n.name, n]));
 
-  const hasCycle = (name: string, path: string[]): string[] | null => {
+  const hasCycle = (name: string, path: string[]): Option<string[]> => {
     if (recursionStack.has(name)) {
       return [...path, name];
     }

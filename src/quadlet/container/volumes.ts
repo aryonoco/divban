@@ -105,12 +105,12 @@ export const createRelabeledMount = (
 /**
  * Common mount paths.
  */
-export const CommonMounts = {
+export const CommonMounts: Record<string, VolumeMount> = {
   /** /etc/localtime for timezone */
   LOCALTIME: createReadOnlyMount("/etc/localtime", "/etc/localtime"),
   /** /etc/timezone for timezone (Debian-based) */
   TIMEZONE: createReadOnlyMount("/etc/timezone", "/etc/timezone"),
-} as const;
+} as const satisfies Record<string, VolumeMount>;
 
 /**
  * Check if a source is a named volume (ends with .volume).

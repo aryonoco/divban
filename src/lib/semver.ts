@@ -11,6 +11,7 @@
  */
 
 import { semver } from "bun";
+import type { Option } from "./option";
 
 /**
  * Check if a version satisfies a semver range.
@@ -101,52 +102,52 @@ export const neq = (a: string, b: string): boolean => {
 
 /**
  * Get the maximum version from an array of versions.
- * Returns undefined if array is empty.
+ * Returns null if array is empty.
  *
  * @example
  * maxVersion(["1.0.0", "2.0.0", "1.5.0"]) // "2.0.0"
  */
-export const maxVersion = (versions: string[]): string | undefined => {
+export const maxVersion = (versions: string[]): Option<string> => {
   if (versions.length === 0) {
-    return undefined;
+    return null;
   }
-  return sortVersionsDesc(versions)[0];
+  return sortVersionsDesc(versions)[0] ?? null;
 };
 
 /**
  * Get the minimum version from an array of versions.
- * Returns undefined if array is empty.
+ * Returns null if array is empty.
  *
  * @example
  * minVersion(["1.0.0", "2.0.0", "1.5.0"]) // "1.0.0"
  */
-export const minVersion = (versions: string[]): string | undefined => {
+export const minVersion = (versions: string[]): Option<string> => {
   if (versions.length === 0) {
-    return undefined;
+    return null;
   }
-  return sortVersions(versions)[0];
+  return sortVersions(versions)[0] ?? null;
 };
 
 /**
  * Get the maximum version that satisfies a range.
- * Returns undefined if no version satisfies the range.
+ * Returns null if no version satisfies the range.
  *
  * @example
  * maxSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // "1.5.0"
  */
-export const maxSatisfying = (versions: string[], range: string): string | undefined => {
+export const maxSatisfying = (versions: string[], range: string): Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));
   return maxVersion(matching);
 };
 
 /**
  * Get the minimum version that satisfies a range.
- * Returns undefined if no version satisfies the range.
+ * Returns null if no version satisfies the range.
  *
  * @example
  * minSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // "1.0.0"
  */
-export const minSatisfying = (versions: string[], range: string): string | undefined => {
+export const minSatisfying = (versions: string[], range: string): Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));
   return minVersion(matching);
 };

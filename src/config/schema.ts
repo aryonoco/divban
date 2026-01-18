@@ -23,54 +23,110 @@ const POSIX_USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
 /**
  * Reusable schema components
  */
-export const absolutePathSchema = z.string().refine((s) => s.startsWith("/"), {
-  message: "Path must be absolute (start with /)",
-});
+export const absolutePathSchema: z.ZodEffects<z.ZodString, string, string> = z
+  .string()
+  .refine((s) => s.startsWith("/"), {
+    message: "Path must be absolute (start with /)",
+  });
 
-export const usernameSchema = z.string().regex(/^[a-z_][a-z0-9_-]*$/, {
+export const usernameSchema: z.ZodString = z.string().regex(/^[a-z_][a-z0-9_-]*$/, {
   message: "Username must match [a-z_][a-z0-9_-]*",
 });
 
-export const containerImageSchema = z.string().regex(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
-  message: "Invalid container image format",
-});
+export const containerImageSchema: z.ZodString = z
+  .string()
+  .regex(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
+    message: "Invalid container image format",
+  });
 
-export const portSchema = z.object({
+/** Port mapping configuration */
+export interface PortConfig {
+  host: number;
+  container: number;
+  hostIp?: string | undefined;
+  protocol: "tcp" | "udp";
+}
+
+export const portSchema: z.ZodType<PortConfig> = z.object({
   host: z.number().int().min(1).max(65535),
   container: z.number().int().min(1).max(65535),
   hostIp: z.string().ip().optional(),
   protocol: z.enum(["tcp", "udp"]).default("tcp"),
-});
+}) as z.ZodType<PortConfig>;
 
-export const volumeMountSchema = z.object({
+/** Volume mount configuration */
+export interface VolumeMountConfig {
+  source: string;
+  target: string;
+  options?: string | undefined;
+}
+
+export const volumeMountSchema: z.ZodType<VolumeMountConfig> = z.object({
   source: z.string(),
   target: absolutePathSchema,
   options: z.string().optional(),
 });
 
-export const healthCheckSchema = z.object({
+/** Health check configuration */
+export interface HealthCheckConfig {
+  cmd: string;
+  interval: string;
+  timeout: string;
+  retries: number;
+  startPeriod: string;
+  onFailure: "none" | "kill" | "restart" | "stop";
+}
+
+export const healthCheckSchema: z.ZodType<HealthCheckConfig> = z.object({
   cmd: z.string(),
   interval: z.string().default("30s"),
   timeout: z.string().default("30s"),
   retries: z.number().int().min(1).default(3),
   startPeriod: z.string().default("0s"),
   onFailure: z.enum(["none", "kill", "restart", "stop"]).default("none"),
-});
+}) as z.ZodType<HealthCheckConfig>;
 
-export const serviceRestartSchema = z.enum([
-  "no",
-  "on-success",
-  "on-failure",
-  "on-abnormal",
-  "on-abort",
-  "always",
-]);
+/** Service restart policy */
+export type ServiceRestartPolicy =
+  | "no"
+  | "on-success"
+  | "on-failure"
+  | "on-abnormal"
+  | "on-abort"
+  | "always";
+
+export const serviceRestartSchema: z.ZodEnum<
+  ["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"]
+> = z.enum(["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"]);
 
 /**
- * Base container configuration schema.
+ * Base container configuration.
  * Used by all services as the foundation for container definitions.
  */
-export const containerBaseSchema = z.object({
+export interface ContainerBaseConfig {
+  image: string;
+  imageDigest?: string | undefined;
+  networkMode: "pasta" | "slirp4netns" | "host" | "none";
+  ports?: PortConfig[] | undefined;
+  volumes?: VolumeMountConfig[] | undefined;
+  environment?: Record<string, string> | undefined;
+  environmentFiles?: string[] | undefined;
+  healthCheck?: HealthCheckConfig | undefined;
+  readOnlyRootfs: boolean;
+  noNewPrivileges: boolean;
+  capAdd?: string[] | undefined;
+  capDrop?: string[] | undefined;
+  seccompProfile?: string | undefined;
+  shmSize?: string | undefined;
+  devices?: string[] | undefined;
+  autoUpdate: "registry" | "local" | false;
+  restart: ServiceRestartPolicy;
+  restartSec?: number | undefined;
+  timeoutStartSec?: number | undefined;
+  timeoutStopSec?: number | undefined;
+}
+
+export const containerBaseSchema: z.ZodType<ContainerBaseConfig> = z.object({
   image: containerImageSchema,
   imageDigest: z.string().optional(),
   networkMode: z.enum(["pasta", "slirp4netns", "host", "none"]).default("pasta"),
@@ -91,14 +147,33 @@ export const containerBaseSchema = z.object({
   restartSec: z.number().int().min(0).optional(),
   timeoutStartSec: z.number().int().min(0).optional(),
   timeoutStopSec: z.number().int().min(0).optional(),
-});
-
-export type ContainerBaseConfig = z.infer<typeof containerBaseSchema>;
+}) as z.ZodType<ContainerBaseConfig>;
 
 /**
- * Global configuration schema for divban.toml
+ * Global configuration for divban.toml
  */
-export const globalConfigSchema = z.object({
+export interface GlobalConfig {
+  defaults: {
+    networkMode: "pasta" | "slirp4netns";
+    autoUpdate: "registry" | "local" | false;
+    timezone: string;
+  };
+  users: {
+    uidRangeStart: number;
+    uidRangeEnd: number;
+    subuidRangeStart: number;
+    subuidRangeSize: number;
+  };
+  logging: {
+    level: "debug" | "info" | "warn" | "error";
+    format: "pretty" | "json";
+  };
+  paths: {
+    baseDataDir: string;
+  };
+}
+
+export const globalConfigSchema: z.ZodType<GlobalConfig> = z.object({
   defaults: z
     .object({
       networkMode: z.enum(["pasta", "slirp4netns"]).default("pasta"),
@@ -125,22 +200,24 @@ export const globalConfigSchema = z.object({
       baseDataDir: absolutePathSchema.default("/srv"),
     })
     .default({}),
-});
-
-export type GlobalConfig = z.infer<typeof globalConfigSchema>;
+}) as z.ZodType<GlobalConfig>;
 
 /**
- * Service base schema - common to all services.
+ * Service base configuration - common to all services.
  * Note: Username is derived from service name as "divban-<service>"
  * UID is dynamically allocated from range 10000-59999
  */
-export const serviceBaseSchema = z.object({
+export interface ServiceBaseConfig {
+  paths: {
+    dataDir: string;
+  };
+}
+
+export const serviceBaseSchema: z.ZodType<ServiceBaseConfig> = z.object({
   paths: z.object({
     dataDir: absolutePathSchema,
   }),
 });
-
-export type ServiceBaseConfig = z.infer<typeof serviceBaseSchema>;
 
 /**
  * Generate username from service name.

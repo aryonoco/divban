@@ -11,10 +11,59 @@
  */
 
 /**
+ * Error code interface for isolatedDeclarations compatibility.
+ */
+interface ErrorCodeMap {
+  // General (0-9)
+  readonly SUCCESS: 0;
+  readonly GENERAL_ERROR: 1;
+  readonly INVALID_ARGS: 2;
+  readonly ROOT_REQUIRED: 3;
+  readonly DEPENDENCY_MISSING: 4;
+
+  // Config (10-19)
+  readonly CONFIG_NOT_FOUND: 10;
+  readonly CONFIG_PARSE_ERROR: 11;
+  readonly CONFIG_VALIDATION_ERROR: 12;
+  readonly CONFIG_MERGE_ERROR: 13;
+
+  // System (20-29)
+  readonly USER_CREATE_FAILED: 20;
+  readonly SUBUID_CONFIG_FAILED: 21;
+  readonly DIRECTORY_CREATE_FAILED: 22;
+  readonly LINGER_ENABLE_FAILED: 23;
+  readonly UID_RANGE_EXHAUSTED: 24;
+  readonly SUBUID_RANGE_EXHAUSTED: 25;
+  readonly EXEC_FAILED: 26;
+  readonly FILE_READ_FAILED: 27;
+  readonly FILE_WRITE_FAILED: 28;
+
+  // Service (30-39)
+  readonly SERVICE_NOT_FOUND: 30;
+  readonly SERVICE_START_FAILED: 31;
+  readonly SERVICE_STOP_FAILED: 32;
+  readonly SERVICE_ALREADY_RUNNING: 33;
+  readonly SERVICE_NOT_RUNNING: 34;
+  readonly SERVICE_RELOAD_FAILED: 35;
+
+  // Container (40-49)
+  readonly CONTAINER_BUILD_FAILED: 40;
+  readonly QUADLET_INSTALL_FAILED: 41;
+  readonly NETWORK_CREATE_FAILED: 42;
+  readonly VOLUME_CREATE_FAILED: 43;
+  readonly CONTAINER_NOT_FOUND: 44;
+
+  // Backup/Restore (50-59)
+  readonly BACKUP_FAILED: 50;
+  readonly RESTORE_FAILED: 51;
+  readonly BACKUP_NOT_FOUND: 52;
+}
+
+/**
  * Error codes for all divban operations.
  * Organized by category for easy identification.
  */
-export const ErrorCode = {
+export const ErrorCode: ErrorCodeMap = {
   // General (0-9)
   SUCCESS: 0,
   GENERAL_ERROR: 1,
@@ -58,7 +107,7 @@ export const ErrorCode = {
   BACKUP_FAILED: 50,
   RESTORE_FAILED: 51,
   BACKUP_NOT_FOUND: 52,
-} as const;
+};
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
