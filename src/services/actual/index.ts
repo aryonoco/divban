@@ -9,7 +9,7 @@ import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
-import { writeFile } from "../../system/fs";
+import { ensureDirectory, writeFile } from "../../system/fs";
 import {
   daemonReload,
   enableService,
@@ -149,7 +149,7 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
   const dataDir = config.paths.dataDir;
   const dirs = [dataDir, `${dataDir}/server-files`, `${dataDir}/user-files`, `${dataDir}/backups`];
   for (const dir of dirs) {
-    await Bun.spawn(["mkdir", "-p", dir]).exited;
+    await ensureDirectory(dir as AbsolutePath);
   }
 
   // 3. Write quadlet files

@@ -77,8 +77,8 @@ export const fileExists = (path: AbsolutePath): Promise<boolean> => {
  */
 export const isDirectory = async (path: string): Promise<boolean> => {
   try {
-    const stat = await Bun.file(path).stat();
-    return stat !== null;
+    const s = await Bun.file(path).stat();
+    return s?.isDirectory() ?? false;
   } catch {
     return false;
   }

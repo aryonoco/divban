@@ -3,6 +3,7 @@
  * Creates a compressed archive of the Actual data directory.
  */
 
+import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
@@ -153,20 +154,4 @@ export const restoreActual = async (
 
   logger.success("Restore completed successfully");
   return Ok(undefined);
-};
-
-/**
- * Format bytes for display.
- */
-const formatBytes = (bytes: number): string => {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(2)} KB`;
-  }
-  return `${bytes} B`;
 };

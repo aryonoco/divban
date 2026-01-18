@@ -3,7 +3,6 @@
  * Combines all container configuration modules into a single builder.
  */
 
-import { defined } from "../../lib/bun-utils";
 import type { IniSection } from "../format";
 import { createQuadletFile } from "../format";
 import { buildInstallSection } from "../install";
@@ -20,6 +19,21 @@ import { addResourceEntries } from "./resources";
 import { addSecurityEntries } from "./security";
 import { addUserNsEntries } from "./user";
 import { addVolumeEntries } from "./volumes";
+
+/**
+ * Create an object with only defined properties.
+ * Useful for passing objects to functions with optional properties
+ * when exactOptionalPropertyTypes is enabled in TypeScript.
+ */
+const defined = <T extends Record<string, unknown>>(obj: T): T => {
+  const result = {} as T;
+  for (const key of Object.keys(obj) as (keyof T)[]) {
+    if (obj[key] !== undefined) {
+      result[key] = obj[key];
+    }
+  }
+  return result;
+};
 
 /**
  * Build the [Container] section for a container quadlet.

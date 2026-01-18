@@ -133,23 +133,3 @@ export const findServiceConfig = async (
     )
   );
 };
-
-/**
- * Check if a path exists and is a file.
- */
-export const fileExists = (path: AbsolutePath): Promise<boolean> => {
-  const file = Bun.file(path);
-  return file.exists();
-};
-
-/**
- * Check if a path exists and is a directory.
- */
-export const directoryExists = async (path: string): Promise<boolean> => {
-  try {
-    const stat = await Bun.file(path).exists();
-    return stat;
-  } catch {
-    return false;
-  }
-};
