@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import type { AbsolutePath } from "../../src/lib/types.ts";
+import { path, pathJoin } from "../../src/lib/types.ts";
 import {
   atomicWrite,
   directoryExists,
@@ -20,8 +20,8 @@ import {
   writeFile,
 } from "../../src/system/fs.ts";
 
-const TEST_DIR = "/tmp/divban-test" as AbsolutePath;
-const TEST_FILE = `${TEST_DIR}/test.txt` as AbsolutePath;
+const TEST_DIR = path("/tmp/divban-test");
+const TEST_FILE = pathJoin(TEST_DIR, "test.txt");
 
 describe("fs", () => {
   beforeAll(async () => {
@@ -50,10 +50,10 @@ describe("fs", () => {
 
     test("handles unicode content", async () => {
       const content = "Hello 世界 🌍";
-      const path = `${TEST_DIR}/unicode.txt` as AbsolutePath;
+      const unicodePath = pathJoin(TEST_DIR, "unicode.txt");
 
-      await writeFile(path, content);
-      const result = await readFile(path);
+      await writeFile(unicodePath, content);
+      const result = await readFile(unicodePath);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -62,7 +62,7 @@ describe("fs", () => {
     });
 
     test("readFile returns error for non-existent file", async () => {
-      const result = await readFile("/tmp/divban-nonexistent.txt" as AbsolutePath);
+      const result = await readFile(path("/tmp/divban-nonexistent.txt"));
       expect(result.ok).toBe(false);
     });
   });
@@ -74,7 +74,7 @@ describe("fs", () => {
     });
 
     test("returns false for non-existent file", async () => {
-      expect(await fileExists("/tmp/divban-nonexistent.txt" as AbsolutePath)).toBe(false);
+      expect(await fileExists(path("/tmp/divban-nonexistent.txt"))).toBe(false);
     });
   });
 
@@ -84,7 +84,7 @@ describe("fs", () => {
     });
 
     test("returns false for non-existent directory", async () => {
-      expect(await directoryExists("/tmp/divban-nonexistent-dir" as AbsolutePath)).toBe(false);
+      expect(await directoryExists(path("/tmp/divban-nonexistent-dir"))).toBe(false);
     });
 
     test("returns false for file path", async () => {
@@ -95,7 +95,7 @@ describe("fs", () => {
 
   describe("ensureDirectory", () => {
     test("creates new directory", async () => {
-      const newDir = `${TEST_DIR}/new-dir` as AbsolutePath;
+      const newDir = pathJoin(TEST_DIR, "new-dir");
       const result = await ensureDirectory(newDir);
 
       expect(result.ok).toBe(true);
@@ -103,7 +103,7 @@ describe("fs", () => {
     });
 
     test("creates nested directories", async () => {
-      const nestedDir = `${TEST_DIR}/a/b/c` as AbsolutePath;
+      const nestedDir = pathJoin(TEST_DIR, "a", "b", "c");
       const result = await ensureDirectory(nestedDir);
 
       expect(result.ok).toBe(true);
@@ -118,10 +118,10 @@ describe("fs", () => {
 
   describe("listDirectory", () => {
     test("lists files in directory", async () => {
-      const listDir = `${TEST_DIR}/list-test` as AbsolutePath;
+      const listDir = pathJoin(TEST_DIR, "list-test");
       await ensureDirectory(listDir);
-      await writeFile(`${listDir}/file1.txt` as AbsolutePath, "1");
-      await writeFile(`${listDir}/file2.txt` as AbsolutePath, "2");
+      await writeFile(pathJoin(listDir, "file1.txt"), "1");
+      await writeFile(pathJoin(listDir, "file2.txt"), "2");
 
       const result = await listDirectory(listDir);
       expect(result.ok).toBe(true);
@@ -132,18 +132,18 @@ describe("fs", () => {
     });
 
     test("returns error for non-existent directory", async () => {
-      const result = await listDirectory("/tmp/divban-nonexistent" as AbsolutePath);
+      const result = await listDirectory(path("/tmp/divban-nonexistent"));
       expect(result.ok).toBe(false);
     });
   });
 
   describe("globFiles", () => {
     test("finds files matching pattern", async () => {
-      const globDir = `${TEST_DIR}/glob-test`;
-      await ensureDirectory(globDir as AbsolutePath);
-      await writeFile(`${globDir}/test1.ts` as AbsolutePath, "");
-      await writeFile(`${globDir}/test2.ts` as AbsolutePath, "");
-      await writeFile(`${globDir}/other.js` as AbsolutePath, "");
+      const globDir = pathJoin(TEST_DIR, "glob-test");
+      await ensureDirectory(globDir);
+      await writeFile(pathJoin(globDir, "test1.ts"), "");
+      await writeFile(pathJoin(globDir, "test2.ts"), "");
+      await writeFile(pathJoin(globDir, "other.js"), "");
 
       const files = await globFiles("*.ts", { cwd: globDir });
       expect(files).toContain("test1.ts");
@@ -167,12 +167,12 @@ describe("fs", () => {
 
   describe("atomicWrite", () => {
     test("writes file atomically", async () => {
-      const path = `${TEST_DIR}/atomic.txt` as AbsolutePath;
-      const result = await atomicWrite(path, "atomic content");
+      const atomicPath = pathJoin(TEST_DIR, "atomic.txt");
+      const result = await atomicWrite(atomicPath, "atomic content");
 
       expect(result.ok).toBe(true);
 
-      const readResult = await readFile(path);
+      const readResult = await readFile(atomicPath);
       expect(readResult.ok).toBe(true);
       if (readResult.ok) {
         expect(readResult.value).toBe("atomic content");

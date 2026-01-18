@@ -15,7 +15,7 @@ import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
-import type { AbsolutePath, UserId, Username } from "../../../lib/types";
+import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
 import { type ArchiveMetadata, createArchive } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
 import { directoryExists, ensureDirectory } from "../../../system/fs";
@@ -73,12 +73,12 @@ export const backupDatabase = async (
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const ext = getCompressionExtension(compression);
   const backupFilename = `immich-db-backup-${timestamp}.tar${ext}`;
-  const backupPath = `${dataDir}/backups/${backupFilename}` as AbsolutePath;
+  const backupDir = pathJoin(dataDir, "backups");
+  const backupPath = pathJoin(backupDir, backupFilename);
 
   logger.info(`Creating database backup: ${backupFilename}`);
 
   // Ensure backup directory exists using native fs
-  const backupDir = `${dataDir}/backups` as AbsolutePath;
   const mkdirResult = await ensureDirectory(backupDir);
   if (!mkdirResult.ok) {
     return Err(

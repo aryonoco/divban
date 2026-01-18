@@ -15,7 +15,7 @@ import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
-import type { AbsolutePath, UserId, Username } from "../../../lib/types";
+import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
 import {
   type ArchiveMetadata,
   createArchive,
@@ -51,8 +51,8 @@ export const backupActual = async (
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupFilename = `actual-backup-${timestamp}.tar.gz`;
-  const backupsDir = `${dataDir}/backups` as AbsolutePath;
-  const backupPath = `${backupsDir}/${backupFilename}` as AbsolutePath;
+  const backupsDir = pathJoin(dataDir, "backups");
+  const backupPath = pathJoin(backupsDir, backupFilename);
 
   logger.info(`Creating backup: ${backupFilename}`);
 

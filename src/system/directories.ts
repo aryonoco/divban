@@ -11,7 +11,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result, collectResults } from "../lib/result";
-import type { AbsolutePath, GroupId, UserId } from "../lib/types";
+import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
 
 export interface DirectoryOwner {
@@ -137,9 +137,9 @@ export const getServiceDirectories = (
   logs: AbsolutePath;
 } => ({
   data: dataDir,
-  config: `${dataDir}/config` as AbsolutePath,
-  quadlet: `${homeDir}/.config/containers/systemd` as AbsolutePath,
-  logs: `${dataDir}/logs` as AbsolutePath,
+  config: pathJoin(dataDir, "config"),
+  quadlet: pathJoin(homeDir, ".config", "containers", "systemd"),
+  logs: pathJoin(dataDir, "logs"),
 });
 
 /**
@@ -156,8 +156,8 @@ export const ensureServiceDirectories = async (
   const dataDirs: AbsolutePath[] = [dirs.data, dirs.config, dirs.logs];
 
   // Quadlet directory needs parent directories created first
-  const quadletParent = `${homeDir}/.config/containers` as AbsolutePath;
-  const configParent = `${homeDir}/.config` as AbsolutePath;
+  const quadletParent = pathJoin(homeDir, ".config", "containers");
+  const configParent = pathJoin(homeDir, ".config");
 
   // Create in order
   const results = await Promise.all([

@@ -9,12 +9,12 @@
  * Shared utilities for CLI commands.
  */
 
+import { resolve } from "node:path";
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import { Err, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
+import { type AbsolutePath, pathJoin } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
-import { fileExists } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 
 /**
@@ -27,12 +27,24 @@ export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["op
 });
 
 /**
- * Common config file locations for a service.
+ * Resolve a path to absolute.
+ * Used at the boundary when a config file is found.
  */
-const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): AbsolutePath[] => [
-  `${homeDir}/.config/divban/${serviceName}.toml` as AbsolutePath,
-  `/etc/divban/${serviceName}.toml` as AbsolutePath,
-  `./divban-${serviceName}.toml` as AbsolutePath,
+const toAbsolute = (p: string): AbsolutePath => {
+  if (p.startsWith("/")) {
+    return p as AbsolutePath;
+  }
+  return resolve(process.cwd(), p) as AbsolutePath;
+};
+
+/**
+ * Common config file locations for a service.
+ * Search paths are plain strings (may be relative).
+ */
+const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): string[] => [
+  pathJoin(homeDir, ".config", "divban", `${serviceName}.toml`),
+  `/etc/divban/${serviceName}.toml`,
+  `./divban-${serviceName}.toml`,
 ];
 
 /**
@@ -46,15 +58,16 @@ export const resolveServiceConfig = async (
 ): Promise<Result<unknown, DivbanError>> => {
   // If explicit path provided, use it
   if (explicitPath) {
-    return loadServiceConfig(explicitPath as AbsolutePath, service.definition.configSchema);
+    return loadServiceConfig(toAbsolute(explicitPath), service.definition.configSchema);
   }
 
   // Search common locations
   const searchPaths = getConfigPaths(service.definition.name, homeDir);
 
-  for (const path of searchPaths) {
-    if (await fileExists(path)) {
-      return loadServiceConfig(path, service.definition.configSchema);
+  for (const p of searchPaths) {
+    const file = Bun.file(p);
+    if (await file.exists()) {
+      return loadServiceConfig(toAbsolute(p), service.definition.configSchema);
     }
   }
 

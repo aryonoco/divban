@@ -15,7 +15,7 @@ import { mkdir, rename } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
-import type { AbsolutePath } from "../lib/types";
+import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
  * Read file contents as text.
@@ -146,10 +146,10 @@ export const copyFile = async (
  * Create a backup of a file (adds .bak extension).
  */
 export const backupFile = async (
-  path: AbsolutePath
+  filePath: AbsolutePath
 ): Promise<Result<AbsolutePath, DivbanError>> => {
-  const backupPath = `${path}.bak` as AbsolutePath;
-  const result = await copyFile(path, backupPath);
+  const backupPath = pathWithSuffix(filePath, ".bak");
+  const result = await copyFile(filePath, backupPath);
   if (!result.ok) {
     return result;
   }
@@ -170,10 +170,10 @@ export const readFileOrEmpty = async (path: AbsolutePath): Promise<string> => {
  * Uses node:fs rename for atomic move operation.
  */
 export const atomicWrite = async (
-  path: AbsolutePath,
+  filePath: AbsolutePath,
   content: string
 ): Promise<Result<void, DivbanError>> => {
-  const tempPath = `${path}.tmp.${Bun.nanoseconds()}` as AbsolutePath;
+  const tempPath = pathWithSuffix(filePath, `.tmp.${Bun.nanoseconds()}`);
 
   const writeResult = await writeFile(tempPath, content);
   if (!writeResult.ok) {
@@ -181,8 +181,8 @@ export const atomicWrite = async (
   }
 
   return tryCatch(
-    () => rename(tempPath, path),
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${path}`)
+    () => rename(tempPath, filePath),
+    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${filePath}`)
   );
 };
 

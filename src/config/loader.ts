@@ -11,11 +11,23 @@
  * Uses Bun's native TOML parser for optimal performance.
  */
 
+import { resolve } from "node:path";
 import type { ZodType } from "zod";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
+
+/**
+ * Resolve a path to absolute.
+ * Used at the boundary when a config file is found.
+ */
+const toAbsolute = (p: string): AbsolutePath => {
+  if (p.startsWith("/")) {
+    return p as AbsolutePath;
+  }
+  return resolve(process.cwd(), p) as AbsolutePath;
+};
 
 /**
  * Load and parse a TOML file.
@@ -78,21 +90,22 @@ export const loadGlobalConfig = async (
   configPath?: AbsolutePath
 ): Promise<Result<GlobalConfig, DivbanError>> => {
   // Try default paths if not specified
-  const paths: AbsolutePath[] = configPath
+  // Search paths are plain strings (may be relative), converted at boundary
+  const paths: string[] = configPath
     ? [configPath]
-    : ([
+    : [
         "/etc/divban/divban.toml",
         `${Bun.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
         "./divban.toml",
-      ] as AbsolutePath[]);
+      ];
 
-  for (const path of paths) {
-    const file = Bun.file(path);
+  for (const p of paths) {
+    const file = Bun.file(p);
     if (await file.exists()) {
       // Use explicit type assertion due to Zod's input/output type inference
       // with exactOptionalPropertyTypes. The schema has .default() on all
       // nested objects, so the output type always has defined properties.
-      const result = await loadTomlFile(path, globalConfigSchema);
+      const result = await loadTomlFile(toAbsolute(p), globalConfigSchema);
       return result as Result<GlobalConfig, DivbanError>;
     }
   }
@@ -113,23 +126,25 @@ export const loadServiceConfig = <T>(
 
 /**
  * Find service config file using common patterns.
+ * Search paths are plain strings (may be relative).
+ * Returns AbsolutePath once found.
  */
 export const findServiceConfig = async (
   serviceName: string,
-  searchPaths?: AbsolutePath[]
+  searchPaths?: string[]
 ): Promise<Result<AbsolutePath, DivbanError>> => {
-  const defaultPaths: AbsolutePath[] = [
-    `./divban-${serviceName}.toml` as AbsolutePath,
-    `./${serviceName}/divban-${serviceName}.toml` as AbsolutePath,
-    `/etc/divban/divban-${serviceName}.toml` as AbsolutePath,
+  const defaultPaths: string[] = [
+    `./divban-${serviceName}.toml`,
+    `./${serviceName}/divban-${serviceName}.toml`,
+    `/etc/divban/divban-${serviceName}.toml`,
   ];
 
   const paths = searchPaths ?? defaultPaths;
 
-  for (const path of paths) {
-    const file = Bun.file(path);
+  for (const p of paths) {
+    const file = Bun.file(p);
     if (await file.exists()) {
-      return Ok(path);
+      return Ok(toAbsolute(p));
     }
   }
 

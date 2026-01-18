@@ -160,12 +160,104 @@ export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX
 export const userIdToGroupId = (uid: UserId): GroupId => uid as unknown as GroupId;
 
 // ============================================================================
-// Path Construction Helpers
+// Compile-Time Path Validation
+// ============================================================================
+
+/**
+ * Template literal type that matches absolute path patterns.
+ * Used for compile-time validation of path literals.
+ */
+type AbsolutePathLiteral = `/${string}`;
+
+/**
+ * Create an AbsolutePath from a string literal with compile-time validation.
+ *
+ * This function only accepts string literals that start with '/'.
+ * Variables are rejected because their values aren't known at compile time.
+ *
+ * Use cases:
+ * - Hardcoded system paths: path("/etc/passwd")
+ * - Test fixtures: path("/tmp/test-dir")
+ * - Known config locations: path("/etc/divban")
+ *
+ * For dynamic paths (variables, user input), use:
+ * - AbsolutePath(str) for runtime validation returning Result
+ * - pathJoin(base, ...segments) for path concatenation
+ *
+ * @example
+ * // Compiles - literal starting with /
+ * const passwd = path("/etc/passwd");
+ *
+ * // Compile error - doesn't start with /
+ * const bad = path("relative/path");
+ *
+ * // Compile error - variable (even if it starts with /)
+ * const str = "/etc/hosts";
+ * const hosts = path(str);  // Error: string is not assignable to `/${string}`
+ */
+export const path = <const S extends AbsolutePathLiteral>(literal: S): AbsolutePath =>
+  literal as unknown as AbsolutePath;
+
+// ============================================================================
+// Type-Safe Path Concatenation
+// ============================================================================
+
+/**
+ * Join path segments with type preservation.
+ *
+ * When the base is an AbsolutePath, the result is also an AbsolutePath.
+ * When the base is a plain string, the result is a plain string.
+ *
+ * This allows safe path construction without losing type information:
+ *
+ * @example
+ * const dataDir: AbsolutePath = path("/srv/data");
+ *
+ * // Result is AbsolutePath (not string)
+ * const configDir = pathJoin(dataDir, "config");
+ * const backupPath = pathJoin(dataDir, "backups", "2024-01-01.tar.gz");
+ *
+ * // Multiple segments work
+ * const deep = pathJoin(dataDir, "a", "b", "c", "file.txt");
+ *
+ * // Plain strings stay as strings
+ * const relative = pathJoin("foo", "bar");  // string
+ */
+export function pathJoin(base: AbsolutePath, ...segments: string[]): AbsolutePath;
+export function pathJoin(base: string, ...segments: string[]): string;
+export function pathJoin(base: string, ...segments: string[]): string {
+  if (segments.length === 0) {
+    return base;
+  }
+  const joined = [base, ...segments].join("/");
+  // Normalize multiple slashes but preserve leading slash
+  return joined.replace(/\/+/g, "/");
+}
+
+/**
+ * Append a suffix to a path (e.g., for temp files or backups).
+ * Preserves AbsolutePath brand.
+ *
+ * @example
+ * const file: AbsolutePath = path("/etc/config.toml");
+ * const backup = pathWithSuffix(file, ".bak");      // "/etc/config.toml.bak"
+ * const temp = pathWithSuffix(file, `.tmp.${id}`);  // "/etc/config.toml.tmp.123"
+ */
+export function pathWithSuffix(base: AbsolutePath, suffix: string): AbsolutePath;
+export function pathWithSuffix(base: string, suffix: string): string;
+export function pathWithSuffix(base: string, suffix: string): string {
+  return `${base}${suffix}`;
+}
+
+// ============================================================================
+// Path Construction Helpers (Legacy)
 // ============================================================================
 
 /**
  * Unwrap AbsolutePath Result or throw.
  * Use only for compile-time known valid paths (string literals starting with /).
+ *
+ * @deprecated Use path() for string literals with compile-time validation.
  */
 export const unsafePath = (s: string): AbsolutePath => {
   const result = AbsolutePath(s);
@@ -190,6 +282,8 @@ export const joinPath = (...segments: string[]): Result<AbsolutePath, DivbanErro
 /**
  * Join paths unsafely (throws on invalid).
  * Use only when all segments are known valid at compile time.
+ *
+ * @deprecated Use pathJoin() for type-preserving path concatenation.
  */
 export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
   const result = joinPath(...segments);
