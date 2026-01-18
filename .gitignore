@@ -602,5 +602,6 @@ temp/
 # PROJECT-SPECIFIC
 # =============================================================================
 
-# Compiled binary
+# Compiled binaries
+/bin/
 /divban
