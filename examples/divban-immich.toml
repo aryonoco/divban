@@ -1,0 +1,103 @@
+# divban-immich.toml - Immich photo management configuration
+#
+# Immich is a self-hosted photo and video management solution.
+# This is a multi-container service with:
+#   - immich-server (main application)
+#   - immich-machine-learning (ML/AI features)
+#   - immich-redis (caching)
+#   - immich-postgres (database with pgvecto.rs)
+
+[paths]
+# Directory for all Immich data
+dataDir = "/srv/divban-immich"
+
+# Optional: Separate paths for different data types
+# uploadDir = "/srv/divban-immich/upload"
+# profileDir = "/srv/divban-immich/profile"
+# thumbsDir = "/srv/divban-immich/thumbs"
+# encodedDir = "/srv/divban-immich/encoded"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Database Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[database]
+# PostgreSQL credentials
+# IMPORTANT: Change these in production!
+database = "immich"
+username = "immich"
+password = "change-me-in-production"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Hardware Acceleration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[hardware]
+# Transcoding backend for video encoding
+# Options:
+#   - "disabled" (CPU only, no hardware acceleration)
+#   - "nvenc" (NVIDIA GPU via NVENC)
+#   - "qsv" (Intel Quick Sync Video)
+#   - "vaapi" (Video Acceleration API - Intel/AMD)
+#   - "vaapi-wsl" (VAAPI for WSL2)
+#   - "rkmpp" (Rockchip MPP for ARM SoCs)
+transcoding = "disabled"
+
+# Machine Learning backend
+# Options:
+#   - "disabled" (no ML features)
+#   - "cuda" (NVIDIA CUDA)
+#   - "openvino" (Intel OpenVINO)
+#   - "armnn" (ARM NN for ARM CPUs)
+#   - "rknn" (Rockchip NPU)
+#   - "rocm" (AMD ROCm - experimental)
+ml = "disabled"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# External Photo Libraries
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Mount external directories containing photos to import
+# These are mounted read-only by default for safety
+
+# [[externalLibraries]]
+# name = "camera-roll"
+# path = "/mnt/nas/photos/camera-roll"
+# readOnly = true
+
+# [[externalLibraries]]
+# name = "family-archive"
+# path = "/mnt/nas/photos/family"
+# readOnly = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Container Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[containers.server]
+# Main Immich server
+image = "ghcr.io/immich-app/immich-server:release"
+
+[containers.machineLearning]
+# Machine Learning container (can be disabled)
+enabled = true
+image = "ghcr.io/immich-app/immich-machine-learning:release"
+
+[containers.redis]
+# Redis cache
+image = "docker.io/library/redis:7-alpine"
+
+[containers.postgres]
+# PostgreSQL with pgvecto.rs extension for vector similarity search
+image = "docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Miscellaneous
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Public URL for Immich (used for sharing links)
+publicUrl = "https://photos.example.com"
+
+# Log level
+# Options: "verbose", "debug", "log", "warn", "error"
+logLevel = "log"

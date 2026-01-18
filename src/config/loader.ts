@@ -1,0 +1,151 @@
+/**
+ * Configuration file loading and parsing.
+ * Supports TOML format with Zod validation.
+ */
+
+import { parse as parseToml } from "smol-toml";
+import type { ZodType } from "zod";
+import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
+import { Err, Ok, type Result, tryCatch } from "../lib/result";
+import type { AbsolutePath } from "../lib/types";
+import { globalConfigSchema, type GlobalConfig } from "./schema";
+
+/**
+ * Load and parse a TOML file.
+ */
+export const loadTomlFile = async <T>(
+  filePath: AbsolutePath,
+  schema: ZodType<T>
+): Promise<Result<T, DivbanError>> => {
+  // Check if file exists
+  const file = Bun.file(filePath);
+  const exists = await file.exists();
+
+  if (!exists) {
+    return Err(
+      new DivbanError(ErrorCode.CONFIG_NOT_FOUND, `Configuration file not found: ${filePath}`)
+    );
+  }
+
+  // Read file content
+  const contentResult = await tryCatch(
+    () => file.text(),
+    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to read ${filePath}`)
+  );
+
+  if (!contentResult.ok) return contentResult;
+
+  // Parse TOML
+  let parsed: unknown;
+  try {
+    parsed = parseToml(contentResult.value);
+  } catch (e) {
+    return Err(
+      wrapError(e, ErrorCode.CONFIG_PARSE_ERROR, `Failed to parse TOML in ${filePath}`)
+    );
+  }
+
+  // Validate with Zod schema
+  const parseResult = schema.safeParse(parsed);
+
+  if (!parseResult.success) {
+    const issues = parseResult.error.issues
+      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    return Err(
+      new DivbanError(
+        ErrorCode.CONFIG_VALIDATION_ERROR,
+        `Configuration validation failed for ${filePath}:\n${issues}`
+      )
+    );
+  }
+
+  return Ok(parseResult.data);
+};
+
+/**
+ * Load global configuration from divban.toml.
+ * Returns default values if file doesn't exist.
+ */
+export const loadGlobalConfig = async (
+  configPath?: AbsolutePath
+): Promise<Result<GlobalConfig, DivbanError>> => {
+  // Try default paths if not specified
+  const paths: AbsolutePath[] = configPath
+    ? [configPath]
+    : ([
+        "/etc/divban/divban.toml",
+        `${process.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
+        "./divban.toml",
+      ] as AbsolutePath[]);
+
+  for (const path of paths) {
+    const file = Bun.file(path);
+    if (await file.exists()) {
+      return loadTomlFile(path, globalConfigSchema);
+    }
+  }
+
+  // Return defaults if no config file found
+  return Ok(globalConfigSchema.parse({}));
+};
+
+/**
+ * Load service-specific configuration.
+ */
+export const loadServiceConfig = async <T>(
+  filePath: AbsolutePath,
+  schema: ZodType<T>
+): Promise<Result<T, DivbanError>> => {
+  return loadTomlFile(filePath, schema);
+};
+
+/**
+ * Find service config file using common patterns.
+ */
+export const findServiceConfig = async (
+  serviceName: string,
+  searchPaths?: AbsolutePath[]
+): Promise<Result<AbsolutePath, DivbanError>> => {
+  const defaultPaths: AbsolutePath[] = [
+    `./divban-${serviceName}.toml` as AbsolutePath,
+    `./${serviceName}/divban-${serviceName}.toml` as AbsolutePath,
+    `/etc/divban/divban-${serviceName}.toml` as AbsolutePath,
+  ];
+
+  const paths = searchPaths ?? defaultPaths;
+
+  for (const path of paths) {
+    const file = Bun.file(path);
+    if (await file.exists()) {
+      return Ok(path);
+    }
+  }
+
+  return Err(
+    new DivbanError(
+      ErrorCode.CONFIG_NOT_FOUND,
+      `No configuration found for service '${serviceName}'. Searched: ${paths.join(", ")}`
+    )
+  );
+};
+
+/**
+ * Check if a path exists and is a file.
+ */
+export const fileExists = async (path: AbsolutePath): Promise<boolean> => {
+  const file = Bun.file(path);
+  return file.exists();
+};
+
+/**
+ * Check if a path exists and is a directory.
+ */
+export const directoryExists = async (path: string): Promise<boolean> => {
+  try {
+    const stat = await Bun.file(path).exists();
+    return stat;
+  } catch {
+    return false;
+  }
+};

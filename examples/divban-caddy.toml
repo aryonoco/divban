@@ -1,0 +1,109 @@
+# divban-caddy.toml - Caddy reverse proxy configuration
+#
+# Caddy is a powerful, enterprise-ready web server with automatic HTTPS.
+# This configuration generates both Caddyfile and Quadlet files.
+
+[paths]
+# Directory for Caddy data (certificates, config, etc.)
+dataDir = "/srv/divban-caddy"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Container Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[container]
+# Container image to use
+image = "docker.io/library/caddy:2-alpine"
+
+# Auto-update policy
+autoUpdate = "registry"
+
+# Port bindings
+[[container.ports]]
+host = 80
+container = 80
+protocol = "tcp"
+
+[[container.ports]]
+host = 443
+container = 443
+protocol = "tcp"
+
+[[container.ports]]
+host = 443
+container = 443
+protocol = "udp"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddyfile Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[caddyfile.global]
+email = "admin@example.com"
+# Uncomment for staging certificates during testing:
+# acmeCA = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Snippets - Reusable configuration blocks
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[caddyfile.snippets]]
+name = "common_headers"
+[[caddyfile.snippets.directives]]
+name = "header"
+args = ["X-Frame-Options", "SAMEORIGIN"]
+[[caddyfile.snippets.directives]]
+name = "header"
+args = ["X-Content-Type-Options", "nosniff"]
+
+[[caddyfile.snippets]]
+name = "proxy_headers"
+[[caddyfile.snippets.directives]]
+name = "header_up"
+args = ["X-Real-IP", "{http.request.remote.host}"]
+[[caddyfile.snippets.directives]]
+name = "header_up"
+args = ["X-Forwarded-Proto", "{http.request.scheme}"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sites
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Example: Reverse proxy to Immich photo management
+[[caddyfile.sites]]
+addresses = ["photos.example.com"]
+[[caddyfile.sites.directives]]
+name = "import"
+args = ["common_headers"]
+[[caddyfile.sites.directives]]
+name = "reverse_proxy"
+args = ["localhost:2283"]
+
+# Example: Reverse proxy to Actual Budget
+[[caddyfile.sites]]
+addresses = ["budget.example.com"]
+[[caddyfile.sites.directives]]
+name = "import"
+args = ["common_headers"]
+[[caddyfile.sites.directives]]
+name = "reverse_proxy"
+args = ["localhost:5006"]
+
+# Example: Static file server
+[[caddyfile.sites]]
+addresses = ["static.example.com"]
+[[caddyfile.sites.directives]]
+name = "import"
+args = ["common_headers"]
+[[caddyfile.sites.directives]]
+name = "root"
+args = ["*", "/srv/static"]
+[[caddyfile.sites.directives]]
+name = "file_server"
+
+# Example: Redirect www to non-www
+[[caddyfile.sites]]
+addresses = ["www.example.com"]
+[[caddyfile.sites.directives]]
+name = "redir"
+args = ["https://example.com{uri}", "permanent"]

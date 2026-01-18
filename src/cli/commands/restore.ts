@@ -1,0 +1,132 @@
+/**
+ * Restore command - restore from a backup.
+ */
+
+import type { Logger } from "../../lib/logger";
+import type { Service, ServiceContext } from "../../services/types";
+import type { ParsedArgs } from "../parser";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Err, Ok, type Result } from "../../lib/result";
+import type { AbsolutePath, GroupId } from "../../lib/types";
+import { getServiceUsername } from "../../config/schema";
+import { getUserByName } from "../../system/user";
+import { resolveServiceConfig } from "./utils";
+
+export interface RestoreOptions {
+  service: Service;
+  args: ParsedArgs;
+  logger: Logger;
+}
+
+/**
+ * Execute the restore command.
+ */
+export const executeRestore = async (
+  options: RestoreOptions
+): Promise<Result<void, DivbanError>> => {
+  const { service, args, logger } = options;
+
+  // Check if service supports restore
+  if (!service.definition.capabilities.hasRestore || !service.restore) {
+    return Err(
+      new DivbanError(
+        ErrorCode.GENERAL_ERROR,
+        `Service '${service.definition.name}' does not support restore`
+      )
+    );
+  }
+
+  // Check backup path is provided
+  if (!args.backupPath) {
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        "Backup path is required for restore command"
+      )
+    );
+  }
+
+  // Get service user
+  const usernameResult = getServiceUsername(service.definition.name);
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
+  const username = usernameResult.value;
+
+  const userResult = await getUserByName(username);
+  if (!userResult.ok) {
+    return Err(
+      new DivbanError(
+        ErrorCode.SERVICE_NOT_FOUND,
+        `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
+      )
+    );
+  }
+
+  const { uid, homeDir } = userResult.value;
+  const gid = uid as unknown as GroupId;
+
+  // Resolve config
+  const configResult = await resolveServiceConfig(service, homeDir);
+  if (!configResult.ok) {
+    return configResult;
+  }
+
+  // Build service context
+  const ctx: ServiceContext = {
+    config: configResult.value,
+    logger,
+    paths: {
+      dataDir: (configResult.value as any).paths?.dataDir as AbsolutePath,
+      quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
+      configDir: `${homeDir}/.config/divban` as AbsolutePath,
+    },
+    user: {
+      name: username,
+      uid,
+      gid,
+    },
+  };
+
+  if (args.dryRun) {
+    logger.info(`Dry run - would restore from: ${args.backupPath}`);
+    return Ok(undefined);
+  }
+
+  // Warn about data overwrite
+  if (!args.force) {
+    logger.warn("This will overwrite existing data!");
+    logger.warn("Use --force to skip this warning.");
+    // In a real CLI we'd prompt for confirmation here
+    // For now, require --force flag
+    return Err(
+      new DivbanError(
+        ErrorCode.GENERAL_ERROR,
+        "Restore requires --force flag for safety"
+      )
+    );
+  }
+
+  logger.info(`Restoring ${service.definition.name} from: ${args.backupPath}`);
+
+  const restoreResult = await service.restore(ctx, args.backupPath as AbsolutePath);
+
+  if (!restoreResult.ok) {
+    return restoreResult;
+  }
+
+  if (args.format === "json") {
+    console.log(
+      JSON.stringify({
+        service: service.definition.name,
+        backupPath: args.backupPath,
+        status: "restored",
+      })
+    );
+  } else {
+    logger.success("Restore completed successfully");
+    logger.info("You may need to restart the service: divban " + service.definition.name + " restart");
+  }
+
+  return Ok(undefined);
+};

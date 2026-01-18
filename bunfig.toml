@@ -1,0 +1,15 @@
+[build]
+target = "bun"
+minify = true
+sourcemap = "external"
+
+[test]
+coverage = true
+coverageDir = "coverage"
+coverageReporter = ["text", "lcov"]
+
+[install]
+peer = false
+
+[install.lockfile]
+save = true

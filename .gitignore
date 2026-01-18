@@ -596,4 +596,11 @@ temp/
 !*.local.example
 
 # Claude Code
-# .claude/  # Uncomment if you don't want Claude settings tracked
+.claude/
+
+# =============================================================================
+# PROJECT-SPECIFIC
+# =============================================================================
+
+# Compiled binary
+/divban

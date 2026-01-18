@@ -1,0 +1,41 @@
+# divban.toml - Global settings applied to all services
+#
+# This is the global configuration file for divban.
+# Place it at /etc/divban/divban.toml or ~/.config/divban/divban.toml
+
+[defaults]
+# Default network mode for all services
+# Options: "pasta" (Podman 5.0+ default, recommended), "slirp4netns"
+network_mode = "pasta"
+
+# Default auto-update policy
+# Options: "registry" (check for new images), "local" (use local images only), false (disable)
+auto_update = "registry"
+
+# Default timezone for containers
+timezone = "UTC"
+
+[users]
+# Dynamic UID allocation range for service users
+# divban will automatically allocate UIDs from this range
+uid_range_start = 10000
+uid_range_end = 59999
+
+# Subordinate UID range for user namespaces
+# Each user gets a 65536-UID range starting from subuid_range_start
+subuid_range_start = 100000
+subuid_range_size = 65536
+
+[logging]
+# Default log level
+# Options: "debug", "info", "warn", "error"
+level = "info"
+
+# Output format
+# Options: "pretty" (colored terminal output), "json" (structured JSON)
+format = "pretty"
+
+[paths]
+# Base directory for service data
+# Each service will create a subdirectory here
+base_data_dir = "/srv"

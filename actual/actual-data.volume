@@ -1,8 +1,0 @@
-[Unit]
-Description=Actual Budget Data Volume
-
-[Volume]
-VolumeName=actual-data
-
-[Install]
-WantedBy=default.target

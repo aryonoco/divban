@@ -1,5 +1,31 @@
 {
+  "name": "divban",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Unified rootless Podman service manager",
+  "bin": {
+    "divban": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --compile --outfile divban",
+    "dev": "bun run ./src/index.ts",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "lint": "bunx @biomejs/biome check .",
+    "format": "bunx @biomejs/biome format --write .",
+    "typecheck": "bunx tsc --noEmit"
+  },
   "dependencies": {
-    "smol-toml": "^1.6.0"
-  }
+    "smol-toml": "^1.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "license": "MIT"
 }
