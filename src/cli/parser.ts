@@ -1,7 +1,8 @@
 /**
- * CLI argument parsing.
+ * CLI argument parsing using Node.js util.parseArgs.
  */
 
+import { parseArgs as nodeParseArgs } from "node:util";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
 
@@ -91,138 +92,122 @@ export const isCommand = (s: string): s is Command => {
 };
 
 /**
- * Parse command line arguments.
+ * Parse command line arguments using Node.js util.parseArgs.
  */
 export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
   const args: ParsedArgs = { ...defaultArgs };
-  const positional: string[] = [];
 
-  let i = 0;
-  while (i < argv.length) {
-    const arg = argv[i];
+  try {
+    const { values, positionals } = nodeParseArgs({
+      args: argv,
+      options: {
+        help: { type: "boolean", short: "h" },
+        verbose: { type: "boolean", short: "v" },
+        "dry-run": { type: "boolean" },
+        force: { type: "boolean", short: "f" },
+        follow: { type: "boolean" },
+        lines: { type: "string", short: "n" },
+        output: { type: "string", short: "o" },
+        container: { type: "string", short: "c" },
+        "log-level": { type: "string" },
+        format: { type: "string" },
+        json: { type: "boolean" },
+      },
+      allowPositionals: true,
+      strict: true,
+    });
 
-    if (arg === undefined) {
-      i++;
-      continue;
+    // Apply parsed flags
+    if (values.help) {
+      args.help = true;
+    }
+    if (values.verbose) {
+      args.verbose = true;
+      args.logLevel = "debug";
+    }
+    if (values["dry-run"]) {
+      args.dryRun = true;
+    }
+    if (values.force) {
+      args.force = true;
+    }
+    if (values.follow) {
+      args.follow = true;
+    }
+    if (values.json) {
+      args.format = "json";
     }
 
-    // Handle flags
-    if (arg.startsWith("-")) {
-      switch (arg) {
-        case "-h":
-        case "--help":
-          args.help = true;
-          break;
-        case "-v":
-        case "--verbose": {
-          args.verbose = true;
-          args.logLevel = "debug";
-          break;
-        }
-        case "--dry-run":
-          args.dryRun = true;
-          break;
-        case "-f":
-        case "--force":
-          args.force = true;
-          break;
-        case "--follow":
-          args.follow = true;
-          break;
-        case "-n":
-        case "--lines": {
-          const next = argv[++i];
-          if (next !== undefined) {
-            const n = Number.parseInt(next, 10);
-            if (!Number.isNaN(n) && n > 0) {
-              args.lines = n;
-            }
-          }
-          break;
-        }
-        case "-o":
-        case "--output": {
-          const next = argv[++i];
-          if (next !== undefined) {
-            args.outputDir = next;
-          }
-          break;
-        }
-        case "-c":
-        case "--container": {
-          const next = argv[++i];
-          if (next !== undefined) {
-            args.container = next;
-          }
-          break;
-        }
-        case "--log-level": {
-          const next = argv[++i];
-          if (next !== undefined && ["debug", "info", "warn", "error"].includes(next)) {
-            args.logLevel = next as ParsedArgs["logLevel"];
-          }
-          break;
-        }
-        case "--format": {
-          const next = argv[++i];
-          if (next !== undefined && ["pretty", "json"].includes(next)) {
-            args.format = next as ParsedArgs["format"];
-          }
-          break;
-        }
-        case "--json":
-          args.format = "json";
-          break;
-        default:
-          return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Unknown option: ${arg}`));
+    // Apply parsed options with values
+    if (values.lines !== undefined) {
+      const n = Number.parseInt(values.lines, 10);
+      if (!Number.isNaN(n) && n > 0) {
+        args.lines = n;
+      }
+    }
+    if (values.output !== undefined) {
+      args.outputDir = values.output;
+    }
+    if (values.container !== undefined) {
+      args.container = values.container;
+    }
+    if (
+      values["log-level"] !== undefined &&
+      ["debug", "info", "warn", "error"].includes(values["log-level"])
+    ) {
+      args.logLevel = values["log-level"] as ParsedArgs["logLevel"];
+    }
+    if (values.format !== undefined && ["pretty", "json"].includes(values.format)) {
+      args.format = values.format as ParsedArgs["format"];
+    }
+
+    // Parse positional arguments: <service> <command> [config|backup-path]
+    if (positionals.length === 0) {
+      args.help = true;
+      return Ok(args);
+    }
+
+    // First positional: service name
+    args.service = positionals[0] ?? "";
+
+    // Second positional: command
+    if (positionals.length >= 2) {
+      const cmd = positionals[1];
+      if (cmd !== undefined && isCommand(cmd)) {
+        args.command = cmd;
+      } else if (cmd !== undefined) {
+        return Err(
+          new DivbanError(
+            ErrorCode.INVALID_ARGS,
+            `Unknown command: ${cmd}. Available commands: ${COMMANDS.join(", ")}`
+          )
+        );
       }
     } else {
-      positional.push(arg);
+      // Default to status if only service provided
+      args.command = "status";
     }
 
-    i++;
-  }
-
-  // Parse positional arguments: <service> <command> [config|backup-path]
-  if (positional.length === 0) {
-    args.help = true;
-    return Ok(args);
-  }
-
-  // First positional: service name
-  args.service = positional[0] ?? "";
-
-  // Second positional: command
-  if (positional.length >= 2) {
-    const cmd = positional[1];
-    if (cmd !== undefined && isCommand(cmd)) {
-      args.command = cmd;
-    } else if (cmd !== undefined) {
-      return Err(
-        new DivbanError(
-          ErrorCode.INVALID_ARGS,
-          `Unknown command: ${cmd}. Available commands: ${COMMANDS.join(", ")}`
-        )
-      );
-    }
-  } else {
-    // Default to status if only service provided
-    args.command = "status";
-  }
-
-  // Third positional: config path or backup path
-  if (positional.length >= 3) {
-    const third = positional[2];
-    if (third !== undefined) {
-      if (args.command === "restore") {
-        args.backupPath = third;
-      } else {
-        args.configPath = third;
+    // Third positional: config path or backup path
+    if (positionals.length >= 3) {
+      const third = positionals[2];
+      if (third !== undefined) {
+        if (args.command === "restore") {
+          args.backupPath = third;
+        } else {
+          args.configPath = third;
+        }
       }
     }
-  }
 
-  return Ok(args);
+    return Ok(args);
+  } catch (e) {
+    // Handle unknown options from strict mode
+    if (e instanceof Error && e.message.includes("Unknown option")) {
+      return Err(new DivbanError(ErrorCode.INVALID_ARGS, e.message));
+    }
+    throw e;
+  }
 };
 
 /**

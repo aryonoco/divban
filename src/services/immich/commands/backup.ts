@@ -12,6 +12,30 @@ import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 import { directoryExists, ensureDirectory } from "../../../system/fs";
 
+/**
+ * Compression method for backups.
+ * - zstd: Zstandard compression (3-5x faster, better ratio) - default
+ * - gzip: Standard gzip compression (good compatibility)
+ */
+export type CompressionMethod = "zstd" | "gzip";
+
+/**
+ * Compress data using the specified method.
+ */
+const compressData = (
+  data: Uint8Array<ArrayBuffer>,
+  method: CompressionMethod = "zstd"
+): Uint8Array => {
+  return method === "zstd" ? Bun.zstdCompressSync(data, { level: 6 }) : Bun.gzipSync(data);
+};
+
+/**
+ * Get file extension for the compression method.
+ */
+const getCompressionExtension = (method: CompressionMethod): string => {
+  return method === "zstd" ? ".zst" : ".gz";
+};
+
 export interface BackupOptions {
   /** Data directory */
   dataDir: AbsolutePath;
@@ -27,6 +51,8 @@ export interface BackupOptions {
   database?: string;
   /** Database user */
   dbUser?: string;
+  /** Compression method (default: zstd) */
+  compression?: CompressionMethod;
 }
 
 /**
@@ -42,10 +68,12 @@ export const backupDatabase = async (
     logger,
     containerName = "immich-postgres",
     dbUser = "immich",
+    compression = "zstd",
   } = options;
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const backupFilename = `immich-db-backup-${timestamp}.sql.gz`;
+  const ext = getCompressionExtension(compression);
+  const backupFilename = `immich-db-backup-${timestamp}.sql${ext}`;
   const backupPath = `${dataDir}/backups/${backupFilename}` as AbsolutePath;
 
   logger.info(`Creating database backup: ${backupFilename}`);
@@ -79,9 +107,9 @@ export const backupDatabase = async (
     return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Database dump failed: ${stderr}`));
   }
 
-  // Compress in-memory using Bun.gzipSync - no subprocess needed
-  const dumpBuffer = Buffer.from(dumpResult.value.stdout);
-  const compressed = Bun.gzipSync(dumpBuffer);
+  // Compress in-memory using Bun compression - no subprocess needed
+  const dumpData = new Uint8Array(Buffer.from(dumpResult.value.stdout));
+  const compressed = compressData(dumpData, compression);
 
   // Write compressed data to file
   try {
@@ -100,6 +128,7 @@ export const backupDatabase = async (
 /**
  * List available backups.
  * Uses Bun.Glob for native file discovery - no subprocess needed.
+ * Finds both gzip (.sql.gz) and zstd (.sql.zst) compressed backups.
  */
 export const listBackups = async (
   dataDir: AbsolutePath
@@ -110,7 +139,8 @@ export const listBackups = async (
     return Ok([]);
   }
 
-  const glob = new Glob("*.sql.gz");
+  // Match both gzip and zstd compressed backups
+  const glob = new Glob("*.sql.{gz,zst}");
   const files: string[] = [];
 
   for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {

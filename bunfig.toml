@@ -2,6 +2,7 @@
 target = "bun"
 minify = true
 sourcemap = "external"
+bytecode = true
 
 [test]
 coverage = true
@@ -9,12 +10,16 @@ coverageDir = "coverage"
 coverageReporter = ["text", "lcov"]
 coverageSkipTestFiles = true
 coverageThreshold = { line = 0.7, function = 0.8 }
+timeout = 10000
+preload = ["./tests/setup.ts"]
 
 [run]
 bun = true
+read = [".env.local", ".env"]
 
 [install]
 peer = false
+frozenLockfile = true
 
 [install.lockfile]
 save = true

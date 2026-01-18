@@ -283,3 +283,52 @@ export const deleteFileIfExists = async (
   }
   return Ok(true);
 };
+
+/**
+ * Hash file contents using Bun.hash() for fast non-cryptographic hashing.
+ * Useful for change detection. Returns bigint for xxhash64 (default) or number for xxhash32.
+ */
+export const hashFile = async (
+  path: AbsolutePath
+): Promise<Result<number | bigint, DivbanError>> => {
+  const content = await readFile(path);
+  if (!content.ok) {
+    return content;
+  }
+  return Ok(Bun.hash(content.value));
+};
+
+/**
+ * Hash content using Bun.hash() for fast non-cryptographic hashing.
+ * Returns bigint for xxhash64 (default) or number for xxhash32.
+ */
+export const hashContent = (content: string | Uint8Array): number | bigint => {
+  return Bun.hash(content);
+};
+
+/**
+ * Compute SHA-256 hash of a file using Bun.CryptoHasher.
+ * Useful for cryptographic verification (e.g., backup integrity).
+ */
+export const sha256File = async (path: AbsolutePath): Promise<Result<string, DivbanError>> => {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `File not found: ${path}`));
+  }
+
+  return tryCatch(
+    async () => {
+      const hasher = new Bun.CryptoHasher("sha256");
+      hasher.update(await file.arrayBuffer());
+      return hasher.digest("hex");
+    },
+    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to hash file: ${path}`)
+  );
+};
+
+/**
+ * Deep equality comparison using Bun.deepEquals.
+ */
+export const objectsEqual = <T>(a: T, b: T, strict = false): boolean => {
+  return Bun.deepEquals(a, b, strict);
+};

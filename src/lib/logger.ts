@@ -1,5 +1,6 @@
 /**
  * Structured logging with ANSI colors for CLI output.
+ * Uses Bun.color() for automatic terminal capability detection.
  */
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -12,41 +13,32 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 };
 
 /**
- * ANSI color codes for terminal output.
+ * Color names supported by Bun.color() for terminal output.
  */
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-
-  // Foreground colors
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  white: "\x1b[37m",
-  gray: "\x1b[90m",
-} as const;
+type ColorName = "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray";
 
 /**
- * Check if output supports colors.
+ * Colorize text using Bun.color() with automatic terminal capability detection.
+ * Bun.color() handles NO_COLOR, FORCE_COLOR environment variables automatically.
  */
-const supportsColor = (): boolean => {
-  // Check NO_COLOR environment variable (https://no-color.org/)
-  if (process.env["NO_COLOR"] !== undefined) {
-    return false;
-  }
-
-  // Check FORCE_COLOR
-  if (process.env["FORCE_COLOR"] !== undefined) {
-    return true;
-  }
-
-  // Check if stdout is a TTY
-  return process.stdout.isTTY === true;
+const colorize = (color: ColorName, text: string): string => {
+  const ansi = Bun.color(color, "ansi");
+  return ansi ? `${ansi}${text}\x1b[0m` : text;
 };
+
+/**
+ * Apply bold styling to text.
+ */
+const bold = (text: string): string => {
+  // Bun.color doesn't support bold directly, use ANSI escape
+  const supportsColor = Bun.color("white", "ansi") !== null;
+  return supportsColor ? `\x1b[1m${text}\x1b[0m` : text;
+};
+
+/**
+ * Strip ANSI escape codes from text.
+ */
+export const stripColors = (text: string): string => Bun.stripANSI(text);
 
 export interface LoggerOptions {
   level: LogLevel;
@@ -73,31 +65,38 @@ export interface Logger {
  */
 export const createLogger = (options: LoggerOptions): Logger => {
   const minLevel = LOG_LEVELS[options.level];
-  const useColor = options.color ?? supportsColor();
   const service = options.service;
 
-  const colorize = (color: keyof typeof colors, text: string): string =>
-    useColor ? `${colors[color]}${text}${colors.reset}` : text;
+  // Determine if we should use colors based on option or auto-detect
+  const useColor = options.color ?? Bun.color("white", "ansi") !== null;
+
+  // Internal colorize that respects the useColor option
+  const applyColor = (color: ColorName, text: string): string =>
+    useColor ? colorize(color, text) : text;
 
   const formatContext = (ctx?: Record<string, unknown>): string => {
     if (!ctx || Object.keys(ctx).length === 0) {
       return "";
     }
-    return ` ${Object.entries(ctx)
-      .map(([k, v]) => colorize("dim", `${k}=`) + JSON.stringify(v))
-      .join(" ")}`;
+
+    if (options.format === "json") {
+      return ` ${JSON.stringify(ctx)}`;
+    }
+
+    // Use Bun.inspect for pretty debug output
+    return ` ${Bun.inspect(ctx, { colors: useColor, depth: 3 })}`;
   };
 
   const formatPrefix = (level: LogLevel): string => {
-    const levelColors: Record<LogLevel, keyof typeof colors> = {
+    const levelColors: Record<LogLevel, ColorName> = {
       debug: "gray",
       info: "blue",
       warn: "yellow",
       error: "red",
     };
 
-    const levelStr = colorize(levelColors[level], level.toUpperCase().padEnd(5));
-    const serviceStr = service ? `${colorize("cyan", `[${service}]`)} ` : "";
+    const levelStr = applyColor(levelColors[level], level.toUpperCase().padEnd(5));
+    const serviceStr = service ? `${applyColor("cyan", `[${service}]`)} ` : "";
     return `${levelStr} ${serviceStr}`;
   };
 
@@ -143,18 +142,18 @@ export const createLogger = (options: LoggerOptions): Logger => {
     },
 
     step: (current: number, total: number, message: string): void => {
-      const prefix = colorize("bold", `[${current}/${total}]`);
-      const arrow = colorize("cyan", "→");
+      const prefix = useColor ? bold(`[${current}/${total}]`) : `[${current}/${total}]`;
+      const arrow = applyColor("cyan", "→");
       process.stdout.write(`${prefix} ${arrow} ${message}\n`);
     },
 
     success: (message: string): void => {
-      const check = colorize("green", "✓");
+      const check = applyColor("green", "✓");
       process.stdout.write(`${check} ${message}\n`);
     },
 
     fail: (message: string): void => {
-      const cross = colorize("red", "✗");
+      const cross = applyColor("red", "✗");
       process.stderr.write(`${cross} ${message}\n`);
     },
 

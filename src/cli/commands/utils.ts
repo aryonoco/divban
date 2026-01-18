@@ -109,3 +109,42 @@ export const getDataDirFromConfig = (config: unknown, fallback: AbsolutePath): A
   }
   return fallback;
 };
+
+/**
+ * Pad text to a specific display width using Bun.stringWidth().
+ * Handles Unicode and emoji correctly (6,756x faster than npm packages).
+ */
+export const padToWidth = (text: string, width: number): string => {
+  const currentWidth = Bun.stringWidth(text);
+  return text + " ".repeat(Math.max(0, width - currentWidth));
+};
+
+/**
+ * Truncate text to a maximum display width using Bun.stringWidth().
+ * Handles Unicode and emoji correctly.
+ */
+export const truncateToWidth = (text: string, maxWidth: number): string => {
+  if (Bun.stringWidth(text) <= maxWidth) {
+    return text;
+  }
+  let result = "";
+  for (const char of text) {
+    if (Bun.stringWidth(result + char) > maxWidth - 1) {
+      break;
+    }
+    result += char;
+  }
+  return `${result}…`;
+};
+
+/**
+ * Prompt user for confirmation using console async iterable.
+ */
+export const confirm = async (prompt: string): Promise<boolean> => {
+  console.write(`${prompt} [y/N] `);
+  for await (const line of console) {
+    const answer = line.toLowerCase().trim();
+    return answer === "y" || answer === "yes";
+  }
+  return false;
+};
