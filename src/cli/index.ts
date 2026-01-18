@@ -22,6 +22,7 @@ import { executeDiff } from "./commands/diff";
 import { executeGenerate } from "./commands/generate";
 import { executeLogs } from "./commands/logs";
 import { executeReload } from "./commands/reload";
+import { executeRemove } from "./commands/remove";
 import { executeRestart } from "./commands/restart";
 import { executeRestore } from "./commands/restore";
 import { executeSetup } from "./commands/setup";
@@ -151,6 +152,9 @@ const executeCommand = (
 
     case "reload":
       return executeReload({ service, args, logger });
+
+    case "remove":
+      return executeRemove({ service, args, logger });
 
     case "help": {
       return Promise.resolve(Ok(undefined));

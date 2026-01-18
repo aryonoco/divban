@@ -30,6 +30,7 @@ export const COMMANDS: readonly string[] = [
   "backup",
   "restore",
   "reload",
+  "remove",
   "help",
 ] as const satisfies readonly string[];
 
@@ -63,6 +64,8 @@ export interface ParsedArgs {
   dryRun: boolean;
   /** Force operation */
   force: boolean;
+  /** Preserve data directories (for remove) */
+  preserveData: boolean;
 
   // Log options
   /** Follow logs */
@@ -88,6 +91,7 @@ const defaultArgs: ParsedArgs = {
   verbose: false,
   dryRun: false,
   force: false,
+  preserveData: false,
   follow: false,
   lines: 100,
   logLevel: "info",
@@ -116,6 +120,7 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
         verbose: { type: "boolean", short: "v" },
         "dry-run": { type: "boolean" },
         force: { type: "boolean", short: "f" },
+        "preserve-data": { type: "boolean" },
         follow: { type: "boolean" },
         lines: { type: "string", short: "n" },
         output: { type: "string", short: "o" },
@@ -144,6 +149,9 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     }
     if (values.force) {
       args.force = true;
+    }
+    if (values["preserve-data"]) {
+      args.preserveData = true;
     }
     if (values.follow) {
       args.follow = true;

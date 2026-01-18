@@ -5,6 +5,10 @@ SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 
 # divban
 
+![License](https://img.shields.io/badge/license-MPL--2.0-blue)
+![Bun](https://img.shields.io/badge/bun-1.0%2B-f9f1e1)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
+
 A unified CLI for managing rootless Podman services with systemd Quadlet integration.
 
 ## Overview
@@ -100,6 +104,21 @@ just fmt                 # Format code
 just ci                  # Run full CI pipeline
 ```
 
+## AI/LLM Disclosure
+
+This project was developed with significant LLM involvement. I'm a systems architect by trade, not a programmer. I designed the core logic, made technical decisions and directed development, but AI/LLM tools generated most of the code.
+
+All code was reviewed, tested, and iterated on by me. The design choices (Result types over exceptions, branded types for type safety, service abstraction patterns, etc.) are mine. The TypeScript syntax is not.
+I'm publishing this because it works for me, not because of how it was written.
+
 ## Licence
 
-MIT
+Copyright 2026 Aryan Ameri.
+
+| Content | Licence |
+|---------|---------|
+| Source code (`src/`, `tests/`) | [MPL-2.0](LICENSES/MPL-2.0.txt) |
+| Config/plumbing | [0BSD](LICENSES/0BSD.txt) |
+| Documentation | [CC-BY-4.0](LICENSES/CC-BY-4.0.txt) |
+
+This project is [REUSE](https://reuse.software/) compliant. See [REUSE.toml](REUSE.toml) for details.

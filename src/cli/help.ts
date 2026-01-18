@@ -48,6 +48,7 @@ COMMANDS:
   update               Update container images
   backup               Create a backup
   restore <backup>     Restore from a backup
+  remove               Completely remove service (requires --force)
 
 GLOBAL OPTIONS:
   -h, --help           Show help
@@ -248,6 +249,32 @@ OPTIONS:
 EXAMPLES:
   divban immich restore /srv/divban-immich/backups/immich-db-backup-2024-01-15.sql.gz
   divban actual restore /srv/divban-actual/backups/actual-backup-2024-01-15.tar.gz
+`.trim();
+
+    case "remove":
+      return `
+remove - Completely remove a service
+
+USAGE:
+  divban <service> remove [--force] [--preserve-data] [--dry-run]
+
+DESCRIPTION:
+  Completely removes a service including:
+  1. Stop all containers
+  2. Remove all podman containers, volumes, networks
+  3. Disable systemd linger
+  4. Delete service user and home directory
+  5. Remove data directory (unless --preserve-data)
+
+OPTIONS:
+  -f, --force          Required to confirm removal
+  --preserve-data      Keep the data directory
+  --dry-run            Show what would be done
+
+EXAMPLES:
+  divban actual remove --force
+  divban immich remove --force --preserve-data
+  divban caddy remove --dry-run
 `.trim();
 
     default:
