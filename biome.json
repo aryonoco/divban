@@ -61,7 +61,13 @@
         "noBarrelFile": "off"
       },
       "complexity": {
-        "useLiteralKeys": "off"
+        "useLiteralKeys": "off",
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": {
+            "maxAllowedComplexity": 50
+          }
+        }
       }
     }
   },
