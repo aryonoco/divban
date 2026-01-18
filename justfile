@@ -53,69 +53,37 @@ build-all:
 
 # Build and compress for release (matches CI/CD output)
 release-local VERSION:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    # Validate version format
-    if [[ ! "{{VERSION}}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
-        echo "ERROR: Version must match [v]X.Y.Z or [v]X.Y.Z-suffix"
-        exit 1
-    fi
-
-    # Strip 'v' prefix if present
-    VERSION="{{VERSION}}"
-    VERSION="${VERSION#v}"
-
+    echo "{{VERSION}}" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+(-.*)?$' || { echo "ERROR: Version must match [v]X.Y.Z or [v]X.Y.Z-suffix"; exit 1; }
     mkdir -p bin
-
-    echo "Building all platforms..."
+    @echo "Building all platforms..."
     bun run build:all
+    @echo ""
+    @echo "Creating release archives with zstd (level 22 --ultra)..."
+    just _package-target "{{ trim_start_match(VERSION, "v") }}" linux-amd64
+    just _package-target "{{ trim_start_match(VERSION, "v") }}" linux-amd64v3
+    just _package-target "{{ trim_start_match(VERSION, "v") }}" linux-arm64
+    rm -f bin/divban-linux-amd64 bin/divban-linux-amd64v3 bin/divban-linux-arm64
+    @echo ""
+    @echo "Generating checksums..."
+    cd bin && sha256sum *.tar.zst > SHA256SUMS && cat SHA256SUMS
+    @echo ""
+    @echo "Release artifacts in bin/:"
+    ls -lh bin/
 
-    echo ""
-    echo "Creating release archives with zstd (level 22 --ultra)..."
-
-    for target in linux-amd64 linux-amd64v3 linux-arm64; do
-        binary="bin/divban-${target}"
-        if [[ -f "$binary" ]]; then
-            archive_name="divban-${VERSION}-${target}"
-
-            # Create archive directory
-            rm -rf "${archive_name}"
-            mkdir -p "${archive_name}"
-
-            # Copy binary
-            cp "$binary" "${archive_name}/divban"
-            chmod +x "${archive_name}/divban"
-
-            # Copy examples if they exist
-            if [ -d examples ]; then
-                cp -r examples "${archive_name}/"
-            fi
-
-            # Copy README
-            if [ -f README.md ]; then
-                cp README.md "${archive_name}/"
-            fi
-
-            # Create tarball with maximum compression
-            tar -cvf - "${archive_name}" | zstd -22 --ultra -o "bin/${archive_name}.tar.zst"
-            rm -rf "${archive_name}"
-
-            echo "  Created: bin/${archive_name}.tar.zst"
-        fi
-    done
-
-    # Clean up uncompressed binaries
-    rm -f bin/divban-linux-*[!t]
-
-    echo ""
-    echo "Generating checksums..."
-    cd bin && sha256sum *.tar.zst > SHA256SUMS
-    cat SHA256SUMS
-
-    echo ""
-    echo "Release artifacts in bin/:"
-    ls -lh
+# Internal: package a single target (used by release-local)
+_package-target VERSION TARGET:
+    @if [ -f "bin/divban-{{TARGET}}" ]; then \
+        archive_name="divban-{{VERSION}}-{{TARGET}}"; \
+        rm -rf "$${archive_name}"; \
+        mkdir -p "$${archive_name}"; \
+        cp "bin/divban-{{TARGET}}" "$${archive_name}/divban"; \
+        chmod +x "$${archive_name}/divban"; \
+        [ -d examples ] && cp -r examples "$${archive_name}/" || true; \
+        [ -f README.md ] && cp README.md "$${archive_name}/" || true; \
+        tar -cvf - "$${archive_name}" | zstd -22 --ultra -o "bin/$${archive_name}.tar.zst"; \
+        rm -rf "$${archive_name}"; \
+        echo "  Created: bin/$${archive_name}.tar.zst"; \
+    fi
 
 # =============================================================================
 # DEVELOPMENT
@@ -203,41 +171,34 @@ validate service config:
 # RELEASE
 # =============================================================================
 
-# Create a release tag (validates, updates version, runs CI)
+# Prepare a release (validates, updates version, runs CI)
 # Usage: just tag v1.0.0
 # For prerelease: just tag v1.0.0-rc1
 tag VERSION:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    # Validate version format
-    if [[ ! "{{VERSION}}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
-        echo "ERROR: Version must match vX.Y.Z or vX.Y.Z-suffix (e.g., v0.5.0, v1.0.0-rc1)"
-        exit 1
-    fi
-
-    # Extract version without 'v' prefix
-    SEMVER="{{VERSION}}"
-    SEMVER="${SEMVER#v}"
-    echo "Preparing release $SEMVER..."
-
-    # Update version in package.json
-    sed -i "s/\"version\": \".*\"/\"version\": \"$SEMVER\"/" package.json
-    echo "Updated package.json to version $SEMVER"
-
-    # Run CI first
-    echo ""
-    echo "Running CI checks..."
+    echo "{{VERSION}}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$' || { echo "ERROR: Version must match vX.Y.Z or vX.Y.Z-suffix (e.g., v0.5.0, v1.0.0-rc1)"; exit 1; }
+    @echo "Preparing release {{VERSION}}..."
+    sed -i 's/"version": ".*"/"version": "{{ trim_start_match(VERSION, "v") }}"/' package.json
+    @echo "Updated package.json to version {{ trim_start_match(VERSION, "v") }}"
+    @echo ""
+    @echo "Running CI checks..."
     just ci
+    @echo ""
+    @echo "============================================"
+    @echo "Ready to release {{VERSION}}"
+    @echo "============================================"
+    @echo ""
+    @echo "Run 'just release {{VERSION}}' to commit, tag, and push"
 
-    echo ""
-    echo "============================================"
-    echo "Ready to release {{VERSION}}"
-    echo "============================================"
-    echo ""
-    echo "Next steps (run manually):"
-    echo "  git add ."
-    echo "  git commit -m 'Release {{VERSION}}'"
-    echo "  git push"
-    echo "  git tag -a {{VERSION}} -m 'Release {{VERSION}}'"
-    echo "  git push origin {{VERSION}}"
+# Full release: validate, update version, run CI, commit, tag, and push
+# Usage: just release v1.0.0
+release VERSION:
+    just tag {{VERSION}}
+    git add .
+    git commit -m 'Release {{VERSION}}'
+    git push
+    git tag -a {{VERSION}} -m 'Release {{VERSION}}'
+    git push origin {{VERSION}}
+    @echo ""
+    @echo "============================================"
+    @echo "Released {{VERSION}}"
+    @echo "============================================"
