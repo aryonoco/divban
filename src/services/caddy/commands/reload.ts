@@ -4,10 +4,10 @@
  */
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
-import { Err, Ok, type Result } from "../../../lib/result";
 import type { Logger } from "../../../lib/logger";
+import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
-import { execAsUser, execOutput } from "../../../system/exec";
+import { execAsUser } from "../../../system/exec";
 
 export interface ReloadOptions {
   /** Path to Caddyfile */
@@ -32,18 +32,20 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
   logger.info("Validating Caddyfile...");
 
   // First, validate the Caddyfile
-  const validateResult = await execAsUser(user, uid, ["caddy", "validate", "--config", caddyfilePath], {
-    captureStdout: true,
-    captureStderr: true,
-  });
+  const validateResult = await execAsUser(
+    user,
+    uid,
+    ["caddy", "validate", "--config", caddyfilePath],
+    {
+      captureStdout: true,
+      captureStderr: true,
+    }
+  );
 
   if (!validateResult.ok || validateResult.value.exitCode !== 0) {
     const stderr = validateResult.ok ? validateResult.value.stderr : "";
     return Err(
-      new DivbanError(
-        ErrorCode.CONFIG_VALIDATION_ERROR,
-        `Caddyfile validation failed: ${stderr}`
-      )
+      new DivbanError(ErrorCode.CONFIG_VALIDATION_ERROR, `Caddyfile validation failed: ${stderr}`)
     );
   }
 

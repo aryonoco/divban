@@ -2,12 +2,12 @@
  * Validate command - validate a service configuration file.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service } from "../../services/types";
-import type { ParsedArgs } from "../parser";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath } from "../../lib/types";
+import type { Service } from "../../services/types";
+import type { ParsedArgs } from "../parser";
 
 export interface ValidateOptions {
   service: Service;
@@ -26,10 +26,7 @@ export const executeValidate = async (
 
   if (!configPath) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        "Config path is required for validate command"
-      )
+      new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for validate command")
     );
   }
 

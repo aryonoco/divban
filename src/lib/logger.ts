@@ -35,10 +35,14 @@ const colors = {
  */
 const supportsColor = (): boolean => {
   // Check NO_COLOR environment variable (https://no-color.org/)
-  if (process.env["NO_COLOR"] !== undefined) return false;
+  if (process.env["NO_COLOR"] !== undefined) {
+    return false;
+  }
 
   // Check FORCE_COLOR
-  if (process.env["FORCE_COLOR"] !== undefined) return true;
+  if (process.env["FORCE_COLOR"] !== undefined) {
+    return true;
+  }
 
   // Check if stdout is a TTY
   return process.stdout.isTTY === true;
@@ -59,6 +63,8 @@ export interface Logger {
   step(current: number, total: number, message: string): void;
   success(message: string): void;
   fail(message: string): void;
+  /** Output raw text without any formatting */
+  raw(text: string): void;
   child(service: string): Logger;
 }
 
@@ -74,13 +80,12 @@ export const createLogger = (options: LoggerOptions): Logger => {
     useColor ? `${colors[color]}${text}${colors.reset}` : text;
 
   const formatContext = (ctx?: Record<string, unknown>): string => {
-    if (!ctx || Object.keys(ctx).length === 0) return "";
-    return (
-      " " +
-      Object.entries(ctx)
-        .map(([k, v]) => colorize("dim", `${k}=`) + JSON.stringify(v))
-        .join(" ")
-    );
+    if (!ctx || Object.keys(ctx).length === 0) {
+      return "";
+    }
+    return ` ${Object.entries(ctx)
+      .map(([k, v]) => colorize("dim", `${k}=`) + JSON.stringify(v))
+      .join(" ")}`;
   };
 
   const formatPrefix = (level: LogLevel): string => {
@@ -92,11 +97,15 @@ export const createLogger = (options: LoggerOptions): Logger => {
     };
 
     const levelStr = colorize(levelColors[level], level.toUpperCase().padEnd(5));
-    const serviceStr = service ? colorize("cyan", `[${service}]`) + " " : "";
+    const serviceStr = service ? `${colorize("cyan", `[${service}]`)} ` : "";
     return `${levelStr} ${serviceStr}`;
   };
 
-  const formatJson = (level: LogLevel, message: string, context?: Record<string, unknown>): string =>
+  const formatJson = (
+    level: LogLevel,
+    message: string,
+    context?: Record<string, unknown>
+  ): string =>
     JSON.stringify({
       timestamp: new Date().toISOString(),
       level,
@@ -106,7 +115,9 @@ export const createLogger = (options: LoggerOptions): Logger => {
     });
 
   const log = (level: LogLevel, message: string, context?: Record<string, unknown>): void => {
-    if (LOG_LEVELS[level] < minLevel) return;
+    if (LOG_LEVELS[level] < minLevel) {
+      return;
+    }
 
     const output =
       options.format === "json"
@@ -114,32 +125,44 @@ export const createLogger = (options: LoggerOptions): Logger => {
         : `${formatPrefix(level)}${message}${formatContext(context)}`;
 
     const stream = level === "error" ? process.stderr : process.stdout;
-    stream.write(output + "\n");
+    stream.write(`${output}\n`);
   };
 
   return {
-    debug: (message, context) => log("debug", message, context),
-    info: (message, context) => log("info", message, context),
-    warn: (message, context) => log("warn", message, context),
-    error: (message, context) => log("error", message, context),
+    debug: (message: string, context?: Record<string, unknown>): void => {
+      log("debug", message, context);
+    },
+    info: (message: string, context?: Record<string, unknown>): void => {
+      log("info", message, context);
+    },
+    warn: (message: string, context?: Record<string, unknown>): void => {
+      log("warn", message, context);
+    },
+    error: (message: string, context?: Record<string, unknown>): void => {
+      log("error", message, context);
+    },
 
-    step: (current: number, total: number, message: string) => {
+    step: (current: number, total: number, message: string): void => {
       const prefix = colorize("bold", `[${current}/${total}]`);
       const arrow = colorize("cyan", "→");
       process.stdout.write(`${prefix} ${arrow} ${message}\n`);
     },
 
-    success: (message: string) => {
+    success: (message: string): void => {
       const check = colorize("green", "✓");
       process.stdout.write(`${check} ${message}\n`);
     },
 
-    fail: (message: string) => {
+    fail: (message: string): void => {
       const cross = colorize("red", "✗");
       process.stderr.write(`${cross} ${message}\n`);
     },
 
-    child: (childService: string) =>
+    raw: (text: string): void => {
+      process.stdout.write(`${text}\n`);
+    },
+
+    child: (childService: string): Logger =>
       createLogger({
         ...options,
         service: service ? `${service}:${childService}` : childService,

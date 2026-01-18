@@ -19,7 +19,7 @@ export interface DirectoryOwner {
 export const ensureDirectory = async (
   path: AbsolutePath,
   owner: DirectoryOwner,
-  mode: string = "0755"
+  mode = "0755"
 ): Promise<Result<void, DivbanError>> => {
   // Use install -d which creates directory with correct ownership and permissions
   const result = await execSuccess([
@@ -53,12 +53,14 @@ export const ensureDirectory = async (
 export const ensureDirectories = async (
   paths: AbsolutePath[],
   owner: DirectoryOwner,
-  mode: string = "0755"
+  mode = "0755"
 ): Promise<Result<void, DivbanError>> => {
   const results = await Promise.all(paths.map((path) => ensureDirectory(path, owner, mode)));
 
   const collected = collectResults(results);
-  if (!collected.ok) return collected;
+  if (!collected.ok) {
+    return collected;
+  }
 
   return Ok(undefined);
 };
@@ -69,7 +71,7 @@ export const ensureDirectories = async (
 export const chown = async (
   path: AbsolutePath,
   owner: DirectoryOwner,
-  recursive: boolean = false
+  recursive = false
 ): Promise<Result<void, DivbanError>> => {
   const args = recursive
     ? ["chown", "-R", `${owner.uid}:${owner.gid}`, path]
@@ -96,7 +98,7 @@ export const chown = async (
 export const chmod = async (
   path: AbsolutePath,
   mode: string,
-  recursive: boolean = false
+  recursive = false
 ): Promise<Result<void, DivbanError>> => {
   const args = recursive ? ["chmod", "-R", mode, path] : ["chmod", mode, path];
 
@@ -157,14 +159,20 @@ export const ensureServiceDirectories = async (
   ]);
 
   const collected = collectResults(results);
-  if (!collected.ok) return collected;
+  if (!collected.ok) {
+    return collected;
+  }
 
   // Now create containers directory and quadlet directory
   const containerResults = await ensureDirectory(quadletParent, owner);
-  if (!containerResults.ok) return containerResults;
+  if (!containerResults.ok) {
+    return containerResults;
+  }
 
   const quadletResult = await ensureDirectory(dirs.quadlet, owner);
-  if (!quadletResult.ok) return quadletResult;
+  if (!quadletResult.ok) {
+    return quadletResult;
+  }
 
   return Ok(undefined);
 };
@@ -174,7 +182,7 @@ export const ensureServiceDirectories = async (
  */
 export const removeDirectory = async (
   path: AbsolutePath,
-  force: boolean = false
+  force = false
 ): Promise<Result<void, DivbanError>> => {
   const args = force ? ["rm", "-rf", path] : ["rm", "-r", path];
 

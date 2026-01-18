@@ -2,16 +2,15 @@
  * Update command - update container images.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
 import { getServiceUsername } from "../../config/schema";
-import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { Err, Ok, type Result } from "../../lib/result";
+import type { Service } from "../../services/types";
 import { exec } from "../../system/exec";
+import { getUserByName } from "../../system/user";
+import type { ParsedArgs } from "../parser";
+import { resolveServiceConfig } from "./utils";
 
 export interface UpdateOptions {
   service: Service;
@@ -22,9 +21,7 @@ export interface UpdateOptions {
 /**
  * Execute the update command.
  */
-export const executeUpdate = async (
-  options: UpdateOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeUpdate = async (options: UpdateOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
   // Get service user
@@ -45,7 +42,6 @@ export const executeUpdate = async (
   }
 
   const { uid, homeDir } = userResult.value;
-  const gid = uid as unknown as GroupId;
 
   // Resolve config
   const configResult = await resolveServiceConfig(service, homeDir);
@@ -67,7 +63,7 @@ export const executeUpdate = async (
       "sudo",
       "-u",
       username,
-      "XDG_RUNTIME_DIR=/run/user/" + uid,
+      `XDG_RUNTIME_DIR=/run/user/${uid}`,
       "podman",
       "auto-update",
       "--dry-run",
@@ -77,11 +73,7 @@ export const executeUpdate = async (
 
   if (!updateResult.ok) {
     return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        "Failed to check for updates",
-        updateResult.error
-      )
+      new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to check for updates", updateResult.error)
     );
   }
 
@@ -97,25 +89,13 @@ export const executeUpdate = async (
 
     // Apply updates
     const applyResult = await exec(
-      [
-        "sudo",
-        "-u",
-        username,
-        "XDG_RUNTIME_DIR=/run/user/" + uid,
-        "podman",
-        "auto-update",
-      ],
+      ["sudo", "-u", username, `XDG_RUNTIME_DIR=/run/user/${uid}`, "podman", "auto-update"],
       { captureStdout: true, captureStderr: true }
     );
 
     if (!applyResult.ok || applyResult.value.exitCode !== 0) {
       const stderr = applyResult.ok ? applyResult.value.stderr : "";
-      return Err(
-        new DivbanError(
-          ErrorCode.GENERAL_ERROR,
-          `Failed to apply updates: ${stderr}`
-        )
-      );
+      return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `Failed to apply updates: ${stderr}`));
     }
 
     logger.success("Updates applied successfully");

@@ -2,15 +2,20 @@
  * Backup command - create a service backup.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig, formatBytes } from "./utils";
+import type { ParsedArgs } from "../parser";
+import {
+  formatBytes,
+  getContextOptions,
+  getDataDirFromConfig,
+  resolveServiceConfig,
+} from "./utils";
 
 export interface BackupOptions {
   service: Service;
@@ -21,13 +26,11 @@ export interface BackupOptions {
 /**
  * Execute the backup command.
  */
-export const executeBackup = async (
-  options: BackupOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeBackup = async (options: BackupOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
   // Check if service supports backup
-  if (!service.definition.capabilities.hasBackup || !service.backup) {
+  if (!(service.definition.capabilities.hasBackup && service.backup)) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
@@ -67,7 +70,7 @@ export const executeBackup = async (
     config: configResult.value,
     logger,
     paths: {
-      dataDir: (configResult.value as any).paths?.dataDir as AbsolutePath,
+      dataDir: getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath),
       quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
       configDir: `${homeDir}/.config/divban` as AbsolutePath,
     },
@@ -76,6 +79,7 @@ export const executeBackup = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   if (args.dryRun) {
@@ -94,13 +98,9 @@ export const executeBackup = async (
   const result = backupResult.value;
 
   if (args.format === "json") {
-    console.log(
-      JSON.stringify({
-        service: service.definition.name,
-        path: result.path,
-        size: result.size,
-        timestamp: result.timestamp.toISOString(),
-      })
+    // JSON output handled by caller
+    logger.info(
+      JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
     );
   } else {
     logger.success(`Backup created: ${result.path}`);

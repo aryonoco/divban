@@ -6,23 +6,64 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
-      "complexity": {
-        "noExcessiveCognitiveComplexity": "warn"
-      },
+      "all": true,
       "correctness": {
-        "noUnusedImports": "error",
-        "noUnusedVariables": "error"
+        "noNodejsModules": "off",
+        "noUndeclaredDependencies": "off",
+        "useImportExtensions": "off"
+      },
+      "nursery": {
+        "all": true,
+        "useImportRestrictions": "off",
+        "noProcessEnv": "off",
+        "noSecrets": "off"
       },
       "style": {
-        "noNonNullAssertion": "warn",
-        "useConst": "error",
-        "useExportType": "error",
-        "useImportType": "error"
+        "noDefaultExport": "off",
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false,
+            "conventions": [
+              {
+                "selector": { "kind": "variable" },
+                "formats": ["camelCase", "CONSTANT_CASE", "PascalCase"]
+              },
+              {
+                "selector": { "kind": "function" },
+                "formats": ["camelCase", "PascalCase"]
+              },
+              {
+                "selector": { "kind": "typeLike" },
+                "formats": ["PascalCase"]
+              },
+              {
+                "selector": { "kind": "objectLiteralProperty" },
+                "formats": ["camelCase", "CONSTANT_CASE", "PascalCase"]
+              },
+              {
+                "selector": { "kind": "enumMember" },
+                "formats": ["CONSTANT_CASE", "PascalCase"]
+              }
+            ]
+          }
+        },
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "filenameCases": ["kebab-case"]
+          }
+        }
       },
       "suspicious": {
-        "noExplicitAny": "error",
-        "noConsoleLog": "warn"
+        "noConsole": "off"
+      },
+      "performance": {
+        "noBarrelFile": "off",
+        "noReExportAll": "off"
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
       }
     }
   },
@@ -33,6 +74,7 @@
     "lineWidth": 100
   },
   "javascript": {
+    "globals": ["Bun"],
     "formatter": {
       "quoteStyle": "double",
       "trailingCommas": "es5",
@@ -40,6 +82,6 @@
     }
   },
   "files": {
-    "ignore": ["node_modules", "dist", "coverage", "*.json"]
+    "ignore": ["node_modules", "dist", "coverage"]
   }
 }

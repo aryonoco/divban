@@ -7,7 +7,7 @@ import { addEntry } from "./format";
 
 export interface InstallConfig {
   /** Target to install to (default: default.target) */
-  wantedBy?: string;
+  wantedBy?: string | undefined;
 }
 
 /**

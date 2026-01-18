@@ -5,10 +5,10 @@
 import type { AbsolutePath } from "../lib/types";
 import {
   type ContainerQuadlet,
+  type UserNamespace,
   generateContainerQuadlet,
   generateNetworkQuadlet,
   generateVolumeQuadlet,
-  type UserNamespace,
 } from "../quadlet";
 import { mergeServiceConfig } from "../quadlet/service";
 import type { Stack, StackContainer, StackGeneratedFiles } from "./types";

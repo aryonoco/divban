@@ -3,14 +3,11 @@
  */
 
 import type {
-  ContainerQuadlet,
   HealthCheck,
-  NetworkQuadlet,
   PortMapping,
   ServiceConfig,
   UserNamespace,
   VolumeMount,
-  VolumeQuadlet,
 } from "../quadlet/types";
 
 /**
@@ -20,57 +17,57 @@ export interface StackContainer {
   /** Container name (unique within stack) */
   name: string;
   /** Human-readable description */
-  description?: string;
+  description?: string | undefined;
   /** Container image reference */
   image: string;
   /** Optional image digest for pinning */
-  imageDigest?: string;
+  imageDigest?: string | undefined;
 
   /** Hard dependencies - must be running before this container */
-  requires?: string[];
+  requires?: string[] | undefined;
   /** Soft dependencies - should be running but not required */
-  wants?: string[];
+  wants?: string[] | undefined;
 
   /** Port mappings (for externally exposed containers) */
-  ports?: PortMapping[];
+  ports?: PortMapping[] | undefined;
   /** Volume mounts */
-  volumes?: VolumeMount[];
+  volumes?: VolumeMount[] | undefined;
   /** Environment variables */
-  environment?: Record<string, string>;
+  environment?: Record<string, string> | undefined;
   /** Environment file paths */
-  environmentFiles?: string[];
+  environmentFiles?: string[] | undefined;
 
   /** User namespace configuration */
-  userNs?: UserNamespace;
+  userNs?: UserNamespace | undefined;
   /** Health check configuration */
-  healthCheck?: HealthCheck;
+  healthCheck?: HealthCheck | undefined;
 
   /** Security options */
-  readOnlyRootfs?: boolean;
-  noNewPrivileges?: boolean;
-  capAdd?: string[];
-  capDrop?: string[];
-  seccompProfile?: string;
+  readOnlyRootfs?: boolean | undefined;
+  noNewPrivileges?: boolean | undefined;
+  capAdd?: string[] | undefined;
+  capDrop?: string[] | undefined;
+  seccompProfile?: string | undefined;
 
   /** Resource limits */
-  shmSize?: string;
-  memory?: string;
-  pidsLimit?: number;
+  shmSize?: string | undefined;
+  memory?: string | undefined;
+  pidsLimit?: number | undefined;
 
   /** Devices to mount */
-  devices?: string[];
+  devices?: string[] | undefined;
 
   /** Misc options */
-  init?: boolean;
-  hostname?: string;
-  workdir?: string;
-  entrypoint?: string;
-  exec?: string;
+  init?: boolean | undefined;
+  hostname?: string | undefined;
+  workdir?: string | undefined;
+  entrypoint?: string | undefined;
+  exec?: string | undefined;
 
   /** Auto-update configuration */
-  autoUpdate?: "registry" | "local" | false;
+  autoUpdate?: "registry" | "local" | false | undefined;
   /** Service configuration */
-  service?: Partial<ServiceConfig>;
+  service?: Partial<ServiceConfig> | undefined;
 }
 
 /**
@@ -80,9 +77,9 @@ export interface StackNetwork {
   /** Network name */
   name: string;
   /** Internal network (no external connectivity) */
-  internal?: boolean;
+  internal?: boolean | undefined;
   /** Additional network options */
-  options?: Record<string, string>;
+  options?: Record<string, string> | undefined;
 }
 
 /**
@@ -92,7 +89,7 @@ export interface StackVolume {
   /** Volume name */
   name: string;
   /** Volume options */
-  options?: Record<string, string>;
+  options?: Record<string, string> | undefined;
 }
 
 /**
@@ -102,23 +99,23 @@ export interface Stack {
   /** Stack name (used as prefix for resources) */
   name: string;
   /** Human-readable description */
-  description?: string;
+  description?: string | undefined;
 
   /** Internal network for stack communication */
-  network?: StackNetwork;
+  network?: StackNetwork | undefined;
   /** Additional networks */
-  networks?: StackNetwork[];
+  networks?: StackNetwork[] | undefined;
 
   /** Named volumes */
-  volumes?: StackVolume[];
+  volumes?: StackVolume[] | undefined;
 
   /** Container definitions */
   containers: StackContainer[];
 
   /** Default service configuration for all containers */
-  defaultService?: Partial<ServiceConfig>;
+  defaultService?: Partial<ServiceConfig> | undefined;
   /** Default auto-update setting */
-  defaultAutoUpdate?: "registry" | "local" | false;
+  defaultAutoUpdate?: "registry" | "local" | false | undefined;
 }
 
 /**

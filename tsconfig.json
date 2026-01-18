@@ -1,15 +1,18 @@
 {
   "compilerOptions": {
+    // Strict Type-Checking Options (all enabled)
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
     "strictPropertyInitialization": true,
+    "strictBuiltinIteratorReturn": true,
     "noImplicitThis": true,
     "useUnknownInCatchVariables": true,
     "alwaysStrict": true,
 
+    // Additional Strict Checks
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
@@ -17,23 +20,38 @@
     "noUnusedParameters": true,
     "exactOptionalPropertyTypes": true,
     "noPropertyAccessFromIndexSignature": true,
+    "noImplicitOverride": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
 
+    // TypeScript 5.8+ Erasable Syntax
+    "erasableSyntaxOnly": true,
+
+    // Module Settings
     "module": "ESNext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
 
+    // Output Settings
     "target": "ESNext",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
 
+    // Type Checking
     "types": ["bun-types"],
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "skipLibCheck": true, // Required for bun-types compatibility with @types/node
+    "forceConsistentCasingInFileNames": true,
+    "checkJs": false,
+
+    // Interop
+    "allowSyntheticDefaultImports": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

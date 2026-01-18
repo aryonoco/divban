@@ -7,9 +7,17 @@ sourcemap = "external"
 coverage = true
 coverageDir = "coverage"
 coverageReporter = ["text", "lcov"]
+coverageSkipTestFiles = true
+coverageThreshold = { line = 0.7, function = 0.8 }
+
+[run]
+bun = true
 
 [install]
 peer = false
 
 [install.lockfile]
 save = true
+
+[define]
+"process.env.NODE_ENV" = "'production'"

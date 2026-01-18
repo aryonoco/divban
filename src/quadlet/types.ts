@@ -8,13 +8,13 @@
  */
 export interface PortMapping {
   /** Host IP to bind to (optional, defaults to all interfaces) */
-  hostIp?: string;
+  hostIp?: string | undefined;
   /** Host port number */
   host: number;
   /** Container port number */
   container: number;
   /** Protocol (tcp or udp) */
-  protocol?: "tcp" | "udp";
+  protocol?: "tcp" | "udp" | undefined;
 }
 
 /**
@@ -26,7 +26,7 @@ export interface VolumeMount {
   /** Target path inside container */
   target: string;
   /** Mount options (ro, rw, z, Z, etc.) */
-  options?: string;
+  options?: string | undefined;
 }
 
 /**
@@ -54,9 +54,9 @@ export interface UserNamespace {
   /** Namespace mode */
   mode: "keep-id" | "auto" | "host";
   /** UID mapping (for keep-id) */
-  uid?: number;
+  uid?: number | undefined;
   /** GID mapping (for keep-id) */
-  gid?: number;
+  gid?: number | undefined;
 }
 
 /**
@@ -66,11 +66,11 @@ export interface ServiceConfig {
   /** Restart policy */
   restart: "no" | "on-success" | "on-failure" | "on-abnormal" | "on-abort" | "always";
   /** Delay before restart */
-  restartSec?: number;
+  restartSec?: number | undefined;
   /** Timeout for service start */
-  timeoutStartSec?: number;
+  timeoutStartSec?: number | undefined;
   /** Timeout for service stop */
-  timeoutStopSec?: number;
+  timeoutStopSec?: number | undefined;
 }
 
 /**
@@ -84,71 +84,71 @@ export interface ContainerQuadlet {
   /** Container image reference */
   image: string;
   /** Optional image digest for pinning */
-  imageDigest?: string;
+  imageDigest?: string | undefined;
 
   /** Unit dependencies */
-  requires?: string[];
-  wants?: string[];
-  after?: string[];
-  before?: string[];
+  requires?: string[] | undefined;
+  wants?: string[] | undefined;
+  after?: string[] | undefined;
+  before?: string[] | undefined;
 
   /** Network configuration */
-  network?: string;
-  networkMode?: "pasta" | "slirp4netns" | "host" | "none";
-  ports?: PortMapping[];
-  exposePort?: number[];
-  hostname?: string;
-  dns?: string[];
+  network?: string | undefined;
+  networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  ports?: PortMapping[] | undefined;
+  exposePort?: number[] | undefined;
+  hostname?: string | undefined;
+  dns?: string[] | undefined;
 
   /** Volume configuration */
-  volumes?: VolumeMount[];
-  tmpfs?: string[];
+  volumes?: VolumeMount[] | undefined;
+  tmpfs?: string[] | undefined;
 
   /** Environment configuration */
-  environmentFiles?: string[];
-  environment?: Record<string, string>;
+  environmentFiles?: string[] | undefined;
+  environment?: Record<string, string> | undefined;
 
   /** User namespace configuration */
-  userNs?: UserNamespace;
+  userNs?: UserNamespace | undefined;
 
   /** Health check configuration */
-  healthCheck?: HealthCheck;
+  healthCheck?: HealthCheck | undefined;
 
   /** Security configuration */
-  readOnlyRootfs?: boolean;
-  noNewPrivileges?: boolean;
-  seccompProfile?: string;
-  apparmorProfile?: string;
-  capAdd?: string[];
-  capDrop?: string[];
-  securityLabelDisable?: boolean;
+  readOnlyRootfs?: boolean | undefined;
+  noNewPrivileges?: boolean | undefined;
+  seccompProfile?: string | undefined;
+  apparmorProfile?: string | undefined;
+  capAdd?: string[] | undefined;
+  capDrop?: string[] | undefined;
+  securityLabelDisable?: boolean | undefined;
 
   /** Resource limits */
-  shmSize?: string;
-  memory?: string;
-  cpuQuota?: string;
-  pidsLimit?: number;
+  shmSize?: string | undefined;
+  memory?: string | undefined;
+  cpuQuota?: string | undefined;
+  pidsLimit?: number | undefined;
 
   /** Devices */
-  devices?: string[];
+  devices?: string[] | undefined;
 
   /** Misc options */
-  init?: boolean;
-  logDriver?: string;
-  entrypoint?: string;
-  exec?: string;
-  workdir?: string;
-  user?: string;
-  group?: string;
+  init?: boolean | undefined;
+  logDriver?: string | undefined;
+  entrypoint?: string | undefined;
+  exec?: string | undefined;
+  workdir?: string | undefined;
+  user?: string | undefined;
+  group?: string | undefined;
 
   /** Auto-update configuration */
-  autoUpdate?: "registry" | "local" | false;
+  autoUpdate?: "registry" | "local" | false | undefined;
 
   /** Service configuration */
   service: ServiceConfig;
 
   /** Install section */
-  wantedBy?: string;
+  wantedBy?: string | undefined;
 }
 
 /**
@@ -158,23 +158,23 @@ export interface NetworkQuadlet {
   /** Network name */
   name: string;
   /** Human-readable description */
-  description?: string;
+  description?: string | undefined;
   /** Internal network (no external connectivity) */
-  internal?: boolean;
+  internal?: boolean | undefined;
   /** Network driver */
-  driver?: "bridge" | "macvlan" | "ipvlan";
+  driver?: "bridge" | "macvlan" | "ipvlan" | undefined;
   /** IPv6 support */
-  ipv6?: boolean;
+  ipv6?: boolean | undefined;
   /** Subnet CIDR */
-  subnet?: string;
+  subnet?: string | undefined;
   /** Gateway IP */
-  gateway?: string;
+  gateway?: string | undefined;
   /** IP range for containers */
-  ipRange?: string;
+  ipRange?: string | undefined;
   /** Network options */
-  options?: Record<string, string>;
+  options?: Record<string, string> | undefined;
   /** DNS servers */
-  dns?: string[];
+  dns?: string[] | undefined;
 }
 
 /**
@@ -184,13 +184,13 @@ export interface VolumeQuadlet {
   /** Volume name */
   name: string;
   /** Human-readable description */
-  description?: string;
+  description?: string | undefined;
   /** Volume driver */
-  driver?: string;
+  driver?: string | undefined;
   /** Volume driver options */
-  options?: Record<string, string>;
+  options?: Record<string, string> | undefined;
   /** Volume labels */
-  labels?: Record<string, string>;
+  labels?: Record<string, string> | undefined;
 }
 
 /**

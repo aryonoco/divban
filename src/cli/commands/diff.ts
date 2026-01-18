@@ -2,16 +2,17 @@
  * Diff command - show differences between generated and installed files.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
 import { loadServiceConfig } from "../../config/loader";
-import { readFile, fileExists } from "../../system/fs";
 import { getServiceUsername } from "../../config/schema";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { Err, Ok, type Result } from "../../lib/result";
+import { type AbsolutePath, GroupId, UserId } from "../../lib/types";
+import type { Service, ServiceContext } from "../../services/types";
+import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions } from "./utils";
 
 export interface DiffOptions {
   service: Service;
@@ -28,19 +29,12 @@ interface FileDiff {
 /**
  * Execute the diff command.
  */
-export const executeDiff = async (
-  options: DiffOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeDiff = async (options: DiffOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
   const configPath = args.configPath;
 
   if (!configPath) {
-    return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        "Config path is required for diff command"
-      )
-    );
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for diff command"));
   }
 
   logger.info(`Comparing configuration for ${service.definition.name}...`);
@@ -93,9 +87,10 @@ export const executeDiff = async (
         }
       : {
           name: username,
-          uid: 0 as any,
-          gid: 0 as any,
+          uid: UserId(0),
+          gid: GroupId(0),
         },
+    options: getContextOptions(args),
   };
 
   // Generate files
@@ -151,16 +146,16 @@ export const executeDiff = async (
   if (newFiles.length > 0) {
     logger.info("\nNew files (would be created):");
     for (const f of newFiles) {
-      console.log(`  + ${f.path}`);
+      logger.info(`  + ${f.path}`);
     }
   }
 
   if (modifiedFiles.length > 0) {
     logger.info("\nModified files:");
     for (const f of modifiedFiles) {
-      console.log(`  ~ ${f.path}`);
+      logger.info(`  ~ ${f.path}`);
       if (args.verbose && f.diff) {
-        console.log(f.diff);
+        logger.info(f.diff);
       }
     }
   }
@@ -168,12 +163,12 @@ export const executeDiff = async (
   if (unchangedFiles.length > 0 && args.verbose) {
     logger.info("\nUnchanged files:");
     for (const f of unchangedFiles) {
-      console.log(`    ${f.path}`);
+      logger.info(`    ${f.path}`);
     }
   }
 
   // Summary
-  console.log("");
+  logger.info("");
   if (newFiles.length === 0 && modifiedFiles.length === 0) {
     logger.success("No changes detected");
   } else {

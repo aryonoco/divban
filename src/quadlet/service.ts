@@ -35,10 +35,25 @@ export const defaultServiceConfig = (): ServiceConfig => ({
  */
 export const mergeServiceConfig = (
   config: Partial<ServiceConfig>,
-  defaults: ServiceConfig = defaultServiceConfig()
-): ServiceConfig => ({
-  restart: config.restart ?? defaults.restart,
-  restartSec: config.restartSec ?? defaults.restartSec,
-  timeoutStartSec: config.timeoutStartSec ?? defaults.timeoutStartSec,
-  timeoutStopSec: config.timeoutStopSec ?? defaults.timeoutStopSec,
-});
+  defaults: Partial<ServiceConfig> = defaultServiceConfig()
+): ServiceConfig => {
+  const result: ServiceConfig = {
+    restart: config.restart ?? defaults.restart ?? "on-failure",
+  };
+
+  const restartSec = config.restartSec ?? defaults.restartSec;
+  const timeoutStartSec = config.timeoutStartSec ?? defaults.timeoutStartSec;
+  const timeoutStopSec = config.timeoutStopSec ?? defaults.timeoutStopSec;
+
+  if (restartSec !== undefined) {
+    result.restartSec = restartSec;
+  }
+  if (timeoutStartSec !== undefined) {
+    result.timeoutStartSec = timeoutStartSec;
+  }
+  if (timeoutStopSec !== undefined) {
+    result.timeoutStopSec = timeoutStopSec;
+  }
+
+  return result;
+};

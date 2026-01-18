@@ -114,10 +114,11 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
           args.help = true;
           break;
         case "-v":
-        case "--verbose":
+        case "--verbose": {
           args.verbose = true;
           args.logLevel = "debug";
           break;
+        }
         case "--dry-run":
           args.dryRun = true;
           break;
@@ -132,8 +133,8 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
         case "--lines": {
           const next = argv[++i];
           if (next !== undefined) {
-            const n = parseInt(next, 10);
-            if (!isNaN(n) && n > 0) {
+            const n = Number.parseInt(next, 10);
+            if (!Number.isNaN(n) && n > 0) {
               args.lines = n;
             }
           }
@@ -173,12 +174,7 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
           args.format = "json";
           break;
         default:
-          return Err(
-            new DivbanError(
-              ErrorCode.INVALID_ARGS,
-              `Unknown option: ${arg}`
-            )
-          );
+          return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Unknown option: ${arg}`));
       }
     } else {
       positional.push(arg);
@@ -234,7 +230,7 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
  */
 export const validateArgs = (args: ParsedArgs): Result<void, DivbanError> => {
   // Service is always required (except for help)
-  if (!args.help && !args.service) {
+  if (!(args.help || args.service)) {
     return Err(
       new DivbanError(
         ErrorCode.INVALID_ARGS,

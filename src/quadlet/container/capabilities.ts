@@ -6,9 +6,9 @@ import { addEntries } from "../format";
 
 export interface ContainerCapabilitiesConfig {
   /** Capabilities to add */
-  capAdd?: string[];
+  capAdd?: string[] | undefined;
   /** Capabilities to drop */
-  capDrop?: string[];
+  capDrop?: string[] | undefined;
 }
 
 /**
@@ -107,5 +107,7 @@ export const CapabilityProfiles = {
  * Check if a capability name is valid.
  */
 export const isValidCapability = (cap: string): boolean => {
-  return Object.values(Capabilities).includes(cap as (typeof Capabilities)[keyof typeof Capabilities]);
+  return Object.values(Capabilities).includes(
+    cap as (typeof Capabilities)[keyof typeof Capabilities]
+  );
 };

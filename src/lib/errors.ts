@@ -60,14 +60,16 @@ export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
  * Contains a typed error code and optional cause for error chaining.
  */
 export class DivbanError extends Error {
-  public readonly code: ErrorCodeValue;
-  public override readonly cause?: Error;
+  readonly code: ErrorCodeValue;
+  override readonly cause?: Error;
 
   constructor(code: ErrorCodeValue, message: string, cause?: Error) {
     super(message);
     this.name = "DivbanError";
     this.code = code;
-    this.cause = cause;
+    if (cause !== undefined) {
+      this.cause = cause;
+    }
 
     // Capture stack trace, excluding the constructor
     Error.captureStackTrace?.(this, DivbanError);
@@ -128,7 +130,7 @@ export const toExitCode = (code: ErrorCodeValue): number => Math.min(code, 125);
  * Get human-readable error code name.
  */
 export const getErrorCodeName = (code: ErrorCodeValue): string => {
-  const entry = Object.entries(ErrorCode).find(([_, v]) => v === code);
+  const entry = Object.entries(ErrorCode).find(([, v]) => v === code);
   return entry?.[0] ?? "UNKNOWN";
 };
 
@@ -145,7 +147,11 @@ export const wrapError = (e: unknown, code: ErrorCodeValue, context?: string): D
  * Extract error message from unknown value.
  */
 export const errorMessage = (e: unknown): string => {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "string") return e;
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (typeof e === "string") {
+    return e;
+  }
   return String(e);
 };

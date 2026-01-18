@@ -12,7 +12,7 @@ export interface ExecOptions {
   env?: Record<string, string>;
   /** Working directory */
   cwd?: string;
-  /** Timeout in milliseconds */
+  /** Timeout in milliseconds (uses Bun.spawn native timeout) */
   timeout?: number;
   /** Run as specific user (requires root) */
   user?: string;
@@ -22,6 +22,8 @@ export interface ExecOptions {
   captureStderr?: boolean;
   /** Pipe stdin */
   stdin?: string;
+  /** AbortSignal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface ExecResult {
@@ -66,40 +68,38 @@ export const exec = async (
 
   const result = await tryCatch(
     async () => {
-      const proc = Bun.spawn(finalCommand, {
+      const spawnOptions: Parameters<typeof Bun.spawn>[1] = {
         env,
-        cwd: options.cwd,
         stdout: options.captureStdout !== false ? "pipe" : "inherit",
         stderr: options.captureStderr !== false ? "pipe" : "inherit",
         stdin: options.stdin ? new Response(options.stdin).body : undefined,
-      });
+      };
 
-      // Handle timeout
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = options.timeout
-        ? new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              proc.kill();
-              reject(new Error(`Command timed out after ${options.timeout}ms`));
-            }, options.timeout);
-          })
-        : null;
-
-      try {
-        const exitPromise = proc.exited;
-        const exitCode = timeoutPromise
-          ? await Promise.race([exitPromise, timeoutPromise])
-          : await exitPromise;
-
-        const stdout =
-          options.captureStdout !== false ? await new Response(proc.stdout).text() : "";
-        const stderr =
-          options.captureStderr !== false ? await new Response(proc.stderr).text() : "";
-
-        return { exitCode, stdout, stderr };
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
+      // Only add optional properties if defined (Bun's exactOptionalPropertyTypes)
+      if (options.cwd) {
+        spawnOptions.cwd = options.cwd;
       }
+      if (options.timeout) {
+        spawnOptions.timeout = options.timeout;
+      }
+      if (options.signal) {
+        spawnOptions.signal = options.signal;
+      }
+
+      const proc = Bun.spawn(finalCommand, spawnOptions);
+
+      const exitCode = await proc.exited;
+
+      const stdout =
+        options.captureStdout !== false && proc.stdout
+          ? await new Response(proc.stdout as ReadableStream).text()
+          : "";
+      const stderr =
+        options.captureStderr !== false && proc.stderr
+          ? await new Response(proc.stderr as ReadableStream).text()
+          : "";
+
+      return { exitCode, stdout, stderr };
     },
     (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Failed to execute: ${finalCommand.join(" ")}`)
   );
@@ -116,7 +116,9 @@ export const execSuccess = async (
 ): Promise<Result<ExecResult, DivbanError>> => {
   const result = await exec(command, options);
 
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return result;
+  }
 
   if (result.value.exitCode !== 0) {
     const stderr = result.value.stderr.trim();
@@ -140,7 +142,9 @@ export const execOutput = async (
 ): Promise<Result<string, DivbanError>> => {
   const result = await execSuccess(command, { ...options, captureStdout: true });
 
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return result;
+  }
 
   return Ok(result.value.stdout);
 };
@@ -156,7 +160,7 @@ export const commandExists = (command: string): boolean => {
 /**
  * Run command as a specific user with proper environment.
  */
-export const execAsUser = async (
+export const execAsUser = (
   user: string,
   uid: number,
   command: readonly string[],
@@ -194,7 +198,9 @@ export const shell = async (
     async () => {
       let cmd = $`${{ raw: command }}`.nothrow().quiet();
 
-      if (options.cwd) cmd = cmd.cwd(options.cwd);
+      if (options.cwd) {
+        cmd = cmd.cwd(options.cwd);
+      }
 
       const env = {
         ...process.env,
@@ -220,9 +226,82 @@ export const shell = async (
 };
 
 /**
+ * Execute a shell command and return stdout as text.
+ * Uses Bun Shell's native .text() method.
+ */
+export const shellText = (
+  command: string,
+  options: ShellOptions = {}
+): Promise<Result<string, DivbanError>> => {
+  return tryCatch(
+    () => {
+      let cmd = $`${{ raw: command }}`.quiet();
+
+      if (options.cwd) {
+        cmd = cmd.cwd(options.cwd);
+      }
+
+      const env = {
+        ...process.env,
+        ...options.env,
+        ...(options.uid
+          ? {
+              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+            }
+          : {}),
+      };
+      cmd = cmd.env(env);
+
+      return cmd.text();
+    },
+    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
+  );
+};
+
+/**
+ * Execute a shell command and return stdout as lines.
+ * Uses Bun Shell's native .lines() method.
+ */
+export const shellLines = async (
+  command: string,
+  options: ShellOptions = {}
+): Promise<Result<string[], DivbanError>> => {
+  return tryCatch(
+    async () => {
+      let cmd = $`${{ raw: command }}`.quiet();
+
+      if (options.cwd) {
+        cmd = cmd.cwd(options.cwd);
+      }
+
+      const env = {
+        ...process.env,
+        ...options.env,
+        ...(options.uid
+          ? {
+              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+            }
+          : {}),
+      };
+      cmd = cmd.env(env);
+
+      // Collect async iterable into array
+      const lines: string[] = [];
+      for await (const line of cmd.lines()) {
+        lines.push(line);
+      }
+      return lines;
+    },
+    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
+  );
+};
+
+/**
  * Execute shell command as another user via sudo.
  */
-export const shellAsUser = async (
+export const shellAsUser = (
   user: string,
   uid: number,
   command: string

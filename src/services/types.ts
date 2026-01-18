@@ -236,11 +236,21 @@ export const mergeGeneratedFiles = (...files: GeneratedFiles[]): GeneratedFiles 
   const result = createGeneratedFiles();
 
   for (const f of files) {
-    for (const [k, v] of f.quadlets) result.quadlets.set(k, v);
-    for (const [k, v] of f.networks) result.networks.set(k, v);
-    for (const [k, v] of f.volumes) result.volumes.set(k, v);
-    for (const [k, v] of f.environment) result.environment.set(k, v);
-    for (const [k, v] of f.other) result.other.set(k, v);
+    for (const [k, v] of f.quadlets) {
+      result.quadlets.set(k, v);
+    }
+    for (const [k, v] of f.networks) {
+      result.networks.set(k, v);
+    }
+    for (const [k, v] of f.volumes) {
+      result.volumes.set(k, v);
+    }
+    for (const [k, v] of f.environment) {
+      result.environment.set(k, v);
+    }
+    for (const [k, v] of f.other) {
+      result.other.set(k, v);
+    }
   }
 
   return result;

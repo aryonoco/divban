@@ -2,16 +2,15 @@
  * Container image configuration for quadlet files.
  */
 
-import type { IniSection } from "../format";
 import { addEntry } from "../format";
 
 export interface ImageConfig {
   /** Container image reference */
   image: string;
   /** Optional image digest for pinning */
-  imageDigest?: string;
+  imageDigest?: string | undefined;
   /** Auto-update configuration */
-  autoUpdate?: "registry" | "local" | false;
+  autoUpdate?: "registry" | "local" | false | undefined;
 }
 
 /**
@@ -80,12 +79,24 @@ export const parseImageReference = (
     }
   }
 
-  return {
-    registry,
-    name: remaining,
-    tag,
-    digest,
-  };
+  const result: {
+    registry?: string;
+    name: string;
+    tag?: string;
+    digest?: string;
+  } = { name: remaining };
+
+  if (registry !== undefined) {
+    result.registry = registry;
+  }
+  if (tag !== undefined) {
+    result.tag = tag;
+  }
+  if (digest !== undefined) {
+    result.digest = digest;
+  }
+
+  return result;
 };
 
 /**

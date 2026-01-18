@@ -104,9 +104,15 @@ export const getServiceHelp = (serviceName: string): string => {
   }
 
   const availableCommands = COMMANDS.filter((cmd) => {
-    if (cmd === "reload" && !service.capabilities.hasReload) return false;
-    if (cmd === "backup" && !service.capabilities.hasBackup) return false;
-    if (cmd === "restore" && !service.capabilities.hasRestore) return false;
+    if (cmd === "reload" && !service.capabilities.hasReload) {
+      return false;
+    }
+    if (cmd === "backup" && !service.capabilities.hasBackup) {
+      return false;
+    }
+    if (cmd === "restore" && !service.capabilities.hasRestore) {
+      return false;
+    }
     return true;
   });
 

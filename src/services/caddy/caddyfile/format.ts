@@ -124,7 +124,7 @@ export class CaddyfileBuilder {
    * Build the final content.
    */
   build(): string {
-    return this.lines.join("\n") + "\n";
+    return `${this.lines.join("\n")}\n`;
   }
 }
 

@@ -79,3 +79,23 @@ export {
   isPositiveInteger,
 } from "./assert";
 export type { NonEmptyArray } from "./assert";
+
+// Bun utilities - Native Bun API wrappers
+export {
+  deepEquals,
+  dnsLookup,
+  escapeHtml,
+  execPath,
+  gunzipSync,
+  gzipSync,
+  hash,
+  hashFile,
+  isMainModule,
+  peekPromise,
+  sleep,
+  stringWidth,
+  stripAnsi,
+  uuid,
+  zstdCompress,
+  zstdDecompress,
+} from "./bun-utils";

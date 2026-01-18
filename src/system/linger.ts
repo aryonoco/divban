@@ -6,14 +6,14 @@
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
 import type { Username } from "../lib/types";
+import type { AbsolutePath } from "../lib/types";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
-import type { AbsolutePath } from "../lib/types";
 
 /**
  * Check if linger is enabled for a user.
  */
-export const isLingerEnabled = async (username: Username): Promise<boolean> => {
+export const isLingerEnabled = (username: Username): Promise<boolean> => {
   // Check the linger file directly (more reliable than loginctl)
   const lingerFile = `/var/lib/systemd/linger/${username}` as AbsolutePath;
   return fileExists(lingerFile);

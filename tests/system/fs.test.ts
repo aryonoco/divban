@@ -36,7 +36,9 @@ describe("fs", () => {
 
       const readResult = await readFile(TEST_FILE);
       expect(readResult.ok).toBe(true);
-      if (readResult.ok) expect(readResult.value).toBe("Hello, Bun!");
+      if (readResult.ok) {
+        expect(readResult.value).toBe("Hello, Bun!");
+      }
     });
 
     test("handles unicode content", async () => {
@@ -47,7 +49,9 @@ describe("fs", () => {
       const result = await readFile(path);
 
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(content);
+      if (result.ok) {
+        expect(result.value).toBe(content);
+      }
     });
 
     test("readFile returns error for non-existent file", async () => {
@@ -163,7 +167,9 @@ describe("fs", () => {
 
       const readResult = await readFile(path);
       expect(readResult.ok).toBe(true);
-      if (readResult.ok) expect(readResult.value).toBe("atomic content");
+      if (readResult.ok) {
+        expect(readResult.value).toBe("atomic content");
+      }
     });
   });
 });

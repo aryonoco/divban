@@ -12,7 +12,9 @@ export const addHealthCheckEntries = (
   entries: Array<{ key: string; value: string }>,
   config: HealthCheck | undefined
 ): void => {
-  if (!config) return;
+  if (!config) {
+    return;
+  }
 
   addEntry(entries, "HealthCmd", config.cmd);
   addEntry(entries, "HealthInterval", config.interval);
@@ -65,8 +67,8 @@ export const createWgetHealthCheck = (
  * Create a health check for PostgreSQL.
  */
 export const createPostgresHealthCheck = (
-  user: string = "postgres",
-  db: string = "postgres",
+  user = "postgres",
+  db = "postgres",
   options?: Partial<Omit<HealthCheck, "cmd">>
 ): HealthCheck =>
   createHealthCheck(`pg_isready -U ${user} -d ${db}`, {
@@ -79,9 +81,7 @@ export const createPostgresHealthCheck = (
 /**
  * Create a health check for Redis.
  */
-export const createRedisHealthCheck = (
-  options?: Partial<Omit<HealthCheck, "cmd">>
-): HealthCheck =>
+export const createRedisHealthCheck = (options?: Partial<Omit<HealthCheck, "cmd">>): HealthCheck =>
   createHealthCheck("redis-cli ping | grep -q PONG", {
     interval: "10s",
     timeout: "5s",

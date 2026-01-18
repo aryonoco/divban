@@ -4,27 +4,32 @@
 
 import { addEntry } from "../format";
 
+/**
+ * Top-level regex for memory size parsing (better performance).
+ */
+const MEMORY_SIZE_REGEX = /^(\d+(?:\.\d+)?)\s*([kmgtKMGT])?[bB]?$/;
+
 export interface ContainerResourcesConfig {
   /** Shared memory size (e.g., "64m", "1g") */
-  shmSize?: string;
+  shmSize?: string | undefined;
   /** Memory limit (e.g., "512m", "2g") */
-  memory?: string;
+  memory?: string | undefined;
   /** Memory + swap limit */
-  memorySwap?: string;
+  memorySwap?: string | undefined;
   /** Memory reservation (soft limit) */
-  memoryReservation?: string;
+  memoryReservation?: string | undefined;
   /** CPU quota (e.g., "50000" for 50% of one CPU) */
-  cpuQuota?: number;
+  cpuQuota?: number | undefined;
   /** CPU period (default 100000) */
-  cpuPeriod?: number;
+  cpuPeriod?: number | undefined;
   /** CPU shares (relative weight) */
-  cpuShares?: number;
+  cpuShares?: number | undefined;
   /** CPUs to use (e.g., "0-2" or "0,1") */
-  cpusetCpus?: string;
+  cpusetCpus?: string | undefined;
   /** PIDs limit */
-  pidsLimit?: number;
+  pidsLimit?: number | undefined;
   /** Block IO weight (10-1000) */
-  blkioWeight?: number;
+  blkioWeight?: number | undefined;
 }
 
 /**
@@ -50,12 +55,12 @@ export const addResourceEntries = (
  * Parse a memory size string to bytes.
  */
 export const parseMemorySize = (size: string): number => {
-  const match = size.match(/^(\d+(?:\.\d+)?)\s*([kmgtKMGT])?[bB]?$/);
+  const match = size.match(MEMORY_SIZE_REGEX);
   if (!match) {
     throw new Error(`Invalid memory size: ${size}`);
   }
 
-  const value = parseFloat(match[1] ?? "0");
+  const value = Number.parseFloat(match[1] ?? "0");
   const unit = (match[2] ?? "").toLowerCase();
 
   const multipliers: Record<string, number> = {

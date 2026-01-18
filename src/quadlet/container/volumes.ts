@@ -2,16 +2,16 @@
  * Container volume configuration for quadlet files.
  */
 
-import { addEntries, addEntry } from "../format";
+import { addEntries } from "../format";
 import type { VolumeMount } from "../types";
 
 export interface ContainerVolumeConfig {
   /** Volume mounts */
-  volumes?: VolumeMount[];
+  volumes?: VolumeMount[] | undefined;
   /** Tmpfs mounts */
-  tmpfs?: string[];
+  tmpfs?: string[] | undefined;
   /** Read-only bind mounts */
-  readOnlyMounts?: string[];
+  readOnlyMounts?: string[] | undefined;
 }
 
 /**
@@ -50,15 +50,13 @@ export const addVolumeEntries = (
 /**
  * Create a bind mount.
  */
-export const createBindMount = (
-  source: string,
-  target: string,
-  options?: string
-): VolumeMount => ({
-  source,
-  target,
-  options,
-});
+export const createBindMount = (source: string, target: string, options?: string): VolumeMount => {
+  const result: VolumeMount = { source, target };
+  if (options !== undefined) {
+    result.options = options;
+  }
+  return result;
+};
 
 /**
  * Create a read-only bind mount.
@@ -76,11 +74,13 @@ export const createNamedVolumeMount = (
   volumeName: string,
   target: string,
   options?: string
-): VolumeMount => ({
-  source: `${volumeName}.volume`,
-  target,
-  options,
-});
+): VolumeMount => {
+  const result: VolumeMount = { source: `${volumeName}.volume`, target };
+  if (options !== undefined) {
+    result.options = options;
+  }
+  return result;
+};
 
 /**
  * Create a mount with SELinux relabeling.
@@ -88,7 +88,7 @@ export const createNamedVolumeMount = (
 export const createRelabeledMount = (
   source: string,
   target: string,
-  shared: boolean = false
+  shared = false
 ): VolumeMount => ({
   source,
   target,

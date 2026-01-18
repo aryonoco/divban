@@ -6,9 +6,9 @@
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
 import type { SubordinateId, UserId } from "../lib/types";
+import type { AbsolutePath } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
-import type { AbsolutePath } from "../lib/types";
 
 /**
  * UID Allocation Range: 10000-59999
@@ -37,10 +37,12 @@ const parsePasswdFile = (content: string): Set<number> => {
   const uids = new Set<number>();
 
   for (const line of content.split("\n")) {
-    if (!line.trim() || line.startsWith("#")) continue;
+    if (!line.trim() || line.startsWith("#")) {
+      continue;
+    }
     const parts = line.split(":");
-    const uid = parseInt(parts[2] ?? "", 10);
-    if (!isNaN(uid)) {
+    const uid = Number.parseInt(parts[2] ?? "", 10);
+    if (!Number.isNaN(uid)) {
       uids.add(uid);
     }
   }
@@ -84,11 +86,13 @@ export const getUsedSubuidRanges = async (): Promise<
 
   const content = await readFileOrEmpty("/etc/subuid" as AbsolutePath);
   for (const line of content.split("\n")) {
-    if (!line.trim() || line.startsWith("#")) continue;
+    if (!line.trim() || line.startsWith("#")) {
+      continue;
+    }
     const [user, startStr, countStr] = line.split(":");
-    const start = parseInt(startStr ?? "", 10);
-    const count = parseInt(countStr ?? "", 10);
-    if (user && !isNaN(start) && !isNaN(count)) {
+    const start = Number.parseInt(startStr ?? "", 10);
+    const count = Number.parseInt(countStr ?? "", 10);
+    if (user && !Number.isNaN(start) && !Number.isNaN(count)) {
       ranges.push({ user, start, end: start + count - 1 });
     }
   }
@@ -101,7 +105,9 @@ export const getUsedSubuidRanges = async (): Promise<
  */
 export const allocateUid = async (): Promise<Result<UserId, DivbanError>> => {
   const usedResult = await getUsedUids();
-  if (!usedResult.ok) return usedResult;
+  if (!usedResult.ok) {
+    return usedResult;
+  }
 
   const usedUids = usedResult.value;
 
@@ -128,7 +134,9 @@ export const allocateSubuidRange = async (
   size: number = SUBUID_RANGE.size
 ): Promise<Result<{ start: SubordinateId; size: number }, DivbanError>> => {
   const rangesResult = await getUsedSubuidRanges();
-  if (!rangesResult.ok) return rangesResult;
+  if (!rangesResult.ok) {
+    return rangesResult;
+  }
 
   const usedRanges = rangesResult.value.sort((a, b) => a.start - b.start);
 
@@ -140,7 +148,7 @@ export const allocateSubuidRange = async (
       return Ok({ start: candidate as SubordinateId, size });
     }
     // Move candidate past this used range
-    candidate = Math.max(candidate, range.end + 1);
+    candidate = Math.max(candidate, range.end + 1) as typeof SUBUID_RANGE.start;
   }
 
   // Check if candidate fits after all used ranges
@@ -166,8 +174,8 @@ export const getUidByUsername = async (username: string): Promise<Result<UserId,
     return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `User ${username} not found`));
   }
 
-  const uid = parseInt(result.value.trim(), 10);
-  if (isNaN(uid)) {
+  const uid = Number.parseInt(result.value.trim(), 10);
+  if (Number.isNaN(uid)) {
     return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `Invalid UID for user ${username}`));
   }
 
@@ -189,7 +197,9 @@ export const getExistingSubuidStart = async (
   username: string
 ): Promise<Result<SubordinateId, DivbanError>> => {
   const rangesResult = await getUsedSubuidRanges();
-  if (!rangesResult.ok) return rangesResult;
+  if (!rangesResult.ok) {
+    return rangesResult;
+  }
 
   const userRange = rangesResult.value.find((r) => r.user === username);
   if (!userRange) {

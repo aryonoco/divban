@@ -3,17 +3,17 @@
  */
 
 import { z } from "zod";
-import { absolutePathSchema, containerBaseSchema } from "../../config/schema";
+import { absolutePathSchema } from "../../config/schema";
 
 /**
  * Hardware acceleration options for transcoding.
  */
 export const transcodingBackendSchema = z.enum([
-  "nvenc",    // NVIDIA NVENC
-  "qsv",      // Intel Quick Sync Video
-  "vaapi",    // VA-API (Intel/AMD)
+  "nvenc", // NVIDIA NVENC
+  "qsv", // Intel Quick Sync Video
+  "vaapi", // VA-API (Intel/AMD)
   "vaapi-wsl", // VA-API in WSL
-  "rkmpp",    // Rockchip MPP
+  "rkmpp", // Rockchip MPP
   "disabled", // No hardware acceleration
 ]);
 
@@ -21,12 +21,12 @@ export const transcodingBackendSchema = z.enum([
  * Hardware acceleration options for machine learning.
  */
 export const mlBackendSchema = z.enum([
-  "cuda",      // NVIDIA CUDA
-  "openvino",  // Intel OpenVINO
-  "armnn",     // ARM NN
-  "rknn",      // Rockchip NPU
-  "rocm",      // AMD ROCm
-  "disabled",  // CPU only
+  "cuda", // NVIDIA CUDA
+  "openvino", // Intel OpenVINO
+  "armnn", // ARM NN
+  "rknn", // Rockchip NPU
+  "rocm", // AMD ROCm
+  "disabled", // CPU only
 ]);
 
 /**
@@ -59,19 +59,27 @@ export const databaseSchema = z.object({
  * Container-specific configuration.
  */
 export const immichContainersSchema = z.object({
-  server: z.object({
-    image: z.string().default("ghcr.io/immich-app/immich-server:release"),
-  }).optional(),
-  machineLearning: z.object({
-    image: z.string().optional(), // Derived from ML backend
-    enabled: z.boolean().default(true),
-  }).optional(),
-  redis: z.object({
-    image: z.string().default("docker.io/library/redis:7-alpine"),
-  }).optional(),
-  postgres: z.object({
-    image: z.string().default("docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0"),
-  }).optional(),
+  server: z
+    .object({
+      image: z.string().default("ghcr.io/immich-app/immich-server:release"),
+    })
+    .optional(),
+  machineLearning: z
+    .object({
+      image: z.string().optional(), // Derived from ML backend
+      enabled: z.boolean().default(true),
+    })
+    .optional(),
+  redis: z
+    .object({
+      image: z.string().default("docker.io/library/redis:7-alpine"),
+    })
+    .optional(),
+  postgres: z
+    .object({
+      image: z.string().default("docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0"),
+    })
+    .optional(),
 });
 
 /**

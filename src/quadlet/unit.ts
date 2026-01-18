@@ -5,6 +5,11 @@
 import type { IniSection } from "./format";
 import { addEntries, addEntry } from "./format";
 
+/**
+ * Top-level regex for unit name suffix removal.
+ */
+const SERVICE_SUFFIX_REGEX = /\.service$/;
+
 export interface UnitConfig {
   /** Human-readable description */
   description: string;
@@ -54,7 +59,7 @@ export const toUnitName = (containerName: string): string => {
  * Convert unit names back to container names.
  */
 export const fromUnitName = (unitName: string): string => {
-  return unitName.replace(/\.service$/, "");
+  return unitName.replace(SERVICE_SUFFIX_REGEX, "");
 };
 
 /**
@@ -66,10 +71,20 @@ export const buildUnitDependencies = (
   after?: string[],
   before?: string[]
 ): Pick<UnitConfig, "requires" | "wants" | "after" | "before"> => {
-  return {
-    requires: requires?.map(toUnitName),
-    wants: wants?.map(toUnitName),
-    after: after?.map(toUnitName),
-    before: before?.map(toUnitName),
-  };
+  const result: Pick<UnitConfig, "requires" | "wants" | "after" | "before"> = {};
+
+  if (requires !== undefined) {
+    result.requires = requires.map(toUnitName);
+  }
+  if (wants !== undefined) {
+    result.wants = wants.map(toUnitName);
+  }
+  if (after !== undefined) {
+    result.after = after.map(toUnitName);
+  }
+  if (before !== undefined) {
+    result.before = before.map(toUnitName);
+  }
+
+  return result;
 };

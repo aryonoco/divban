@@ -2,15 +2,15 @@
  * Restart command - restart a service.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface RestartOptions {
   service: Service;
@@ -63,6 +63,7 @@ export const executeRestart = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   return service.restart(ctx);

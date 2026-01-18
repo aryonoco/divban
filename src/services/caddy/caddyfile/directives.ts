@@ -9,7 +9,7 @@ import { escapeValue, indent } from "./format";
 /**
  * Render a single directive.
  */
-export const renderDirective = (directive: Directive, level: number = 0): string => {
+export const renderDirective = (directive: Directive, level = 0): string => {
   const prefix = indent(level);
   const args = directive.args?.map(escapeValue).join(" ") ?? "";
   const argsStr = args ? ` ${args}` : "";
@@ -35,7 +35,7 @@ export const renderDirective = (directive: Directive, level: number = 0): string
 /**
  * Render multiple directives.
  */
-export const renderDirectives = (directives: Directive[], level: number = 0): string => {
+export const renderDirectives = (directives: Directive[], level = 0): string => {
   return directives.map((d) => renderDirective(d, level)).join("\n");
 };
 
@@ -46,7 +46,10 @@ export const Directives = {
   /**
    * reverse_proxy directive
    */
-  reverseProxy: (upstreams: string[], options?: { healthCheck?: boolean; lb?: string }): Directive => {
+  reverseProxy: (
+    upstreams: string[],
+    options?: { healthCheck?: boolean; lb?: string }
+  ): Directive => {
     const block: Directive[] = [];
 
     if (options?.healthCheck) {
@@ -58,11 +61,14 @@ export const Directives = {
       block.push({ name: "lb_policy", args: [options.lb] });
     }
 
-    return {
+    const result: Directive = {
       name: "reverse_proxy",
       args: upstreams,
-      block: block.length > 0 ? block : undefined,
     };
+    if (block.length > 0) {
+      result.block = block;
+    }
+    return result;
   },
 
   /**
@@ -79,10 +85,11 @@ export const Directives = {
       block.push({ name: "browse" });
     }
 
-    return {
-      name: "file_server",
-      block: block.length > 0 ? block : undefined,
-    };
+    const result: Directive = { name: "file_server" };
+    if (block.length > 0) {
+      result.block = block;
+    }
+    return result;
   },
 
   /**
@@ -144,16 +151,22 @@ export const Directives = {
       block.push({ name: "level", args: [options.level] });
     }
 
-    return {
-      name: "log",
-      block: block.length > 0 ? block : undefined,
-    };
+    const result: Directive = { name: "log" };
+    if (block.length > 0) {
+      result.block = block;
+    }
+    return result;
   },
 
   /**
    * tls directive
    */
-  tls: (options?: { email?: string; cert?: string; key?: string; internal?: boolean }): Directive => {
+  tls: (options?: {
+    email?: string;
+    cert?: string;
+    key?: string;
+    internal?: boolean;
+  }): Directive => {
     if (options?.internal) {
       return { name: "tls", args: ["internal"] };
     }
@@ -191,11 +204,13 @@ export const Directives = {
   /**
    * handle directive
    */
-  handle: (matcher: string | undefined, directives: Directive[]): Directive => ({
-    name: "handle",
-    args: matcher ? [matcher] : undefined,
-    block: directives,
-  }),
+  handle: (matcher: string | undefined, directives: Directive[]): Directive => {
+    const result: Directive = { name: "handle", block: directives };
+    if (matcher) {
+      result.args = [matcher];
+    }
+    return result;
+  },
 
   /**
    * handle_path directive (strips matched path prefix)
@@ -209,9 +224,11 @@ export const Directives = {
   /**
    * route directive (maintains order)
    */
-  route: (matcher: string | undefined, directives: Directive[]): Directive => ({
-    name: "route",
-    args: matcher ? [matcher] : undefined,
-    block: directives,
-  }),
+  route: (matcher: string | undefined, directives: Directive[]): Directive => {
+    const result: Directive = { name: "route", block: directives };
+    if (matcher) {
+      result.args = [matcher];
+    }
+    return result;
+  },
 };

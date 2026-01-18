@@ -4,8 +4,8 @@
  */
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
-import { Err, Ok, type Result } from "../../../lib/result";
 import type { Logger } from "../../../lib/logger";
+import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 import { directoryExists } from "../../../system/fs";
@@ -32,12 +32,7 @@ export const backupActual = async (
 
   // Check data directory exists
   if (!(await directoryExists(dataDir))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `Data directory not found: ${dataDir}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Data directory not found: ${dataDir}`));
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -64,48 +59,28 @@ export const backupActual = async (
   const tarResult = await execAsUser(
     user,
     uid,
-    [
-      "tar",
-      "-czf",
-      backupPath,
-      "--exclude=backups",
-      "-C",
-      dataDir,
-      ".",
-    ],
+    ["tar", "-czf", backupPath, "--exclude=backups", "-C", dataDir, "."],
     { captureStderr: true }
   );
 
   if (!tarResult.ok) {
     return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        "Failed to create backup archive",
-        tarResult.error
-      )
+      new DivbanError(ErrorCode.BACKUP_FAILED, "Failed to create backup archive", tarResult.error)
     );
   }
 
   if (tarResult.value.exitCode !== 0) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `tar failed: ${tarResult.value.stderr}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `tar failed: ${tarResult.value.stderr}`));
   }
 
   // Get backup size
-  const statResult = await execAsUser(
-    user,
-    uid,
-    ["stat", "-c", "%s", backupPath],
-    { captureStdout: true }
-  );
+  const statResult = await execAsUser(user, uid, ["stat", "-c", "%s", backupPath], {
+    captureStdout: true,
+  });
 
   let sizeStr = "unknown";
   if (statResult.ok && statResult.value.exitCode === 0) {
-    const bytes = parseInt(statResult.value.stdout.trim(), 10);
+    const bytes = Number.parseInt(statResult.value.stdout.trim(), 10);
     sizeStr = formatBytes(bytes);
   }
 
@@ -123,21 +98,10 @@ export const listBackups = async (
 ): Promise<Result<string[], DivbanError>> => {
   const backupsDir = `${dataDir}/backups`;
 
-  const result = await execAsUser(
-    user,
-    uid,
-    ["ls", "-1t", backupsDir],
-    { captureStdout: true }
-  );
+  const result = await execAsUser(user, uid, ["ls", "-1t", backupsDir], { captureStdout: true });
 
   if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        "Failed to list backups",
-        result.error
-      )
-    );
+    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to list backups", result.error));
   }
 
   if (result.value.exitCode !== 0) {
@@ -145,9 +109,7 @@ export const listBackups = async (
     return Ok([]);
   }
 
-  const files = result.value.stdout
-    .split("\n")
-    .filter((f) => f.endsWith(".tar.gz"));
+  const files = result.value.stdout.split("\n").filter((f) => f.endsWith(".tar.gz"));
 
   return Ok(files);
 };
@@ -163,55 +125,29 @@ export const restoreActual = async (
   logger: Logger
 ): Promise<Result<void, DivbanError>> => {
   // Check backup file exists
-  const checkResult = await execAsUser(
-    user,
-    uid,
-    ["test", "-f", backupPath],
-    {}
-  );
+  const checkResult = await execAsUser(user, uid, ["test", "-f", backupPath], {});
 
   if (!checkResult.ok || checkResult.value.exitCode !== 0) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_NOT_FOUND,
-        `Backup file not found: ${backupPath}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
   }
 
   logger.info(`Restoring from: ${backupPath}`);
   logger.warn("This will overwrite existing data!");
 
   // Extract archive to data directory
-  const tarResult = await execAsUser(
-    user,
-    uid,
-    [
-      "tar",
-      "-xzf",
-      backupPath,
-      "-C",
-      dataDir,
-    ],
-    { captureStderr: true }
-  );
+  const tarResult = await execAsUser(user, uid, ["tar", "-xzf", backupPath, "-C", dataDir], {
+    captureStderr: true,
+  });
 
   if (!tarResult.ok) {
     return Err(
-      new DivbanError(
-        ErrorCode.RESTORE_FAILED,
-        "Failed to extract backup archive",
-        tarResult.error
-      )
+      new DivbanError(ErrorCode.RESTORE_FAILED, "Failed to extract backup archive", tarResult.error)
     );
   }
 
   if (tarResult.value.exitCode !== 0) {
     return Err(
-      new DivbanError(
-        ErrorCode.RESTORE_FAILED,
-        `tar extract failed: ${tarResult.value.stderr}`
-      )
+      new DivbanError(ErrorCode.RESTORE_FAILED, `tar extract failed: ${tarResult.value.stderr}`)
     );
   }
 

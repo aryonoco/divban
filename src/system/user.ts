@@ -4,18 +4,18 @@
  */
 
 import { getServiceUsername } from "../config/schema";
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, Ok, type Result, tryCatch } from "../lib/result";
+import { DivbanError, ErrorCode } from "../lib/errors";
+import { Err, Ok, type Result } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { execSuccess } from "./exec";
 import { appendFile, readFileOrEmpty } from "./fs";
 import {
+  SUBUID_RANGE,
   allocateSubuidRange,
   allocateUid,
   getExistingSubuidStart,
   getNologinShell,
   getUidByUsername,
-  SUBUID_RANGE,
   userExists,
 } from "./uid-allocator";
 
@@ -39,7 +39,9 @@ export const createServiceUser = async (
 ): Promise<Result<ServiceUser, DivbanError>> => {
   // Derive username from service name
   const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) return usernameResult;
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
   const username = usernameResult.value;
 
   const homeDir = `/home/${username}` as AbsolutePath;
@@ -47,10 +49,14 @@ export const createServiceUser = async (
   // 1. Check if user already exists (idempotent)
   if (await userExists(username)) {
     const uidResult = await getUidByUsername(username);
-    if (!uidResult.ok) return uidResult;
+    if (!uidResult.ok) {
+      return uidResult;
+    }
 
     const subuidResult = await getExistingSubuidStart(username);
-    if (!subuidResult.ok) return subuidResult;
+    if (!subuidResult.ok) {
+      return subuidResult;
+    }
 
     return Ok({
       username,
@@ -64,12 +70,16 @@ export const createServiceUser = async (
 
   // 2. Dynamically allocate next available UID (10000-59999)
   const uidResult = await allocateUid();
-  if (!uidResult.ok) return uidResult;
+  if (!uidResult.ok) {
+    return uidResult;
+  }
   const uid = uidResult.value;
 
   // 3. Dynamically allocate next available subuid range
   const subuidResult = await allocateSubuidRange(SUBUID_RANGE.size);
-  if (!subuidResult.ok) return subuidResult;
+  if (!subuidResult.ok) {
+    return subuidResult;
+  }
   const subuidAlloc = subuidResult.value;
 
   // 4. Get nologin shell (auto-detected per distro)
@@ -106,7 +116,9 @@ export const createServiceUser = async (
     subuidAlloc.start,
     subuidAlloc.size
   );
-  if (!subuidConfigResult.ok) return subuidConfigResult;
+  if (!subuidConfigResult.ok) {
+    return subuidConfigResult;
+  }
 
   return Ok({
     username,
@@ -158,7 +170,9 @@ export const getServiceUser = async (
   serviceName: string
 ): Promise<Result<ServiceUser | null, DivbanError>> => {
   const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) return usernameResult;
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
   const username = usernameResult.value;
 
   if (!(await userExists(username))) {
@@ -166,7 +180,9 @@ export const getServiceUser = async (
   }
 
   const uidResult = await getUidByUsername(username);
-  if (!uidResult.ok) return uidResult;
+  if (!uidResult.ok) {
+    return uidResult;
+  }
 
   const subuidResult = await getExistingSubuidStart(username);
   // If subuid not found, user may exist but not be fully configured
@@ -186,9 +202,13 @@ export const getServiceUser = async (
  * Delete a service user and their home directory.
  * Use with caution!
  */
-export const deleteServiceUser = async (serviceName: string): Promise<Result<void, DivbanError>> => {
+export const deleteServiceUser = async (
+  serviceName: string
+): Promise<Result<void, DivbanError>> => {
   const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) return usernameResult;
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
   const username = usernameResult.value;
 
   if (!(await userExists(username))) {
@@ -222,20 +242,15 @@ export interface UserInfo {
   homeDir: AbsolutePath;
 }
 
-export const getUserByName = async (
-  username: Username
-): Promise<Result<UserInfo, DivbanError>> => {
+export const getUserByName = async (username: Username): Promise<Result<UserInfo, DivbanError>> => {
   if (!(await userExists(username))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.SERVICE_NOT_FOUND,
-        `User not found: ${username}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.SERVICE_NOT_FOUND, `User not found: ${username}`));
   }
 
   const uidResult = await getUidByUsername(username);
-  if (!uidResult.ok) return uidResult;
+  if (!uidResult.ok) {
+    return uidResult;
+  }
 
   const uid = uidResult.value;
   const homeDir = `/home/${username}` as AbsolutePath;

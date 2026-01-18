@@ -5,7 +5,7 @@
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
-import { exec, execAsUser, execOutput, execSuccess } from "./exec";
+import { execAsUser } from "./exec";
 
 export type SystemctlCommand =
   | "start"
@@ -32,16 +32,16 @@ export const systemctl = async (
   unit: string | null,
   options: SystemctlOptions
 ): Promise<Result<string, DivbanError>> => {
-  const args = unit
-    ? ["systemctl", "--user", cmd, unit]
-    : ["systemctl", "--user", cmd];
+  const args = unit ? ["systemctl", "--user", cmd, unit] : ["systemctl", "--user", cmd];
 
   const result = await execAsUser(options.user, options.uid, args, {
     captureStdout: true,
     captureStderr: true,
   });
 
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return result;
+  }
 
   // For commands like is-active, non-zero exit code is informational, not an error
   if (cmd === "is-active" || cmd === "is-enabled" || cmd === "status") {
@@ -148,7 +148,9 @@ export const enableService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("enable", unit, options);
-  if (!result.ok) return Err(result.error);
+  if (!result.ok) {
+    return Err(result.error);
+  }
   return Ok(undefined);
 };
 
@@ -160,7 +162,9 @@ export const disableService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("disable", unit, options);
-  if (!result.ok) return Err(result.error);
+  if (!result.ok) {
+    return Err(result.error);
+  }
   return Ok(undefined);
 };
 
@@ -189,7 +193,7 @@ export const isServiceEnabled = async (
 /**
  * Get service status output.
  */
-export const getServiceStatus = async (
+export const getServiceStatus = (
   unit: string,
   options: SystemctlOptions
 ): Promise<Result<string, DivbanError>> => {
@@ -203,7 +207,9 @@ export const daemonReload = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("daemon-reload", null, options);
-  if (!result.ok) return Err(result.error);
+  if (!result.ok) {
+    return Err(result.error);
+  }
   return Ok(undefined);
 };
 

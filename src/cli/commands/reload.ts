@@ -2,15 +2,15 @@
  * Reload command - reload service configuration (if supported).
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, getDataDirFromConfig, resolveServiceConfig } from "./utils";
 
 export interface ReloadOptions {
   service: Service;
@@ -21,13 +21,11 @@ export interface ReloadOptions {
 /**
  * Execute the reload command.
  */
-export const executeReload = async (
-  options: ReloadOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeReload = async (options: ReloadOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
   // Check if service supports reload
-  if (!service.definition.capabilities.hasReload || !service.reload) {
+  if (!(service.definition.capabilities.hasReload && service.reload)) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
@@ -67,7 +65,7 @@ export const executeReload = async (
     config: configResult.value,
     logger,
     paths: {
-      dataDir: (configResult.value as any).paths?.dataDir as AbsolutePath,
+      dataDir: getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath),
       quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
       configDir: `${homeDir}/.config/divban` as AbsolutePath,
     },
@@ -76,6 +74,7 @@ export const executeReload = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   if (args.dryRun) {

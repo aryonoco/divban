@@ -3,7 +3,7 @@
  */
 
 import type { GlobalOptions } from "../schema";
-import { type CaddyfileBuilder, createBuilder } from "./format";
+import { createBuilder } from "./format";
 
 /**
  * Generate the global options block.
@@ -116,7 +116,9 @@ export const generateGlobalOptions = (options: GlobalOptions): string => {
  * Check if global options block is needed.
  */
 export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean => {
-  if (!options) return false;
+  if (!options) {
+    return false;
+  }
 
   return (
     options.debug !== undefined ||

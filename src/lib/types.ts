@@ -31,6 +31,13 @@ export type NetworkName = string & { readonly __brand: "NetworkName" };
 export type VolumeName = string & { readonly __brand: "VolumeName" };
 
 /**
+ * Regex patterns for validation (top-level for performance)
+ */
+const USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
+const SERVICE_NAME_REGEX = /^[a-z][a-z0-9-]*$/;
+const CONTAINER_NETWORK_VOLUME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
+/**
  * Type constructors with runtime validation.
  * These provide both type safety and runtime checks.
  */
@@ -64,7 +71,7 @@ export const AbsolutePath = (s: string): AbsolutePath => {
 };
 
 export const Username = (s: string): Username => {
-  if (!/^[a-z_][a-z0-9_-]*$/.test(s)) {
+  if (!USERNAME_REGEX.test(s)) {
     throw new Error(`Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`);
   }
   if (s.length > 32) {
@@ -74,28 +81,28 @@ export const Username = (s: string): Username => {
 };
 
 export const ServiceName = (s: string): ServiceName => {
-  if (!/^[a-z][a-z0-9-]*$/.test(s)) {
+  if (!SERVICE_NAME_REGEX.test(s)) {
     throw new Error(`Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`);
   }
   return s as ServiceName;
 };
 
 export const ContainerName = (s: string): ContainerName => {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(s)) {
+  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
     throw new Error(`Invalid container name: ${s}.`);
   }
   return s as ContainerName;
 };
 
 export const NetworkName = (s: string): NetworkName => {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(s)) {
+  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
     throw new Error(`Invalid network name: ${s}.`);
   }
   return s as NetworkName;
 };
 
 export const VolumeName = (s: string): VolumeName => {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(s)) {
+  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
     throw new Error(`Invalid volume name: ${s}.`);
   }
   return s as VolumeName;
@@ -105,6 +112,5 @@ export const VolumeName = (s: string): VolumeName => {
  * Type guards for branded types
  */
 export const isAbsolutePath = (s: string): s is AbsolutePath => s.startsWith("/");
-export const isUsername = (s: string): s is Username =>
-  /^[a-z_][a-z0-9_-]*$/.test(s) && s.length <= 32;
-export const isServiceName = (s: string): s is ServiceName => /^[a-z][a-z0-9-]*$/.test(s);
+export const isUsername = (s: string): s is Username => USERNAME_REGEX.test(s) && s.length <= 32;
+export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX.test(s);

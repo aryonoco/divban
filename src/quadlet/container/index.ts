@@ -3,6 +3,7 @@
  * Combines all container configuration modules into a single builder.
  */
 
+import { defined } from "../../lib/bun-utils";
 import type { IniSection } from "../format";
 import { createQuadletFile } from "../format";
 import { buildInstallSection } from "../install";
@@ -27,32 +28,44 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
   const entries: Array<{ key: string; value: string }> = [];
 
   // Image configuration
-  addImageEntries(entries, {
-    image: config.image,
-    imageDigest: config.imageDigest,
-    autoUpdate: config.autoUpdate,
-  });
+  addImageEntries(
+    entries,
+    defined({
+      image: config.image,
+      imageDigest: config.imageDigest,
+      autoUpdate: config.autoUpdate,
+    })
+  );
 
   // Network configuration
-  addNetworkEntries(entries, {
-    network: config.network,
-    networkMode: config.networkMode,
-    ports: config.ports,
-    hostname: config.hostname,
-    dns: config.dns,
-  });
+  addNetworkEntries(
+    entries,
+    defined({
+      network: config.network,
+      networkMode: config.networkMode,
+      ports: config.ports,
+      hostname: config.hostname,
+      dns: config.dns,
+    })
+  );
 
   // Volume configuration
-  addVolumeEntries(entries, {
-    volumes: config.volumes,
-    tmpfs: config.tmpfs,
-  });
+  addVolumeEntries(
+    entries,
+    defined({
+      volumes: config.volumes,
+      tmpfs: config.tmpfs,
+    })
+  );
 
   // Environment configuration
-  addEnvironmentEntries(entries, {
-    environmentFiles: config.environmentFiles,
-    environment: config.environment,
-  });
+  addEnvironmentEntries(
+    entries,
+    defined({
+      environmentFiles: config.environmentFiles,
+      environment: config.environment,
+    })
+  );
 
   // User namespace configuration
   addUserNsEntries(entries, config.userNs);
@@ -61,35 +74,47 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
   addHealthCheckEntries(entries, config.healthCheck);
 
   // Security configuration
-  addSecurityEntries(entries, {
-    readOnlyRootfs: config.readOnlyRootfs,
-    noNewPrivileges: config.noNewPrivileges,
-    seccompProfile: config.seccompProfile,
-    securityLabelDisable: config.securityLabelDisable,
-  });
+  addSecurityEntries(
+    entries,
+    defined({
+      readOnlyRootfs: config.readOnlyRootfs,
+      noNewPrivileges: config.noNewPrivileges,
+      seccompProfile: config.seccompProfile,
+      securityLabelDisable: config.securityLabelDisable,
+    })
+  );
 
   // Capability configuration
-  addCapabilityEntries(entries, {
-    capAdd: config.capAdd,
-    capDrop: config.capDrop,
-  });
+  addCapabilityEntries(
+    entries,
+    defined({
+      capAdd: config.capAdd,
+      capDrop: config.capDrop,
+    })
+  );
 
   // Resource configuration
-  addResourceEntries(entries, {
-    shmSize: config.shmSize,
-    memory: config.memory,
-    pidsLimit: config.pidsLimit,
-  });
+  addResourceEntries(
+    entries,
+    defined({
+      shmSize: config.shmSize,
+      memory: config.memory,
+      pidsLimit: config.pidsLimit,
+    })
+  );
 
   // Misc configuration
-  addMiscEntries(entries, {
-    init: config.init,
-    logDriver: config.logDriver,
-    entrypoint: config.entrypoint,
-    exec: config.exec,
-    workdir: config.workdir,
-    devices: config.devices,
-  });
+  addMiscEntries(
+    entries,
+    defined({
+      init: config.init,
+      logDriver: config.logDriver,
+      entrypoint: config.entrypoint,
+      exec: config.exec,
+      workdir: config.workdir,
+      devices: config.devices,
+    })
+  );
 
   return { name: "Container", entries };
 };
@@ -122,7 +147,7 @@ export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQua
   sections.push(buildServiceSection(config.service));
 
   // Install section
-  sections.push(buildInstallSection({ wantedBy: config.wantedBy }));
+  sections.push(buildInstallSection(defined({ wantedBy: config.wantedBy })));
 
   return {
     filename: `${config.name}.container`,

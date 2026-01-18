@@ -2,17 +2,18 @@
  * Setup command - full service setup (generate, install, enable).
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
-import { createServiceUser, getUserByName } from "../../system/user";
-import { enableLinger } from "../../system/linger";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { Err, Ok, type Result } from "../../lib/result";
+import type { AbsolutePath, GroupId } from "../../lib/types";
+import type { Service, ServiceContext } from "../../services/types";
 import { ensureServiceDirectories } from "../../system/directories";
+import { enableLinger } from "../../system/linger";
+import { createServiceUser, getUserByName } from "../../system/user";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, getDataDirFromConfig } from "./utils";
 
 export interface SetupOptions {
   service: Service;
@@ -23,18 +24,13 @@ export interface SetupOptions {
 /**
  * Execute the setup command.
  */
-export const executeSetup = async (
-  options: SetupOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeSetup = async (options: SetupOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
   const configPath = args.configPath;
 
   if (!configPath) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        "Config path is required for setup command"
-      )
+      new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for setup command")
     );
   }
 
@@ -101,7 +97,8 @@ export const executeSetup = async (
 
   // Step 3: Create service directories
   logger.step(3, 6, "Creating service directories...");
-  const dirsResult = await ensureServiceDirectories(username, uid, gid, homeDir);
+  const dataDir = getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath);
+  const dirsResult = await ensureServiceDirectories(dataDir, homeDir, { uid, gid });
   if (!dirsResult.ok) {
     return dirsResult;
   }
@@ -111,7 +108,7 @@ export const executeSetup = async (
     config: configResult.value,
     logger,
     paths: {
-      dataDir: (configResult.value as any).paths?.dataDir as AbsolutePath,
+      dataDir,
       quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
       configDir: `${homeDir}/.config/divban` as AbsolutePath,
     },
@@ -120,6 +117,7 @@ export const executeSetup = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   // Step 4-6: Delegate to service's setup method
@@ -130,9 +128,6 @@ export const executeSetup = async (
   }
 
   logger.success(`${service.definition.name} setup completed successfully`);
-
-  // Print post-setup instructions
-  console.log("");
   logger.info("Next steps:");
   logger.info(`  Start service: divban ${service.definition.name} start`);
   logger.info(`  Check status:  divban ${service.definition.name} status`);

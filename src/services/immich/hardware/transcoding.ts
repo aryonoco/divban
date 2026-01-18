@@ -20,12 +20,7 @@ export interface TranscodingDevices {
  * Get device mappings for NVIDIA NVENC transcoding.
  */
 const getNvencDevices = (): TranscodingDevices => ({
-  devices: [
-    "/dev/nvidia0",
-    "/dev/nvidiactl",
-    "/dev/nvidia-uvm",
-    "/dev/nvidia-uvm-tools",
-  ],
+  devices: ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
   environment: {
     NVIDIA_VISIBLE_DEVICES: "all",
     NVIDIA_DRIVER_CAPABILITIES: "compute,video,utility",
@@ -54,22 +49,14 @@ const getVaapiDevices = (): TranscodingDevices => ({
 const getVaapiWslDevices = (): TranscodingDevices => ({
   devices: ["/dev/dri/card0", "/dev/dri/renderD128"],
   environment: {},
-  volumes: [
-    { source: "/usr/lib/wsl", target: "/usr/lib/wsl", options: "ro" },
-  ],
+  volumes: [{ source: "/usr/lib/wsl", target: "/usr/lib/wsl", options: "ro" }],
 });
 
 /**
  * Get device mappings for Rockchip MPP.
  */
 const getRkmppDevices = (): TranscodingDevices => ({
-  devices: [
-    "/dev/dri",
-    "/dev/dma_heap",
-    "/dev/mali0",
-    "/dev/rga",
-    "/dev/mpp_service",
-  ],
+  devices: ["/dev/dri", "/dev/dma_heap", "/dev/mali0", "/dev/rga", "/dev/mpp_service"],
   environment: {},
 });
 
@@ -90,6 +77,10 @@ export const getTranscodingDevices = (backend: TranscodingBackend): TranscodingD
       return getRkmppDevices();
     case "disabled":
       return null;
+    default: {
+      const unknownBackend: never = backend;
+      throw new Error(`Unknown transcoding backend: ${unknownBackend}`);
+    }
   }
 };
 

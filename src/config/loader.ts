@@ -1,14 +1,14 @@
 /**
  * Configuration file loading and parsing.
  * Supports TOML format with Zod validation.
+ * Uses Bun's native TOML parser for optimal performance.
  */
 
-import { parse as parseToml } from "smol-toml";
 import type { ZodType } from "zod";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
-import { globalConfigSchema, type GlobalConfig } from "./schema";
+import { type GlobalConfig, globalConfigSchema } from "./schema";
 
 /**
  * Load and parse a TOML file.
@@ -33,16 +33,16 @@ export const loadTomlFile = async <T>(
     (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to read ${filePath}`)
   );
 
-  if (!contentResult.ok) return contentResult;
+  if (!contentResult.ok) {
+    return contentResult;
+  }
 
-  // Parse TOML
+  // Parse TOML using Bun's native parser
   let parsed: unknown;
   try {
-    parsed = parseToml(contentResult.value);
+    parsed = Bun.TOML.parse(contentResult.value);
   } catch (e) {
-    return Err(
-      wrapError(e, ErrorCode.CONFIG_PARSE_ERROR, `Failed to parse TOML in ${filePath}`)
-    );
+    return Err(wrapError(e, ErrorCode.CONFIG_PARSE_ERROR, `Failed to parse TOML in ${filePath}`));
   }
 
   // Validate with Zod schema
@@ -82,18 +82,22 @@ export const loadGlobalConfig = async (
   for (const path of paths) {
     const file = Bun.file(path);
     if (await file.exists()) {
-      return loadTomlFile(path, globalConfigSchema);
+      // Use explicit type assertion due to Zod's input/output type inference
+      // with exactOptionalPropertyTypes. The schema has .default() on all
+      // nested objects, so the output type always has defined properties.
+      const result = await loadTomlFile(path, globalConfigSchema);
+      return result as Result<GlobalConfig, DivbanError>;
     }
   }
 
   // Return defaults if no config file found
-  return Ok(globalConfigSchema.parse({}));
+  return Ok(globalConfigSchema.parse({}) as GlobalConfig);
 };
 
 /**
  * Load service-specific configuration.
  */
-export const loadServiceConfig = async <T>(
+export const loadServiceConfig = <T>(
   filePath: AbsolutePath,
   schema: ZodType<T>
 ): Promise<Result<T, DivbanError>> => {
@@ -133,7 +137,7 @@ export const findServiceConfig = async (
 /**
  * Check if a path exists and is a file.
  */
-export const fileExists = async (path: AbsolutePath): Promise<boolean> => {
+export const fileExists = (path: AbsolutePath): Promise<boolean> => {
   const file = Bun.file(path);
   return file.exists();
 };

@@ -6,31 +6,31 @@ import { addEntries, addEntry } from "../format";
 
 export interface ContainerMiscConfig {
   /** Run an init process */
-  init?: boolean;
+  init?: boolean | undefined;
   /** Log driver */
-  logDriver?: string;
+  logDriver?: string | undefined;
   /** Custom entrypoint */
-  entrypoint?: string;
+  entrypoint?: string | undefined;
   /** Command to execute */
-  exec?: string;
+  exec?: string | undefined;
   /** Working directory inside container */
-  workdir?: string;
+  workdir?: string | undefined;
   /** Stop signal */
-  stopSignal?: string;
+  stopSignal?: string | undefined;
   /** Stop timeout in seconds */
-  stopTimeout?: number;
+  stopTimeout?: number | undefined;
   /** Container labels */
-  labels?: Record<string, string>;
+  labels?: Record<string, string> | undefined;
   /** Annotations */
-  annotations?: Record<string, string>;
+  annotations?: Record<string, string> | undefined;
   /** Devices to add */
-  devices?: string[];
+  devices?: string[] | undefined;
   /** Pull policy */
-  pull?: "always" | "missing" | "never" | "newer";
+  pull?: "always" | "missing" | "never" | "newer" | undefined;
   /** Container name (if different from unit name) */
-  containerName?: string;
+  containerName?: string | undefined;
   /** Pod name to join */
-  pod?: string;
+  pod?: string | undefined;
 }
 
 /**

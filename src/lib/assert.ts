@@ -44,10 +44,7 @@ export const assert = (
  * Assert that a value is not null or undefined.
  * Returns the value with null/undefined removed from the type.
  */
-export const assertDefined = <T>(
-  value: T | null | undefined,
-  message: string
-): T => {
+export const assertDefined = <T>(value: T | null | undefined, message: string): T => {
   if (value === null || value === undefined) {
     throw new DivbanError(ErrorCode.GENERAL_ERROR, message);
   }
@@ -74,7 +71,9 @@ export const hasKeys = <K extends string>(
   value: unknown,
   keys: K[]
 ): value is Record<K, unknown> => {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   return keys.every((key) => key in value);
 };
 
@@ -99,10 +98,8 @@ export const isNonNegativeInteger = (value: unknown): value is number =>
 /**
  * Check if a value is one of the allowed values.
  */
-export const isOneOf = <T extends string>(
-  value: unknown,
-  allowed: readonly T[]
-): value is T => typeof value === "string" && allowed.includes(value as T);
+export const isOneOf = <T extends string>(value: unknown, allowed: readonly T[]): value is T =>
+  typeof value === "string" && allowed.includes(value as T);
 
 /**
  * Narrow an array type to non-empty.

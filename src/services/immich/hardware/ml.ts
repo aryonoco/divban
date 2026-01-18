@@ -22,11 +22,7 @@ export interface MlDevices {
  * Get configuration for NVIDIA CUDA ML acceleration.
  */
 const getCudaConfig = (): MlDevices => ({
-  devices: [
-    "/dev/nvidia0",
-    "/dev/nvidiactl",
-    "/dev/nvidia-uvm",
-  ],
+  devices: ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
   environment: {
     NVIDIA_VISIBLE_DEVICES: "all",
     NVIDIA_DRIVER_CAPABILITIES: "compute,utility",
@@ -65,10 +61,7 @@ const getRknnConfig = (): MlDevices => ({
  * Get configuration for AMD ROCm ML acceleration.
  */
 const getRocmConfig = (): MlDevices => ({
-  devices: [
-    "/dev/kfd",
-    "/dev/dri/renderD128",
-  ],
+  devices: ["/dev/kfd", "/dev/dri/renderD128"],
   environment: {
     HSA_OVERRIDE_GFX_VERSION: "10.3.0",
   },
@@ -101,6 +94,10 @@ export const getMlDevices = (backend: MlBackend): MlDevices => {
       return getRocmConfig();
     case "disabled":
       return getCpuConfig();
+    default: {
+      const unknownBackend: never = backend;
+      throw new Error(`Unknown ML backend: ${unknownBackend}`);
+    }
   }
 };
 

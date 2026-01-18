@@ -46,7 +46,9 @@ export const flatMapResult = <T, U, E>(
 export const collectResults = <T, E>(results: readonly Result<T, E>[]): Result<T[], E> => {
   const values: T[] = [];
   for (const r of results) {
-    if (!r.ok) return r;
+    if (!r.ok) {
+      return r;
+    }
     values.push(r.value);
   }
   return Ok(values);
@@ -63,7 +65,9 @@ export const mapErr = <T, E, F>(result: Result<T, E>, fn: (error: E) => F): Resu
  * Use sparingly - prefer pattern matching with if (result.ok).
  */
 export const unwrap = <T, E extends Error>(result: Result<T, E>): T => {
-  if (result.ok) return result.value;
+  if (result.ok) {
+    return result.value;
+  }
   throw result.error;
 };
 
@@ -112,7 +116,9 @@ export const sequence = async <T, E>(
   const results: T[] = [];
   for (const op of operations) {
     const result = await op();
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     results.push(result.value);
   }
   return Ok(results);

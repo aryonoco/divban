@@ -2,15 +2,15 @@
  * Stop command - stop a service.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface StopOptions {
   service: Service;
@@ -21,9 +21,7 @@ export interface StopOptions {
 /**
  * Execute the stop command.
  */
-export const executeStop = async (
-  options: StopOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeStop = async (options: StopOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
   // Get service user
@@ -63,6 +61,7 @@ export const executeStop = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   return service.stop(ctx);

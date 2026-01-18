@@ -16,8 +16,8 @@ export {
 export type { MlDevices } from "./ml";
 
 import type { MlBackend, TranscodingBackend } from "../schema";
-import { getMlDevices, type MlDevices } from "./ml";
-import { getTranscodingDevices, type TranscodingDevices } from "./transcoding";
+import { type MlDevices, getMlDevices } from "./ml";
+import { type TranscodingDevices, getTranscodingDevices } from "./transcoding";
 
 /**
  * Combined hardware configuration.
@@ -41,9 +41,7 @@ export const getHardwareConfig = (
 /**
  * Merge devices from multiple sources.
  */
-export const mergeDevices = (
-  ...sources: (TranscodingDevices | MlDevices | null)[]
-): string[] => {
+export const mergeDevices = (...sources: (TranscodingDevices | MlDevices | null)[]): string[] => {
   const devices = new Set<string>();
 
   for (const source of sources) {

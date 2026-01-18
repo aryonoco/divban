@@ -77,12 +77,23 @@ export const createExternalNetwork = (
     gateway?: string;
     ipv6?: boolean;
   }
-): NetworkQuadlet => ({
-  name,
-  description: options?.description ?? `Network ${name}`,
-  internal: false,
-  driver: "bridge",
-  subnet: options?.subnet,
-  gateway: options?.gateway,
-  ipv6: options?.ipv6,
-});
+): NetworkQuadlet => {
+  const result: NetworkQuadlet = {
+    name,
+    description: options?.description ?? `Network ${name}`,
+    internal: false,
+    driver: "bridge",
+  };
+
+  if (options?.subnet !== undefined) {
+    result.subnet = options.subnet;
+  }
+  if (options?.gateway !== undefined) {
+    result.gateway = options.gateway;
+  }
+  if (options?.ipv6 !== undefined) {
+    result.ipv6 = options.ipv6;
+  }
+
+  return result;
+};

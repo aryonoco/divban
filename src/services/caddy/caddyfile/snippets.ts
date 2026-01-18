@@ -3,8 +3,8 @@
  */
 
 import type { Snippet } from "../schema";
-import { createBuilder } from "./format";
 import { renderDirectives } from "./directives";
+import { createBuilder } from "./format";
 
 /**
  * Generate a snippet definition.
@@ -13,9 +13,10 @@ export const generateSnippet = (snippet: Snippet): string => {
   const builder = createBuilder();
 
   // Snippet name with optional args
-  const name = snippet.args && snippet.args.length > 0
-    ? `(${snippet.name} ${snippet.args.join(" ")})`
-    : `(${snippet.name})`;
+  const name =
+    snippet.args && snippet.args.length > 0
+      ? `(${snippet.name} ${snippet.args.join(" ")})`
+      : `(${snippet.name})`;
 
   builder.open(name);
 
@@ -34,7 +35,9 @@ export const generateSnippet = (snippet: Snippet): string => {
  * Generate all snippets.
  */
 export const generateSnippets = (snippets: Snippet[]): string => {
-  if (snippets.length === 0) return "";
+  if (snippets.length === 0) {
+    return "";
+  }
 
   return snippets.map(generateSnippet).join("\n");
 };

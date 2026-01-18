@@ -7,23 +7,23 @@ import type { PortMapping } from "../types";
 
 export interface ContainerNetworkConfig {
   /** Named network to join */
-  network?: string;
+  network?: string | undefined;
   /** Network mode */
-  networkMode?: "pasta" | "slirp4netns" | "host" | "none";
+  networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
   /** Port mappings */
-  ports?: PortMapping[];
+  ports?: PortMapping[] | undefined;
   /** Ports to expose (no host mapping) */
-  exposePort?: number[];
+  exposePort?: number[] | undefined;
   /** Container hostname */
-  hostname?: string;
+  hostname?: string | undefined;
   /** DNS servers */
-  dns?: string[];
+  dns?: string[] | undefined;
   /** DNS search domains */
-  dnsSearch?: string[];
+  dnsSearch?: string[] | undefined;
   /** DNS options */
-  dnsOption?: string[];
+  dnsOption?: string[] | undefined;
   /** Add extra hosts (/etc/hosts entries) */
-  addHost?: string[];
+  addHost?: string[] | undefined;
 }
 
 /**

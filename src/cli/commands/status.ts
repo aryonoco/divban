@@ -2,15 +2,15 @@
  * Status command - show service status.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
 import { getServiceUsername } from "../../config/schema";
+import type { DivbanError } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { Ok, type Result } from "../../lib/result";
+import type { AbsolutePath, GroupId } from "../../lib/types";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface StatusOptions {
   service: Service;
@@ -21,9 +21,7 @@ export interface StatusOptions {
 /**
  * Execute the status command.
  */
-export const executeStatus = async (
-  options: StatusOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeStatus = async (options: StatusOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
   // Get service user
@@ -36,7 +34,7 @@ export const executeStatus = async (
   const userResult = await getUserByName(username);
   if (!userResult.ok) {
     if (args.format === "json") {
-      console.log(
+      logger.raw(
         JSON.stringify({
           service: service.definition.name,
           status: "not_configured",
@@ -70,6 +68,7 @@ export const executeStatus = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   const statusResult = await service.status(ctx);
@@ -81,7 +80,7 @@ export const executeStatus = async (
   const status = statusResult.value;
 
   if (args.format === "json") {
-    console.log(
+    logger.raw(
       JSON.stringify({
         service: service.definition.name,
         running: status.running,
@@ -93,15 +92,17 @@ export const executeStatus = async (
     const statusColor = status.running ? "\x1b[32m" : "\x1b[31m";
     const reset = "\x1b[0m";
 
-    console.log(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
+    logger.raw(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
 
     if (status.containers.length > 0) {
-      console.log("");
-      console.log("Containers:");
+      logger.raw("");
+      logger.raw("Containers:");
       for (const container of status.containers) {
         const containerStatus = container.status === "running" ? "\x1b[32m" : "\x1b[31m";
         const healthStr = container.health ? ` (${container.health})` : "";
-        console.log(`  ${container.name}: ${containerStatus}${container.status}${reset}${healthStr}`);
+        logger.raw(
+          `  ${container.name}: ${containerStatus}${container.status}${reset}${healthStr}`
+        );
       }
     }
   }

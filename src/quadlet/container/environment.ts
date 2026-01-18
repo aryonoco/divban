@@ -2,15 +2,15 @@
  * Container environment configuration for quadlet files.
  */
 
-import { addEntries, addEntry, escapeIniValue } from "../format";
+import { addEntries, escapeIniValue } from "../format";
 
 export interface ContainerEnvironmentConfig {
   /** Environment files to load */
-  environmentFiles?: string[];
+  environmentFiles?: string[] | undefined;
   /** Environment variables */
-  environment?: Record<string, string>;
+  environment?: Record<string, string> | undefined;
   /** Secret files (mounted from host) */
-  secretFiles?: Record<string, string>;
+  secretFiles?: Record<string, string> | undefined;
 }
 
 /**
@@ -52,10 +52,7 @@ export const formatEnvironmentFile = (path: string): string => {
  * Create environment variable entries for a secret file pattern.
  * Convention: VAR_FILE points to a file containing the secret.
  */
-export const createSecretFileEnv = (
-  varName: string,
-  filePath: string
-): Record<string, string> => ({
+export const createSecretFileEnv = (varName: string, filePath: string): Record<string, string> => ({
   [`${varName}_FILE`]: filePath,
 });
 

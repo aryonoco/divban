@@ -6,21 +6,21 @@ import { addEntry } from "../format";
 
 export interface ContainerSecurityConfig {
   /** Read-only root filesystem */
-  readOnlyRootfs?: boolean;
+  readOnlyRootfs?: boolean | undefined;
   /** Prevent privilege escalation */
-  noNewPrivileges?: boolean;
+  noNewPrivileges?: boolean | undefined;
   /** Custom seccomp profile path */
-  seccompProfile?: string;
+  seccompProfile?: string | undefined;
   /** Custom AppArmor profile */
-  apparmorProfile?: string;
+  apparmorProfile?: string | undefined;
   /** Disable security labels (SELinux/AppArmor) */
-  securityLabelDisable?: boolean;
+  securityLabelDisable?: boolean | undefined;
   /** Run as privileged (avoid if possible) */
-  privileged?: boolean;
+  privileged?: boolean | undefined;
   /** User to run as inside container */
-  user?: string;
+  user?: string | undefined;
   /** Group to run as inside container */
-  group?: string;
+  group?: string | undefined;
 }
 
 /**

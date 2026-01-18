@@ -3,8 +3,8 @@
  */
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
-import { Err, Ok, type Result } from "../../../lib/result";
 import type { Logger } from "../../../lib/logger";
+import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 import { fileExists } from "../../../system/fs";
@@ -44,50 +44,28 @@ export const restoreDatabase = async (
 
   // Check backup file exists
   if (!(await fileExists(backupPath))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_NOT_FOUND,
-        `Backup file not found: ${backupPath}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
   }
 
   logger.info(`Restoring database from: ${backupPath}`);
   logger.warn("This will overwrite the existing database!");
 
   // Decompress the backup
-  const gunzipResult = await execAsUser(
-    user,
-    uid,
-    ["gunzip", "-c", backupPath],
-    { captureStdout: true, captureStderr: true }
-  );
+  const gunzipResult = await execAsUser(user, uid, ["gunzip", "-c", backupPath], {
+    captureStdout: true,
+    captureStderr: true,
+  });
 
   if (!gunzipResult.ok || gunzipResult.value.exitCode !== 0) {
     const stderr = gunzipResult.ok ? gunzipResult.value.stderr : "";
-    return Err(
-      new DivbanError(
-        ErrorCode.RESTORE_FAILED,
-        `Failed to decompress backup: ${stderr}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to decompress backup: ${stderr}`));
   }
 
   // Restore using psql
   const restoreResult = await execAsUser(
     user,
     uid,
-    [
-      "podman",
-      "exec",
-      "-i",
-      containerName,
-      "psql",
-      "-U",
-      dbUser,
-      "-d",
-      database,
-    ],
+    ["podman", "exec", "-i", containerName, "psql", "-U", dbUser, "-d", database],
     {
       stdin: gunzipResult.value.stdout,
       captureStdout: true,
@@ -97,11 +75,7 @@ export const restoreDatabase = async (
 
   if (!restoreResult.ok) {
     return Err(
-      new DivbanError(
-        ErrorCode.RESTORE_FAILED,
-        "Failed to restore database",
-        restoreResult.error
-      )
+      new DivbanError(ErrorCode.RESTORE_FAILED, "Failed to restore database", restoreResult.error)
     );
   }
 
@@ -109,12 +83,7 @@ export const restoreDatabase = async (
     // psql may return non-zero for warnings, check stderr
     const stderr = restoreResult.value.stderr;
     if (stderr.includes("ERROR")) {
-      return Err(
-        new DivbanError(
-          ErrorCode.RESTORE_FAILED,
-          `Database restore failed: ${stderr}`
-        )
-      );
+      return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Database restore failed: ${stderr}`));
     }
     // Warnings are OK
     logger.warn(`Restore completed with warnings: ${stderr}`);
@@ -134,21 +103,11 @@ export const validateBackup = async (
 ): Promise<Result<void, DivbanError>> => {
   // Check file exists
   if (!(await fileExists(backupPath))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_NOT_FOUND,
-        `Backup file not found: ${backupPath}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
   }
 
   // Check it's a valid gzip file
-  const result = await execAsUser(
-    user,
-    uid,
-    ["gzip", "-t", backupPath],
-    { captureStderr: true }
-  );
+  const result = await execAsUser(user, uid, ["gzip", "-t", backupPath], { captureStderr: true });
 
   if (!result.ok || result.value.exitCode !== 0) {
     return Err(

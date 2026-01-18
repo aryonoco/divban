@@ -30,7 +30,9 @@ export const escapeIniValue = (value: string): string => {
  * Format a single INI section.
  */
 export const formatSection = (section: IniSection): string => {
-  if (section.entries.length === 0) return "";
+  if (section.entries.length === 0) {
+    return "";
+  }
 
   const lines: string[] = [`[${section.name}]`];
 
@@ -48,7 +50,7 @@ export const formatSection = (section: IniSection): string => {
 export const formatQuadletFile = (sections: IniSection[]): string => {
   const nonEmptySections = sections.filter((s) => s.entries.length > 0);
 
-  return nonEmptySections.map(formatSection).join("\n\n") + "\n";
+  return `${nonEmptySections.map(formatSection).join("\n\n")}\n`;
 };
 
 /**
@@ -59,7 +61,9 @@ export const addEntry = (
   key: string,
   value: string | number | boolean | undefined
 ): void => {
-  if (value === undefined) return;
+  if (value === undefined) {
+    return;
+  }
 
   if (typeof value === "boolean") {
     entries.push({ key, value: value ? "true" : "false" });
@@ -76,7 +80,9 @@ export const addEntries = (
   key: string,
   values: string[] | undefined
 ): void => {
-  if (!values) return;
+  if (!values) {
+    return;
+  }
 
   for (const value of values) {
     entries.push({ key, value });
@@ -90,7 +96,9 @@ export const addEnvironment = (
   entries: Array<{ key: string; value: string }>,
   env: Record<string, string> | undefined
 ): void => {
-  if (!env) return;
+  if (!env) {
+    return;
+  }
 
   for (const [key, value] of Object.entries(env)) {
     entries.push({ key: "Environment", value: `${key}=${escapeIniValue(value)}` });
@@ -100,7 +108,14 @@ export const addEnvironment = (
 /**
  * Standard section ordering for quadlet files.
  */
-export const SECTION_ORDER = ["Unit", "Container", "Network", "Volume", "Service", "Install"] as const;
+export const SECTION_ORDER = [
+  "Unit",
+  "Container",
+  "Network",
+  "Volume",
+  "Service",
+  "Install",
+] as const;
 
 /**
  * Sort sections in the standard order.

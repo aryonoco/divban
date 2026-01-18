@@ -2,15 +2,16 @@
  * Generate command - generate quadlet files without installing.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
 import { loadServiceConfig } from "../../config/loader";
-import { writeFile, ensureDirectory } from "../../system/fs";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { Err, Ok, type Result } from "../../lib/result";
+import { type AbsolutePath, GroupId, UserId, Username } from "../../lib/types";
+import type { Service, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
+import { ensureDirectory, writeFile } from "../../system/fs";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions } from "./utils";
 
 export interface GenerateOptions {
   service: Service;
@@ -30,10 +31,7 @@ export const executeGenerate = async (
 
   if (!configPath) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        "Config path is required for generate command"
-      )
+      new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for generate command")
     );
   }
 
@@ -59,10 +57,11 @@ export const executeGenerate = async (
       configDir: `${outputDir}/config` as AbsolutePath,
     },
     user: {
-      name: "divban-preview" as any,
-      uid: 1000 as any,
-      gid: 1000 as any,
+      name: Username("divban-preview"),
+      uid: UserId(1000),
+      gid: GroupId(1000),
     },
+    options: getContextOptions(args),
   };
 
   // Generate files
@@ -108,7 +107,9 @@ export const executeGenerate = async (
   for (const [name, content] of files.quadlets) {
     const path = `${quadletDir}/${name}` as AbsolutePath;
     const result = await writeFile(path, content);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     logger.debug(`Wrote ${path}`);
   }
 
@@ -116,7 +117,9 @@ export const executeGenerate = async (
   for (const [name, content] of files.networks) {
     const path = `${quadletDir}/${name}` as AbsolutePath;
     const result = await writeFile(path, content);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     logger.debug(`Wrote ${path}`);
   }
 
@@ -124,7 +127,9 @@ export const executeGenerate = async (
   for (const [name, content] of files.volumes) {
     const path = `${quadletDir}/${name}` as AbsolutePath;
     const result = await writeFile(path, content);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     logger.debug(`Wrote ${path}`);
   }
 
@@ -132,7 +137,9 @@ export const executeGenerate = async (
   for (const [name, content] of files.environment) {
     const path = `${configDir}/${name}` as AbsolutePath;
     const result = await writeFile(path, content);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     logger.debug(`Wrote ${path}`);
   }
 
@@ -140,7 +147,9 @@ export const executeGenerate = async (
   for (const [name, content] of files.other) {
     const path = `${configDir}/${name}` as AbsolutePath;
     const result = await writeFile(path, content);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      return result;
+    }
     logger.debug(`Wrote ${path}`);
   }
 

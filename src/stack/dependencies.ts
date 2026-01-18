@@ -21,9 +21,7 @@ export const buildDependencyGraph = (containers: StackContainer[]): DependencyNo
 /**
  * Validate that all dependencies exist in the stack.
  */
-export const validateDependencies = (
-  nodes: DependencyNode[]
-): Result<void, DivbanError> => {
+export const validateDependencies = (nodes: DependencyNode[]): Result<void, DivbanError> => {
   const names = new Set(nodes.map((n) => n.name));
 
   for (const node of nodes) {
@@ -65,7 +63,9 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
     if (node) {
       for (const dep of [...node.requires, ...node.wants]) {
         const cycle = hasCycle(dep, [...path, name]);
-        if (cycle) return cycle;
+        if (cycle) {
+          return cycle;
+        }
       }
     }
 
@@ -95,10 +95,14 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
 export const topologicalSort = (nodes: DependencyNode[]): Result<string[], DivbanError> => {
   // Validate first
   const validationResult = validateDependencies(nodes);
-  if (!validationResult.ok) return validationResult;
+  if (!validationResult.ok) {
+    return validationResult;
+  }
 
   const cycleResult = detectCycles(nodes);
-  if (!cycleResult.ok) return cycleResult;
+  if (!cycleResult.ok) {
+    return cycleResult;
+  }
 
   // Build adjacency list and in-degree count
   const inDegree = new Map<string, number>();
@@ -128,7 +132,10 @@ export const topologicalSort = (nodes: DependencyNode[]): Result<string[], Divba
   // Process queue
   const sorted: string[] = [];
   while (queue.length > 0) {
-    const name = queue.shift()!;
+    const name = queue.shift();
+    if (name === undefined) {
+      break;
+    }
     sorted.push(name);
 
     for (const dependent of adjacency.get(name) ?? []) {
@@ -163,7 +170,9 @@ export const resolveStartOrder = (
   const nodes = buildDependencyGraph(containers);
   const sortResult = topologicalSort(nodes);
 
-  if (!sortResult.ok) return sortResult;
+  if (!sortResult.ok) {
+    return sortResult;
+  }
 
   const sorted = sortResult.value;
   const nodeMap = new Map(nodes.map((n) => [n.name, n]));
@@ -176,15 +185,17 @@ export const resolveStartOrder = (
     const level: string[] = [];
 
     for (const name of sorted) {
-      if (placed.has(name)) continue;
+      if (placed.has(name)) {
+        continue;
+      }
 
       const node = nodeMap.get(name);
-      if (!node) continue;
+      if (!node) {
+        continue;
+      }
 
       // Check if all dependencies are placed
-      const allDepsPlaced = [...node.requires, ...node.wants].every((dep) =>
-        placed.has(dep)
-      );
+      const allDepsPlaced = [...node.requires, ...node.wants].every((dep) => placed.has(dep));
 
       if (allDepsPlaced) {
         level.push(name);
@@ -211,11 +222,11 @@ export const resolveStartOrder = (
 /**
  * Resolve stop order (reverse of start order).
  */
-export const resolveStopOrder = (
-  containers: StackContainer[]
-): Result<StartOrder, DivbanError> => {
+export const resolveStopOrder = (containers: StackContainer[]): Result<StartOrder, DivbanError> => {
   const startResult = resolveStartOrder(containers);
-  if (!startResult.ok) return startResult;
+  if (!startResult.ok) {
+    return startResult;
+  }
 
   const start = startResult.value;
   return Ok({
@@ -227,15 +238,9 @@ export const resolveStopOrder = (
 /**
  * Get all containers that depend on a given container.
  */
-export const getDependents = (
-  containerName: string,
-  containers: StackContainer[]
-): string[] => {
+export const getDependents = (containerName: string, containers: StackContainer[]): string[] => {
   return containers
-    .filter(
-      (c) =>
-        c.requires?.includes(containerName) || c.wants?.includes(containerName)
-    )
+    .filter((c) => c.requires?.includes(containerName) || c.wants?.includes(containerName))
     .map((c) => c.name);
 };
 
@@ -251,9 +256,14 @@ export const getAllDependencies = (
   const queue = [containerName];
 
   while (queue.length > 0) {
-    const name = queue.shift()!;
+    const name = queue.shift();
+    if (name === undefined) {
+      break;
+    }
     const container = containerMap.get(name);
-    if (!container) continue;
+    if (!container) {
+      continue;
+    }
 
     for (const dep of [...(container.requires ?? []), ...(container.wants ?? [])]) {
       if (!deps.has(dep)) {

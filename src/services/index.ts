@@ -4,7 +4,6 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
-import type { ServiceName } from "../lib/types";
 import type { Service, ServiceDefinition } from "./types";
 
 // Service registry

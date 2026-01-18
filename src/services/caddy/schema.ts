@@ -14,18 +14,37 @@ const baseDirectiveSchema = z.object({
   block: z.lazy(() => z.array(directiveSchema)).optional(),
 });
 
-export const directiveSchema: z.ZodType<Directive> = baseDirectiveSchema;
-
+// The interface must explicitly include undefined for Zod compatibility with exactOptionalPropertyTypes
 export interface Directive {
   name: string;
-  args?: string[];
-  block?: Directive[];
+  args?: string[] | undefined;
+  block?: Directive[] | undefined;
+}
+
+export const directiveSchema: z.ZodType<Directive> = baseDirectiveSchema;
+
+/**
+ * Named matcher interface for exactOptionalPropertyTypes compatibility.
+ */
+export interface NamedMatcher {
+  name: string;
+  path?: string[] | undefined;
+  pathRegexp?: string | undefined;
+  host?: string[] | undefined;
+  method?: string[] | undefined;
+  header?: Record<string, string> | undefined;
+  headerRegexp?: Record<string, string> | undefined;
+  query?: Record<string, string> | undefined;
+  remoteIp?: string[] | undefined;
+  protocol?: string | undefined;
+  not?: Omit<NamedMatcher, "name"> | undefined;
+  expression?: string | undefined;
 }
 
 /**
  * Named matcher schema.
  */
-export const namedMatcherSchema = z.object({
+const baseNamedMatcherSchema = z.object({
   name: z.string(),
   path: z.array(z.string()).optional(),
   pathRegexp: z.string().optional(),
@@ -36,11 +55,16 @@ export const namedMatcherSchema = z.object({
   query: z.record(z.string()).optional(),
   remoteIp: z.array(z.string()).optional(),
   protocol: z.string().optional(),
-  not: z.lazy(() => namedMatcherSchema.omit({ name: true })).optional(),
+  not: z
+    .lazy(
+      (): z.ZodType<Omit<NamedMatcher, "name"> | undefined> =>
+        baseNamedMatcherSchema.omit({ name: true })
+    )
+    .optional(),
   expression: z.string().optional(),
 });
 
-export type NamedMatcher = z.infer<typeof namedMatcherSchema>;
+export const namedMatcherSchema: z.ZodType<NamedMatcher> = baseNamedMatcherSchema;
 
 /**
  * Snippet schema.
@@ -90,12 +114,18 @@ export const globalOptionsSchema = z.object({
   adminEnforceOrigin: z.boolean().optional(),
   httpPort: z.number().int().optional(),
   httpsPort: z.number().int().optional(),
-  autoHttps: z.enum(["off", "disable_redirects", "disable_certs", "ignore_loaded_certs"]).optional(),
-  servers: z.record(z.object({
-    listen: z.array(z.string()).optional(),
-    protocols: z.array(z.string()).optional(),
-    strictSniHost: z.boolean().optional(),
-  })).optional(),
+  autoHttps: z
+    .enum(["off", "disable_redirects", "disable_certs", "ignore_loaded_certs"])
+    .optional(),
+  servers: z
+    .record(
+      z.object({
+        listen: z.array(z.string()).optional(),
+        protocols: z.array(z.string()).optional(),
+        strictSniHost: z.boolean().optional(),
+      })
+    )
+    .optional(),
   logFormat: z.enum(["console", "json"]).optional(),
   logLevel: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
 });

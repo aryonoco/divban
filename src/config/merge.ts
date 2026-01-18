@@ -3,16 +3,13 @@
  * Merges global defaults with service-specific configuration.
  */
 
-import type { GlobalConfig, ContainerBaseConfig } from "./schema";
+import type { ContainerBaseConfig, GlobalConfig } from "./schema";
 
 /**
  * Deep merge two objects, with source values taking precedence.
  * Arrays are replaced, not merged.
  */
-export const deepMerge = <T extends Record<string, unknown>>(
-  target: T,
-  source: Partial<T>
-): T => {
+export const deepMerge = <T extends Record<string, unknown>>(target: T, source: Partial<T>): T => {
   const result = { ...target };
 
   for (const key of Object.keys(source) as (keyof T)[]) {
@@ -52,11 +49,11 @@ export const mergeContainerDefaults = (
   global: GlobalConfig,
   container: Partial<ContainerBaseConfig>
 ): Partial<ContainerBaseConfig> => {
-  const defaults = global.defaults ?? {};
+  const defaults = global.defaults;
 
   return {
-    networkMode: container.networkMode ?? defaults.networkMode ?? "pasta",
-    autoUpdate: container.autoUpdate ?? defaults.autoUpdate ?? "registry",
+    networkMode: container.networkMode ?? defaults?.networkMode ?? "pasta",
+    autoUpdate: container.autoUpdate ?? defaults?.autoUpdate ?? "registry",
     ...container,
   };
 };
@@ -72,12 +69,12 @@ export const getUserAllocationSettings = (
   subuidRangeStart: number;
   subuidRangeSize: number;
 } => {
-  const users = global.users ?? {};
+  const users = global.users;
   return {
-    uidRangeStart: users.uidRangeStart ?? 10000,
-    uidRangeEnd: users.uidRangeEnd ?? 59999,
-    subuidRangeStart: users.subuidRangeStart ?? 100000,
-    subuidRangeSize: users.subuidRangeSize ?? 65536,
+    uidRangeStart: users?.uidRangeStart ?? 10000,
+    uidRangeEnd: users?.uidRangeEnd ?? 59999,
+    subuidRangeStart: users?.subuidRangeStart ?? 100000,
+    subuidRangeSize: users?.subuidRangeSize ?? 65536,
   };
 };
 
@@ -90,10 +87,10 @@ export const getLoggingSettings = (
   level: "debug" | "info" | "warn" | "error";
   format: "pretty" | "json";
 } => {
-  const logging = global.logging ?? {};
+  const logging = global.logging;
   return {
-    level: logging.level ?? "info",
-    format: logging.format ?? "pretty",
+    level: logging?.level ?? "info",
+    format: logging?.format ?? "pretty",
   };
 };
 
@@ -105,9 +102,9 @@ export const getPathSettings = (
 ): {
   baseDataDir: string;
 } => {
-  const paths = global.paths ?? {};
+  const paths = global.paths;
   return {
-    baseDataDir: paths.baseDataDir ?? "/srv",
+    baseDataDir: paths?.baseDataDir ?? "/srv",
   };
 };
 

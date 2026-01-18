@@ -36,21 +36,21 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
   // Header matching
   if (matcher.header) {
     for (const [name, value] of Object.entries(matcher.header)) {
-      builder.directive("header", [name, value]);
+      builder.directive("header", [name, value as string]);
     }
   }
 
   // Header regexp
   if (matcher.headerRegexp) {
     for (const [name, pattern] of Object.entries(matcher.headerRegexp)) {
-      builder.directive("header_regexp", [name, pattern]);
+      builder.directive("header_regexp", [name, pattern as string]);
     }
   }
 
   // Query matching
   if (matcher.query) {
     for (const [key, value] of Object.entries(matcher.query)) {
-      builder.directive("query", [`${key}=${escapeValue(value)}`]);
+      builder.directive("query", [`${key}=${escapeValue(value as string)}`]);
     }
   }
 
@@ -95,7 +95,9 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
  * Generate all named matchers.
  */
 export const generateNamedMatchers = (matchers: NamedMatcher[]): string => {
-  if (matchers.length === 0) return "";
+  if (matchers.length === 0) {
+    return "";
+  }
 
   return matchers.map(generateNamedMatcher).join("\n");
 };
@@ -111,17 +113,17 @@ export const matcherRef = (name: string): string => {
  * Check if a matcher is empty (has no conditions).
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
-  return (
-    !matcher.path?.length &&
-    !matcher.pathRegexp &&
-    !matcher.host?.length &&
-    !matcher.method?.length &&
-    !matcher.header &&
-    !matcher.headerRegexp &&
-    !matcher.query &&
-    !matcher.remoteIp?.length &&
-    !matcher.protocol &&
-    !matcher.not &&
-    !matcher.expression
+  return !(
+    (matcher.path && matcher.path.length > 0) ||
+    matcher.pathRegexp ||
+    (matcher.host && matcher.host.length > 0) ||
+    (matcher.method && matcher.method.length > 0) ||
+    matcher.header ||
+    matcher.headerRegexp ||
+    matcher.query ||
+    (matcher.remoteIp && matcher.remoteIp.length > 0) ||
+    matcher.protocol ||
+    matcher.not ||
+    matcher.expression
   );
 };

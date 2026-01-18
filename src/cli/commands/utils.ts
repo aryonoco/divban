@@ -2,20 +2,27 @@
  * Shared utilities for CLI commands.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
-import type { Service } from "../../services/types";
 import { loadServiceConfig } from "../../config/loader";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Err, type Result } from "../../lib/result";
+import type { AbsolutePath } from "../../lib/types";
+import type { Service, ServiceContext } from "../../services/types";
 import { fileExists } from "../../system/fs";
+import type { ParsedArgs } from "../parser";
+
+/**
+ * Extract context options from parsed args.
+ */
+export const getContextOptions = (args: ParsedArgs): ServiceContext["options"] => ({
+  dryRun: args.dryRun,
+  verbose: args.verbose,
+  force: args.force,
+});
 
 /**
  * Common config file locations for a service.
  */
-const getConfigPaths = (
-  serviceName: string,
-  homeDir: AbsolutePath
-): AbsolutePath[] => [
+const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): AbsolutePath[] => [
   `${homeDir}/.config/divban/${serviceName}.toml` as AbsolutePath,
   `/etc/divban/${serviceName}.toml` as AbsolutePath,
   `./divban-${serviceName}.toml` as AbsolutePath,
@@ -32,10 +39,7 @@ export const resolveServiceConfig = async (
 ): Promise<Result<unknown, DivbanError>> => {
   // If explicit path provided, use it
   if (explicitPath) {
-    return loadServiceConfig(
-      explicitPath as AbsolutePath,
-      service.definition.configSchema
-    );
+    return loadServiceConfig(explicitPath as AbsolutePath, service.definition.configSchema);
   }
 
   // Search common locations
@@ -85,4 +89,23 @@ export const formatBytes = (bytes: number): string => {
     return `${(bytes / 1024).toFixed(2)} KB`;
   }
   return `${bytes} B`;
+};
+
+/**
+ * Safely extract dataDir from config.
+ * Service configs may have a paths.dataDir property.
+ */
+export const getDataDirFromConfig = (config: unknown, fallback: AbsolutePath): AbsolutePath => {
+  if (
+    config !== null &&
+    typeof config === "object" &&
+    "paths" in config &&
+    config.paths !== null &&
+    typeof config.paths === "object" &&
+    "dataDir" in config.paths &&
+    typeof config.paths.dataDir === "string"
+  ) {
+    return config.paths.dataDir as AbsolutePath;
+  }
+  return fallback;
 };

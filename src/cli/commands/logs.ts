@@ -2,15 +2,15 @@
  * Logs command - view service logs.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext, LogOptions } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { LogOptions, Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface LogsCommandOptions {
   service: Service;
@@ -63,13 +63,14 @@ export const executeLogs = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   // Build log options
   const logOptions: LogOptions = {
     follow: args.follow,
     lines: args.lines,
-    container: args.container,
+    ...(args.container && { container: args.container }),
   };
 
   return service.logs(ctx, logOptions);

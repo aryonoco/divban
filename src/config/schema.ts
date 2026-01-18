@@ -4,9 +4,14 @@
  */
 
 import { z } from "zod";
-import { type AbsolutePath, type Username, AbsolutePath as makeAbsolutePath } from "../lib/types";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
+import { type AbsolutePath, type Username, AbsolutePath as makeAbsolutePath } from "../lib/types";
+
+/**
+ * Top-level regex patterns for validation (better performance).
+ */
+const POSIX_USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
 
 /**
  * Reusable schema components
@@ -93,7 +98,7 @@ export const globalConfigSchema = z.object({
       autoUpdate: z.enum(["registry", "local"]).or(z.literal(false)).default("registry"),
       timezone: z.string().default("UTC"),
     })
-    .optional(),
+    .default({}),
   users: z
     .object({
       uidRangeStart: z.number().int().min(10000).max(59999).default(10000),
@@ -101,18 +106,18 @@ export const globalConfigSchema = z.object({
       subuidRangeStart: z.number().int().min(100000).default(100000),
       subuidRangeSize: z.number().int().min(65536).default(65536),
     })
-    .optional(),
+    .default({}),
   logging: z
     .object({
       level: z.enum(["debug", "info", "warn", "error"]).default("info"),
       format: z.enum(["pretty", "json"]).default("pretty"),
     })
-    .optional(),
+    .default({}),
   paths: z
     .object({
       baseDataDir: absolutePathSchema.default("/srv"),
     })
-    .optional(),
+    .default({}),
 });
 
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
@@ -139,7 +144,7 @@ export const getServiceUsername = (serviceName: string): Result<Username, Divban
   const username = `divban-${serviceName}`;
 
   // Validate against POSIX username rules
-  if (!/^[a-z_][a-z0-9_-]*$/.test(username)) {
+  if (!POSIX_USERNAME_REGEX.test(username)) {
     return Err(
       new DivbanError(
         ErrorCode.INVALID_ARGS,
@@ -165,14 +170,16 @@ export const getServiceUsername = (serviceName: string): Result<Username, Divban
  */
 export const getServiceDataDir = (
   serviceName: string,
-  baseDataDir: string = "/srv"
+  baseDataDir = "/srv"
 ): Result<AbsolutePath, DivbanError> => {
   const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) return usernameResult;
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
 
   try {
     return Ok(makeAbsolutePath(`${baseDataDir}/${usernameResult.value}`));
-  } catch (e) {
+  } catch (_e) {
     return Err(
       new DivbanError(
         ErrorCode.INVALID_ARGS,

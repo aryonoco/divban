@@ -2,9 +2,9 @@
  * Site block generation for Caddyfile.
  */
 
-import type { Route, Site } from "../schema";
-import { createBuilder } from "./format";
+import type { Directive, Route, Site } from "../schema";
 import { renderDirectives } from "./directives";
+import { createBuilder } from "./format";
 import { generateNamedMatchers } from "./matchers";
 
 /**
@@ -96,30 +96,29 @@ export const Sites = {
    */
   reverseProxy: (addresses: string[], upstream: string): Site => ({
     addresses,
-    directives: [
-      { name: "reverse_proxy", args: [upstream] },
-    ],
+    directives: [{ name: "reverse_proxy", args: [upstream] }],
   }),
 
   /**
    * Static file server site
    */
-  fileServer: (addresses: string[], root: string, options?: { browse?: boolean }): Site => ({
-    addresses,
-    directives: [
-      { name: "root", args: ["*", root] },
-      { name: "file_server", args: options?.browse ? ["browse"] : undefined },
-    ],
-  }),
+  fileServer: (addresses: string[], root: string, options?: { browse?: boolean }): Site => {
+    const fileServerDirective: Directive = { name: "file_server" };
+    if (options?.browse) {
+      fileServerDirective.args = ["browse"];
+    }
+    return {
+      addresses,
+      directives: [{ name: "root", args: ["*", root] }, fileServerDirective],
+    };
+  },
 
   /**
    * Redirect site
    */
   redirect: (addresses: string[], target: string, permanent?: boolean): Site => ({
     addresses,
-    directives: [
-      { name: "redir", args: permanent ? [target, "permanent"] : [target] },
-    ],
+    directives: [{ name: "redir", args: permanent ? [target, "permanent"] : [target] }],
   }),
 
   /**

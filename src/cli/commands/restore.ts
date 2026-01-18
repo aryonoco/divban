@@ -2,15 +2,15 @@
  * Restore command - restore from a backup.
  */
 
-import type { Logger } from "../../lib/logger";
-import type { Service, ServiceContext } from "../../services/types";
-import type { ParsedArgs } from "../parser";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, GroupId } from "../../lib/types";
-import { getServiceUsername } from "../../config/schema";
+import type { Service, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import { resolveServiceConfig } from "./utils";
+import type { ParsedArgs } from "../parser";
+import { getContextOptions, getDataDirFromConfig, resolveServiceConfig } from "./utils";
 
 export interface RestoreOptions {
   service: Service;
@@ -27,7 +27,7 @@ export const executeRestore = async (
   const { service, args, logger } = options;
 
   // Check if service supports restore
-  if (!service.definition.capabilities.hasRestore || !service.restore) {
+  if (!(service.definition.capabilities.hasRestore && service.restore)) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
@@ -39,10 +39,7 @@ export const executeRestore = async (
   // Check backup path is provided
   if (!args.backupPath) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        "Backup path is required for restore command"
-      )
+      new DivbanError(ErrorCode.INVALID_ARGS, "Backup path is required for restore command")
     );
   }
 
@@ -77,7 +74,7 @@ export const executeRestore = async (
     config: configResult.value,
     logger,
     paths: {
-      dataDir: (configResult.value as any).paths?.dataDir as AbsolutePath,
+      dataDir: getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath),
       quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
       configDir: `${homeDir}/.config/divban` as AbsolutePath,
     },
@@ -86,6 +83,7 @@ export const executeRestore = async (
       uid,
       gid,
     },
+    options: getContextOptions(args),
   };
 
   if (args.dryRun) {
@@ -100,10 +98,7 @@ export const executeRestore = async (
     // In a real CLI we'd prompt for confirmation here
     // For now, require --force flag
     return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        "Restore requires --force flag for safety"
-      )
+      new DivbanError(ErrorCode.GENERAL_ERROR, "Restore requires --force flag for safety")
     );
   }
 
@@ -116,16 +111,10 @@ export const executeRestore = async (
   }
 
   if (args.format === "json") {
-    console.log(
-      JSON.stringify({
-        service: service.definition.name,
-        backupPath: args.backupPath,
-        status: "restored",
-      })
-    );
+    logger.info(JSON.stringify({ success: true, service: service.definition.name }));
   } else {
     logger.success("Restore completed successfully");
-    logger.info("You may need to restart the service: divban " + service.definition.name + " restart");
+    logger.info(`You may need to restart the service: divban ${service.definition.name} restart`);
   }
 
   return Ok(undefined);

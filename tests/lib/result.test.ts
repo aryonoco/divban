@@ -42,14 +42,18 @@ describe("Result", () => {
     test("transforms Ok value", () => {
       const result = mapResult(Ok(5), (x) => x * 2);
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(10);
+      if (result.ok) {
+        expect(result.value).toBe(10);
+      }
     });
 
     test("passes through Err unchanged", () => {
       const error = new DivbanError(ErrorCode.GENERAL_ERROR, "error");
       const result = mapResult(Err(error), (x: number) => x * 2);
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toBe(error);
+      if (!result.ok) {
+        expect(result.error).toBe(error);
+      }
     });
   });
 
@@ -57,14 +61,18 @@ describe("Result", () => {
     test("chains Ok values", () => {
       const result = flatMapResult(Ok(5), (x) => Ok(x * 2));
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(10);
+      if (result.ok) {
+        expect(result.value).toBe(10);
+      }
     });
 
     test("propagates inner Err", () => {
       const error = new DivbanError(ErrorCode.GENERAL_ERROR, "inner error");
       const result = flatMapResult(Ok(5), () => Err(error));
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toBe(error);
+      if (!result.ok) {
+        expect(result.error).toBe(error);
+      }
     });
 
     test("short-circuits on outer Err", () => {
@@ -84,7 +92,9 @@ describe("Result", () => {
       const results = [Ok(1), Ok(2), Ok(3)];
       const collected = collectResults(results);
       expect(collected.ok).toBe(true);
-      if (collected.ok) expect(collected.value).toEqual([1, 2, 3]);
+      if (collected.ok) {
+        expect(collected.value).toEqual([1, 2, 3]);
+      }
     });
 
     test("returns first Err", () => {
@@ -92,13 +102,17 @@ describe("Result", () => {
       const results = [Ok(1), Err(error), Ok(3)];
       const collected = collectResults(results);
       expect(collected.ok).toBe(false);
-      if (!collected.ok) expect(collected.error).toBe(error);
+      if (!collected.ok) {
+        expect(collected.error).toBe(error);
+      }
     });
 
     test("handles empty array", () => {
       const collected = collectResults([]);
       expect(collected.ok).toBe(true);
-      if (collected.ok) expect(collected.value).toEqual([]);
+      if (collected.ok) {
+        expect(collected.value).toEqual([]);
+      }
     });
   });
 
@@ -108,13 +122,17 @@ describe("Result", () => {
       const error2 = new DivbanError(ErrorCode.EXEC_FAILED, "error2");
       const result = mapErr(Err(error1), () => error2);
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toBe(error2);
+      if (!result.ok) {
+        expect(result.error).toBe(error2);
+      }
     });
 
     test("passes through Ok unchanged", () => {
       const result = mapErr(Ok(42), () => new DivbanError(ErrorCode.GENERAL_ERROR, "unused"));
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(42);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
     });
   });
 
@@ -154,7 +172,9 @@ describe("Result", () => {
         (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
       );
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(42);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
     });
 
     test("returns Err for throwing function", () => {

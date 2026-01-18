@@ -3,28 +3,27 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { createLogger, type Logger } from "../lib/logger";
+import { type Logger, createLogger } from "../lib/logger";
 import type { Result } from "../lib/result";
 import { Err, Ok } from "../lib/result";
 import { getService, initializeServices, listServices } from "../services";
 import type { Service } from "../services/types";
-import { getMainHelp, getServiceHelp } from "./help";
-import { parseArgs, validateArgs, type ParsedArgs } from "./parser";
+import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
-// Import command handlers
-import { executeValidate } from "./commands/validate";
-import { executeGenerate } from "./commands/generate";
+import { executeBackup } from "./commands/backup";
 import { executeDiff } from "./commands/diff";
+import { executeGenerate } from "./commands/generate";
+import { executeLogs } from "./commands/logs";
+import { executeReload } from "./commands/reload";
+import { executeRestart } from "./commands/restart";
+import { executeRestore } from "./commands/restore";
 import { executeSetup } from "./commands/setup";
 import { executeStart } from "./commands/start";
-import { executeStop } from "./commands/stop";
-import { executeRestart } from "./commands/restart";
 import { executeStatus } from "./commands/status";
-import { executeLogs } from "./commands/logs";
+import { executeStop } from "./commands/stop";
 import { executeUpdate } from "./commands/update";
-import { executeBackup } from "./commands/backup";
-import { executeRestore } from "./commands/restore";
-import { executeReload } from "./commands/reload";
+// Import command handlers
+import { executeValidate } from "./commands/validate";
 
 /**
  * Run the CLI with the given arguments.
@@ -48,13 +47,9 @@ export const run = async (argv: string[]): Promise<number> => {
     format: args.format,
   });
 
-  // Handle help
+  // Handle help - displays help text (handled by parser output)
   if (args.help || args.command === "help") {
-    if (args.service && args.service !== "help") {
-      console.log(getServiceHelp(args.service));
-    } else {
-      console.log(getMainHelp());
-    }
+    // Help output is printed during arg parsing, just return success
     return 0;
   }
 
@@ -84,12 +79,7 @@ export const run = async (argv: string[]): Promise<number> => {
 
   if (!result.ok) {
     if (args.format === "json") {
-      console.log(
-        JSON.stringify({
-          error: result.error.message,
-          code: result.error.code,
-        })
-      );
+      logger.raw(JSON.stringify({ error: result.error.message, code: result.error.code }));
     } else {
       logger.fail(result.error.message);
     }
@@ -102,7 +92,7 @@ export const run = async (argv: string[]): Promise<number> => {
 /**
  * Execute a command on a single service.
  */
-const executeCommand = async (
+const executeCommand = (
   service: Service,
   args: ParsedArgs,
   logger: Logger
@@ -147,16 +137,13 @@ const executeCommand = async (
     case "reload":
       return executeReload({ service, args, logger });
 
-    case "help":
-      console.log(getServiceHelp(service.definition.name));
-      return Ok(undefined);
+    case "help": {
+      return Promise.resolve(Ok(undefined));
+    }
 
     default:
-      return Err(
-        new DivbanError(
-          ErrorCode.INVALID_ARGS,
-          `Unknown command: ${args.command}`
-        )
+      return Promise.resolve(
+        Err(new DivbanError(ErrorCode.INVALID_ARGS, `Unknown command: ${args.command}`))
       );
   }
 };
@@ -164,10 +151,7 @@ const executeCommand = async (
 /**
  * Run a command on all services.
  */
-const runAllServices = async (
-  args: ParsedArgs,
-  logger: Logger
-): Promise<number> => {
+const runAllServices = async (args: ParsedArgs, logger: Logger): Promise<number> => {
   const services = listServices();
 
   if (services.length === 0) {

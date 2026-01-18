@@ -30,7 +30,9 @@ export const readFile = async (path: AbsolutePath): Promise<Result<string, Divba
  */
 export const readLines = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
   const result = await readFile(path);
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return result;
+  }
 
   return Ok(result.value.split("\n").map((line) => line.trimEnd()));
 };
@@ -66,7 +68,7 @@ export const appendFile = async (
 /**
  * Check if a file exists.
  */
-export const fileExists = async (path: AbsolutePath): Promise<boolean> => {
+export const fileExists = (path: AbsolutePath): Promise<boolean> => {
   return Bun.file(path).exists();
 };
 
@@ -90,7 +92,9 @@ export const copyFile = async (
   dest: AbsolutePath
 ): Promise<Result<void, DivbanError>> => {
   const content = await readFile(source);
-  if (!content.ok) return content;
+  if (!content.ok) {
+    return content;
+  }
 
   return writeFile(dest, content.value);
 };
@@ -103,7 +107,9 @@ export const backupFile = async (
 ): Promise<Result<AbsolutePath, DivbanError>> => {
   const backupPath = `${path}.bak` as AbsolutePath;
   const result = await copyFile(path, backupPath);
-  if (!result.ok) return result;
+  if (!result.ok) {
+    return result;
+  }
 
   return Ok(backupPath);
 };
@@ -127,7 +133,9 @@ export const atomicWrite = async (
   const tempPath = `${path}.tmp.${Date.now()}` as AbsolutePath;
 
   const writeResult = await writeFile(tempPath, content);
-  if (!writeResult.ok) return writeResult;
+  if (!writeResult.ok) {
+    return writeResult;
+  }
 
   return tryCatch(
     () => rename(tempPath, path),
@@ -144,8 +152,12 @@ export const filesEqual = async (
 ): Promise<Result<boolean, DivbanError>> => {
   const [content1, content2] = await Promise.all([readFile(path1), readFile(path2)]);
 
-  if (!content1.ok) return content1;
-  if (!content2.ok) return content2;
+  if (!content1.ok) {
+    return content1;
+  }
+  if (!content2.ok) {
+    return content2;
+  }
 
   return Ok(content1.value === content2.value);
 };
@@ -225,4 +237,49 @@ export const globFiles = async (
 export const globMatch = (pattern: string, path: string): boolean => {
   const glob = new Glob(pattern);
   return glob.match(path);
+};
+
+/**
+ * Delete a file using Bun's native file.delete() method.
+ * Returns success if file was deleted or didn't exist.
+ */
+export const deleteFile = async (path: AbsolutePath): Promise<Result<void, DivbanError>> => {
+  const file = Bun.file(path);
+
+  if (!(await file.exists())) {
+    return Ok(undefined);
+  }
+
+  return tryCatch(
+    async () => {
+      await file.delete();
+    },
+    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to delete file: ${path}`)
+  );
+};
+
+/**
+ * Delete a file only if it exists.
+ * Returns true if file was deleted, false if it didn't exist.
+ */
+export const deleteFileIfExists = async (
+  path: AbsolutePath
+): Promise<Result<boolean, DivbanError>> => {
+  const file = Bun.file(path);
+
+  if (!(await file.exists())) {
+    return Ok(false);
+  }
+
+  const result = await tryCatch(
+    async () => {
+      await file.delete();
+    },
+    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to delete file: ${path}`)
+  );
+
+  if (!result.ok) {
+    return result;
+  }
+  return Ok(true);
 };

@@ -5,8 +5,8 @@
 import type { CaddyfileConfig } from "../schema";
 import { createBuilder } from "./format";
 import { generateGlobalOptions, hasGlobalOptions } from "./global";
-import { generateSnippets } from "./snippets";
 import { generateSites } from "./sites";
+import { generateSnippets } from "./snippets";
 
 /**
  * Generate a complete Caddyfile from configuration.
@@ -21,9 +21,9 @@ export const generateCaddyfile = (config: CaddyfileConfig): string => {
   builder.blank();
 
   // Global options (if any)
-  if (hasGlobalOptions(config.global)) {
+  if (config.global && hasGlobalOptions(config.global)) {
     builder.comment("Global options");
-    builder.raw(generateGlobalOptions(config.global!).trim());
+    builder.raw(generateGlobalOptions(config.global).trim());
     builder.blank();
   }
 
