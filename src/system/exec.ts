@@ -1,8 +1,9 @@
 /**
  * Command execution wrapper with Result-based error handling.
- * Uses Bun.spawn for process management.
+ * Uses Bun.spawn for process management and Bun Shell for complex piping.
  */
 
+import { $ } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 
@@ -90,8 +91,10 @@ export const exec = async (
           ? await Promise.race([exitPromise, timeoutPromise])
           : await exitPromise;
 
-        const stdout = options.captureStdout !== false ? await new Response(proc.stdout).text() : "";
-        const stderr = options.captureStderr !== false ? await new Response(proc.stderr).text() : "";
+        const stdout =
+          options.captureStdout !== false ? await new Response(proc.stdout).text() : "";
+        const stderr =
+          options.captureStderr !== false ? await new Response(proc.stderr).text() : "";
 
         return { exitCode, stdout, stderr };
       } finally {
@@ -144,10 +147,10 @@ export const execOutput = async (
 
 /**
  * Check if a command exists in PATH.
+ * Uses Bun.which() for synchronous, no-subprocess lookup.
  */
-export const commandExists = async (command: string): Promise<boolean> => {
-  const result = await exec(["which", command], { captureStdout: true, captureStderr: true });
-  return result.ok && result.value.exitCode === 0;
+export const commandExists = (command: string): boolean => {
+  return Bun.which(command) !== null;
 };
 
 /**
@@ -168,4 +171,62 @@ export const execAsUser = async (
       DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${uid}/bus`,
     },
   });
+};
+
+export interface ShellOptions {
+  /** Working directory */
+  cwd?: string;
+  /** Environment variables */
+  env?: Record<string, string>;
+  /** User ID for XDG_RUNTIME_DIR */
+  uid?: number;
+}
+
+/**
+ * Execute a shell command with piping support using Bun Shell.
+ * Use for commands that benefit from shell features (pipes, redirects).
+ */
+export const shell = async (
+  command: string,
+  options: ShellOptions = {}
+): Promise<Result<ExecResult, DivbanError>> => {
+  return tryCatch(
+    async () => {
+      let cmd = $`${{ raw: command }}`.nothrow().quiet();
+
+      if (options.cwd) cmd = cmd.cwd(options.cwd);
+
+      const env = {
+        ...process.env,
+        ...options.env,
+        ...(options.uid
+          ? {
+              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+            }
+          : {}),
+      };
+      cmd = cmd.env(env);
+
+      const result = await cmd;
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout.toString(),
+        stderr: result.stderr.toString(),
+      };
+    },
+    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
+  );
+};
+
+/**
+ * Execute shell command as another user via sudo.
+ */
+export const shellAsUser = async (
+  user: string,
+  uid: number,
+  command: string
+): Promise<Result<ExecResult, DivbanError>> => {
+  const escapedCommand = command.replace(/'/g, "'\\''");
+  return shell(`sudo -u ${user} -- sh -c '${escapedCommand}'`, { uid });
 };

@@ -4,26 +4,25 @@
  */
 
 import { loadServiceConfig } from "../../config/loader";
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
+import type { DivbanError } from "../../lib/errors";
+import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
-  createPostgresHealthCheck,
-  createRedisHealthCheck,
   createHttpHealthCheck,
   createKeepIdNs,
+  createPostgresHealthCheck,
+  createRedisHealthCheck,
 } from "../../quadlet";
 import {
   createStack,
   generateEnvFile,
   generateStackQuadlets,
+  getStackStatus,
   startStack,
   stopStack,
-  restartStack,
-  getStackStatus,
 } from "../../stack";
 import type { StackContainer } from "../../stack/types";
-import { writeFile } from "../../system/fs";
+import { ensureDirectory, writeFile } from "../../system/fs";
 import { daemonReload, enableService, journalctl } from "../../system/systemctl";
 import type {
   BackupResult,
@@ -35,11 +34,11 @@ import type {
   ServiceStatus,
 } from "../types";
 import { createGeneratedFiles } from "../types";
-import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
-import { librariesToVolumeMounts, getLibraryEnvironment } from "./libraries";
 import { backupDatabase } from "./commands/backup";
 import { restoreDatabase } from "./commands/restore";
-import { immichConfigSchema, type ImmichConfig } from "./schema";
+import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
+import { getLibraryEnvironment, librariesToVolumeMounts } from "./libraries";
+import { type ImmichConfig, immichConfigSchema } from "./schema";
 
 const SERVICE_NAME = "immich" as ServiceName;
 const DEFAULT_ML_IMAGE = "ghcr.io/immich-app/immich-machine-learning:release";
@@ -119,9 +118,10 @@ const generate = async (ctx: ServiceContext): Promise<Result<GeneratedFiles, Div
         name: "Server Configuration",
         vars: {
           IMMICH_SERVER_URL: "http://immich-server:2283",
-          IMMICH_MACHINE_LEARNING_URL: config.containers?.machineLearning?.enabled !== false
-            ? "http://immich-machine-learning:3003"
-            : undefined,
+          IMMICH_MACHINE_LEARNING_URL:
+            config.containers?.machineLearning?.enabled !== false
+              ? "http://immich-machine-learning:3003"
+              : undefined,
           LOG_LEVEL: config.logLevel,
           IMMICH_WEB_URL: config.publicUrl,
         },
@@ -165,9 +165,7 @@ const generate = async (ctx: ServiceContext): Promise<Result<GeneratedFiles, Div
       POSTGRES_DB: config.database.database,
       POSTGRES_INITDB_ARGS: "--data-checksums",
     },
-    volumes: [
-      { source: `${dataDir}/postgres`, target: "/var/lib/postgresql/data" },
-    ],
+    volumes: [{ source: `${dataDir}/postgres`, target: "/var/lib/postgresql/data" }],
     healthCheck: createPostgresHealthCheck(config.database.username, config.database.database),
     shmSize: "256m",
     noNewPrivileges: true,
@@ -175,19 +173,18 @@ const generate = async (ctx: ServiceContext): Promise<Result<GeneratedFiles, Div
   });
 
   // Main server container
-  const serverDevices = hardware.transcoding
-    ? mergeDevices(hardware.transcoding)
-    : [];
-  const serverEnv = hardware.transcoding
-    ? mergeEnvironment(hardware.transcoding)
-    : {};
+  const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
+  const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
 
   containers.push({
     name: "immich-server",
     description: "Immich server",
     image: config.containers?.server?.image ?? "ghcr.io/immich-app/immich-server:release",
     requires: ["immich-redis", "immich-postgres"],
-    wants: config.containers?.machineLearning?.enabled !== false ? ["immich-machine-learning"] : undefined,
+    wants:
+      config.containers?.machineLearning?.enabled !== false
+        ? ["immich-machine-learning"]
+        : undefined,
     ports: [{ host: 2283, container: 2283 }],
     volumes: [
       { source: uploadDir, target: "/upload" },
@@ -219,9 +216,7 @@ const generate = async (ctx: ServiceContext): Promise<Result<GeneratedFiles, Div
       name: "immich-machine-learning",
       description: "Immich Machine Learning",
       image: mlImage,
-      volumes: [
-        { source: `${dataDir}/model-cache`, target: "/cache" },
-      ],
+      volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
       environmentFiles: [`${ctx.paths.configDir}/immich.env`],
       environment: mlEnv,
       devices: mlDevices.length > 0 ? mlDevices : undefined,
@@ -267,7 +262,7 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
   if (!filesResult.ok) return filesResult;
   const files = filesResult.value;
 
-  // 2. Create data directories
+  // 2. Create data directories using native fs
   logger.step(2, 5, "Creating data directories...");
   const dataDir = config.paths.dataDir;
   const dirs = [
@@ -280,7 +275,8 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
     `${dataDir}/backups`,
   ];
   for (const dir of dirs) {
-    await Bun.spawn(["mkdir", "-p", dir]).exited;
+    const result = await ensureDirectory(dir as AbsolutePath);
+    if (!result.ok) return result;
   }
 
   // 3. Write files
@@ -314,7 +310,12 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
 
   // 5. Enable services
   logger.step(5, 5, "Enabling services...");
-  for (const unit of ["immich-redis", "immich-postgres", "immich-server", "immich-machine-learning"]) {
+  for (const unit of [
+    "immich-redis",
+    "immich-postgres",
+    "immich-server",
+    "immich-machine-learning",
+  ]) {
     await enableService(`${unit}.service`, { user: ctx.user.name, uid: ctx.user.uid });
   }
 
@@ -409,10 +410,11 @@ const status = async (ctx: ServiceContext): Promise<Result<ServiceStatus, Divban
 /**
  * View Immich logs.
  */
-const logs = async (ctx: ServiceContext, options: LogOptions): Promise<Result<void, DivbanError>> => {
-  const unit = options.container
-    ? `${options.container}.service`
-    : "immich-server.service";
+const logs = async (
+  ctx: ServiceContext,
+  options: LogOptions
+): Promise<Result<void, DivbanError>> => {
+  const unit = options.container ? `${options.container}.service` : "immich-server.service";
 
   return journalctl(unit, {
     user: ctx.user.name,

@@ -1,12 +1,15 @@
 /**
  * Immich database backup command.
+ * Uses Bun.gzipSync() for in-memory compression and Bun.Glob for file listing.
  */
 
+import { Glob } from "bun";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
-import { Err, Ok, type Result } from "../../../lib/result";
 import type { Logger } from "../../../lib/logger";
+import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
+import { directoryExists, ensureDirectory } from "../../../system/fs";
 
 export interface BackupOptions {
   /** Data directory */
@@ -37,7 +40,6 @@ export const backupDatabase = async (
     uid,
     logger,
     containerName = "immich-postgres",
-    database = "immich",
     dbUser = "immich",
   } = options;
 
@@ -47,8 +49,9 @@ export const backupDatabase = async (
 
   logger.info(`Creating database backup: ${backupFilename}`);
 
-  // Ensure backup directory exists
-  const mkdirResult = await execAsUser(user, uid, ["mkdir", "-p", `${dataDir}/backups`]);
+  // Ensure backup directory exists using native fs
+  const backupDir = `${dataDir}/backups` as AbsolutePath;
+  const mkdirResult = await ensureDirectory(backupDir);
   if (!mkdirResult.ok) {
     return Err(
       new DivbanError(
@@ -63,16 +66,7 @@ export const backupDatabase = async (
   const dumpResult = await execAsUser(
     user,
     uid,
-    [
-      "podman",
-      "exec",
-      containerName,
-      "pg_dumpall",
-      "-U",
-      dbUser,
-      "--clean",
-      "--if-exists",
-    ],
+    ["podman", "exec", containerName, "pg_dumpall", "-U", dbUser, "--clean", "--if-exists"],
     {
       captureStdout: true,
       captureStderr: true,
@@ -81,45 +75,18 @@ export const backupDatabase = async (
 
   if (!dumpResult.ok || dumpResult.value.exitCode !== 0) {
     const stderr = dumpResult.ok ? dumpResult.value.stderr : "";
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `Database dump failed: ${stderr}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Database dump failed: ${stderr}`));
   }
 
-  // Compress and write the backup
-  const gzipResult = await execAsUser(
-    user,
-    uid,
-    ["gzip", "-c"],
-    {
-      stdin: dumpResult.value.stdout,
-      captureStdout: true,
-    }
-  );
-
-  if (!gzipResult.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        "Failed to compress backup",
-        gzipResult.error
-      )
-    );
-  }
+  // Compress in-memory using Bun.gzipSync - no subprocess needed
+  const dumpBuffer = Buffer.from(dumpResult.value.stdout);
+  const compressed = Bun.gzipSync(dumpBuffer);
 
   // Write compressed data to file
   try {
-    await Bun.write(backupPath, gzipResult.value.stdout);
+    await Bun.write(backupPath, compressed);
   } catch (e) {
-    return Err(
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `Failed to write backup file: ${e}`
-      )
-    );
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to write backup file: ${e}`));
   }
 
   const file = Bun.file(backupPath);
@@ -131,39 +98,34 @@ export const backupDatabase = async (
 
 /**
  * List available backups.
+ * Uses Bun.Glob for native file discovery - no subprocess needed.
  */
 export const listBackups = async (
-  dataDir: AbsolutePath,
-  user: Username,
-  uid: UserId
+  dataDir: AbsolutePath
 ): Promise<Result<string[], DivbanError>> => {
-  const result = await execAsUser(
-    user,
-    uid,
-    ["ls", "-1t", `${dataDir}/backups`],
-    { captureStdout: true }
-  );
+  const backupDir = `${dataDir}/backups`;
 
-  if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        "Failed to list backups",
-        result.error
-      )
-    );
-  }
-
-  if (result.value.exitCode !== 0) {
-    // Directory might not exist
+  if (!(await directoryExists(backupDir as AbsolutePath))) {
     return Ok([]);
   }
 
-  const files = result.value.stdout
-    .split("\n")
-    .filter((f) => f.endsWith(".sql.gz"));
+  const glob = new Glob("*.sql.gz");
+  const files: string[] = [];
 
-  return Ok(files);
+  for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
+    files.push(file);
+  }
+
+  // Sort by modification time (newest first)
+  const withStats = await Promise.all(
+    files.map(async (f) => ({
+      name: f,
+      mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
+    }))
+  );
+
+  withStats.sort((a, b) => b.mtime - a.mtime);
+  return Ok(withStats.map((f) => f.name));
 };
 
 /**

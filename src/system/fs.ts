@@ -1,8 +1,10 @@
 /**
  * Filesystem operations with Result-based error handling.
- * Wraps Bun.file and Bun.write with proper error handling.
+ * Uses Bun.file, Bun.write, Bun.Glob, and node:fs for optimal performance.
  */
 
+import { mkdir, readdir, rename, stat } from "node:fs/promises";
+import { Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
@@ -30,11 +32,7 @@ export const readLines = async (path: AbsolutePath): Promise<Result<string[], Di
   const result = await readFile(path);
   if (!result.ok) return result;
 
-  return Ok(
-    result.value
-      .split("\n")
-      .map((line) => line.trimEnd())
-  );
+  return Ok(result.value.split("\n").map((line) => line.trimEnd()));
 };
 
 /**
@@ -100,7 +98,9 @@ export const copyFile = async (
 /**
  * Create a backup of a file (adds .bak extension).
  */
-export const backupFile = async (path: AbsolutePath): Promise<Result<AbsolutePath, DivbanError>> => {
+export const backupFile = async (
+  path: AbsolutePath
+): Promise<Result<AbsolutePath, DivbanError>> => {
   const backupPath = `${path}.bak` as AbsolutePath;
   const result = await copyFile(path, backupPath);
   if (!result.ok) return result;
@@ -118,6 +118,7 @@ export const readFileOrEmpty = async (path: AbsolutePath): Promise<string> => {
 
 /**
  * Atomically write a file by writing to a temp file first.
+ * Uses node:fs rename for atomic move operation.
  */
 export const atomicWrite = async (
   path: AbsolutePath,
@@ -129,14 +130,7 @@ export const atomicWrite = async (
   if (!writeResult.ok) return writeResult;
 
   return tryCatch(
-    async () => {
-      // Use Bun.spawn for mv since Bun doesn't have rename
-      const proc = Bun.spawn(["mv", tempPath, path]);
-      const exitCode = await proc.exited;
-      if (exitCode !== 0) {
-        throw new Error(`Failed to rename temp file`);
-      }
-    },
+    () => rename(tempPath, path),
     (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${path}`)
   );
 };
@@ -171,31 +165,64 @@ export const getFileSize = async (path: AbsolutePath): Promise<Result<number, Di
 
 /**
  * Check if a directory exists.
+ * Uses node:fs stat for synchronous check without subprocess.
  */
 export const directoryExists = async (path: AbsolutePath): Promise<boolean> => {
   try {
-    const proc = Bun.spawn(["test", "-d", path]);
-    const exitCode = await proc.exited;
-    return exitCode === 0;
+    const s = await stat(path);
+    return s.isDirectory();
   } catch {
     return false;
   }
 };
 
 /**
- * Ensure a directory exists (mkdir -p).
+ * Ensure a directory exists (mkdir -p equivalent).
+ * Uses node:fs mkdir with recursive option.
  */
-export const ensureDirectory = async (
-  path: AbsolutePath
-): Promise<Result<void, DivbanError>> => {
+export const ensureDirectory = async (path: AbsolutePath): Promise<Result<void, DivbanError>> => {
   return tryCatch(
-    async () => {
-      const proc = Bun.spawn(["mkdir", "-p", path]);
-      const exitCode = await proc.exited;
-      if (exitCode !== 0) {
-        throw new Error(`mkdir -p failed with exit code ${exitCode}`);
-      }
-    },
+    () => mkdir(path, { recursive: true }).then(() => undefined),
     (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, `Failed to create directory: ${path}`)
   );
+};
+
+/**
+ * List files in a directory.
+ * Uses node:fs readdir.
+ */
+export const listDirectory = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
+  return tryCatch(
+    () => readdir(path),
+    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to list directory: ${path}`)
+  );
+};
+
+/**
+ * Find files matching a glob pattern.
+ * Uses Bun.Glob for fast pattern matching.
+ */
+export const globFiles = async (
+  pattern: string,
+  options: { cwd?: string; onlyFiles?: boolean } = {}
+): Promise<string[]> => {
+  const glob = new Glob(pattern);
+  const files: string[] = [];
+
+  for await (const file of glob.scan({
+    cwd: options.cwd ?? ".",
+    onlyFiles: options.onlyFiles ?? true,
+  })) {
+    files.push(file);
+  }
+
+  return files;
+};
+
+/**
+ * Check if a path matches a glob pattern.
+ */
+export const globMatch = (pattern: string, path: string): boolean => {
+  const glob = new Glob(pattern);
+  return glob.match(path);
 };

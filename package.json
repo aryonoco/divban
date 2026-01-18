@@ -10,6 +10,7 @@
     "build": "bun build ./src/index.ts --compile --outfile divban",
     "dev": "bun run ./src/index.ts",
     "test": "bun test",
+    "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
     "lint": "bunx @biomejs/biome check .",
     "format": "bunx @biomejs/biome format --write .",
