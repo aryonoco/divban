@@ -261,9 +261,8 @@ export const getServiceDataDir = (
     return usernameResult;
   }
 
-  try {
-    return Ok(makeAbsolutePath(`${baseDataDir}/${usernameResult.value}`));
-  } catch (_e) {
+  const pathResult = makeAbsolutePath(`${baseDataDir}/${usernameResult.value}`);
+  if (!pathResult.ok) {
     return Err(
       new DivbanError(
         ErrorCode.INVALID_ARGS,
@@ -271,18 +270,19 @@ export const getServiceDataDir = (
       )
     );
   }
+  return pathResult;
 };
 
 /**
  * Get quadlet directory for a service user.
  */
-export const getQuadletDir = (homeDir: string): AbsolutePath => {
+export const getQuadletDir = (homeDir: string): Result<AbsolutePath, DivbanError> => {
   return makeAbsolutePath(`${homeDir}/.config/containers/systemd`);
 };
 
 /**
  * Get config directory for a service.
  */
-export const getConfigDir = (dataDir: string): AbsolutePath => {
+export const getConfigDir = (dataDir: string): Result<AbsolutePath, DivbanError> => {
   return makeAbsolutePath(`${dataDir}/config`);
 };

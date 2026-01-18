@@ -11,9 +11,9 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
 import { Err, Ok, type Result } from "../lib/result";
 import type { Username } from "../lib/types";
-import type { AbsolutePath } from "../lib/types";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
 
@@ -22,8 +22,7 @@ import { fileExists } from "./fs";
  */
 export const isLingerEnabled = (username: Username): Promise<boolean> => {
   // Check the linger file directly (more reliable than loginctl)
-  const lingerFile = `/var/lib/systemd/linger/${username}` as AbsolutePath;
-  return fileExists(lingerFile);
+  return fileExists(lingerFile(username));
 };
 
 /**
@@ -89,7 +88,7 @@ export const disableLinger = async (username: Username): Promise<Result<void, Di
  * Get list of users with linger enabled.
  */
 export const getLingeringUsers = async (): Promise<Result<string[], DivbanError>> => {
-  const result = await exec(["ls", "/var/lib/systemd/linger"], { captureStdout: true });
+  const result = await exec(["ls", SYSTEM_PATHS.lingerDir], { captureStdout: true });
 
   if (!result.ok) {
     // Directory might not exist if no users have linger enabled

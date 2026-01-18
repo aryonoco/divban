@@ -10,7 +10,9 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
+import { DivbanError, ErrorCode } from "./errors";
 import type { Option } from "./option";
+import { Err, Ok, type Result } from "./result";
 
 /** User ID (1000-65534 range for regular users) */
 export type UserId = number & { readonly __brand: "UserId" };
@@ -51,70 +53,93 @@ const CONTAINER_NETWORK_VOLUME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
  * These provide both type safety and runtime checks.
  */
 
-export const UserId = (n: number): UserId => {
+export const UserId = (n: number): Result<UserId, DivbanError> => {
   if (!Number.isInteger(n) || n < 0 || n > 65534) {
-    throw new Error(`Invalid UserId: ${n}. Must be integer 0-65534.`);
+    return Err(
+      new DivbanError(ErrorCode.INVALID_ARGS, `Invalid UserId: ${n}. Must be integer 0-65534.`)
+    );
   }
-  return n as UserId;
+  return Ok(n as UserId);
 };
 
-export const GroupId = (n: number): GroupId => {
+export const GroupId = (n: number): Result<GroupId, DivbanError> => {
   if (!Number.isInteger(n) || n < 0 || n > 65534) {
-    throw new Error(`Invalid GroupId: ${n}. Must be integer 0-65534.`);
+    return Err(
+      new DivbanError(ErrorCode.INVALID_ARGS, `Invalid GroupId: ${n}. Must be integer 0-65534.`)
+    );
   }
-  return n as GroupId;
+  return Ok(n as GroupId);
 };
 
-export const SubordinateId = (n: number): SubordinateId => {
+export const SubordinateId = (n: number): Result<SubordinateId, DivbanError> => {
   if (!Number.isInteger(n) || n < 100000 || n > 4294967294) {
-    throw new Error(`Invalid SubordinateId: ${n}. Must be integer 100000-4294967294.`);
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        `Invalid SubordinateId: ${n}. Must be integer 100000-4294967294.`
+      )
+    );
   }
-  return n as SubordinateId;
+  return Ok(n as SubordinateId);
 };
 
-export const AbsolutePath = (s: string): AbsolutePath => {
+export const AbsolutePath = (s: string): Result<AbsolutePath, DivbanError> => {
   if (!s.startsWith("/")) {
-    throw new Error(`Not an absolute path: ${s}. Must start with /.`);
+    return Err(
+      new DivbanError(ErrorCode.INVALID_ARGS, `Not an absolute path: ${s}. Must start with /.`)
+    );
   }
-  return s as AbsolutePath;
+  return Ok(s as AbsolutePath);
 };
 
-export const Username = (s: string): Username => {
+export const Username = (s: string): Result<Username, DivbanError> => {
   if (!USERNAME_REGEX.test(s)) {
-    throw new Error(`Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`);
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        `Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`
+      )
+    );
   }
   if (s.length > 32) {
-    throw new Error(`Username too long: ${s}. Max 32 characters.`);
+    return Err(
+      new DivbanError(ErrorCode.INVALID_ARGS, `Username too long: ${s}. Max 32 characters.`)
+    );
   }
-  return s as Username;
+  return Ok(s as Username);
 };
 
-export const ServiceName = (s: string): ServiceName => {
+export const ServiceName = (s: string): Result<ServiceName, DivbanError> => {
   if (!SERVICE_NAME_REGEX.test(s)) {
-    throw new Error(`Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`);
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        `Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`
+      )
+    );
   }
-  return s as ServiceName;
+  return Ok(s as ServiceName);
 };
 
-export const ContainerName = (s: string): ContainerName => {
+export const ContainerName = (s: string): Result<ContainerName, DivbanError> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    throw new Error(`Invalid container name: ${s}.`);
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid container name: ${s}.`));
   }
-  return s as ContainerName;
+  return Ok(s as ContainerName);
 };
 
-export const NetworkName = (s: string): NetworkName => {
+export const NetworkName = (s: string): Result<NetworkName, DivbanError> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    throw new Error(`Invalid network name: ${s}.`);
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid network name: ${s}.`));
   }
-  return s as NetworkName;
+  return Ok(s as NetworkName);
 };
 
-export const VolumeName = (s: string): VolumeName => {
+export const VolumeName = (s: string): Result<VolumeName, DivbanError> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    throw new Error(`Invalid volume name: ${s}.`);
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid volume name: ${s}.`));
   }
-  return s as VolumeName;
+  return Ok(s as VolumeName);
 };
 
 /**
@@ -123,6 +148,56 @@ export const VolumeName = (s: string): VolumeName => {
 export const isAbsolutePath = (s: string): s is AbsolutePath => s.startsWith("/");
 export const isUsername = (s: string): s is Username => USERNAME_REGEX.test(s) && s.length <= 32;
 export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX.test(s);
+
+// ============================================================================
+// UID/GID Conversion Helper
+// ============================================================================
+
+/**
+ * Convert UserId to GroupId.
+ * POSIX convention: GID matches UID for service users.
+ */
+export const userIdToGroupId = (uid: UserId): GroupId => uid as unknown as GroupId;
+
+// ============================================================================
+// Path Construction Helpers
+// ============================================================================
+
+/**
+ * Unwrap AbsolutePath Result or throw.
+ * Use only for compile-time known valid paths (string literals starting with /).
+ */
+export const unsafePath = (s: string): AbsolutePath => {
+  const result = AbsolutePath(s);
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
+  return result.value;
+};
+
+/**
+ * Join path segments into an AbsolutePath.
+ * First segment must start with /.
+ */
+export const joinPath = (...segments: string[]): Result<AbsolutePath, DivbanError> => {
+  if (segments.length === 0) {
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "No path segments provided"));
+  }
+  const joined = segments.join("/").replace(/\/+/g, "/");
+  return AbsolutePath(joined);
+};
+
+/**
+ * Join paths unsafely (throws on invalid).
+ * Use only when all segments are known valid at compile time.
+ */
+export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
+  const result = joinPath(...segments);
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
+  return result.value;
+};
 
 // ============================================================================
 // Environment Variable Helpers (using Bun.env)

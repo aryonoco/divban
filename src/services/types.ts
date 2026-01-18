@@ -47,10 +47,11 @@ export interface ServiceDefinition {
 
 /**
  * Context provided to service operations.
+ * @template C - Service-specific configuration type
  */
-export interface ServiceContext {
-  /** Validated service configuration */
-  config: unknown;
+export interface ServiceContext<C> {
+  /** Validated service configuration (typed per service) */
+  config: C;
   /** Logger instance */
   logger: Logger;
 
@@ -145,8 +146,9 @@ export interface BackupResult {
 /**
  * Service interface.
  * All services must implement these methods.
+ * @template C - Service-specific configuration type
  */
-export interface Service {
+export interface Service<C> {
   /** Service definition (metadata) */
   readonly definition: ServiceDefinition;
 
@@ -162,13 +164,13 @@ export interface Service {
    * Generate all files for the service.
    * @param ctx Service context
    */
-  generate(ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanError>>;
+  generate(ctx: ServiceContext<C>): Promise<Result<GeneratedFiles, DivbanError>>;
 
   /**
    * Full setup: create user, directories, generate files, install quadlets.
    * @param ctx Service context
    */
-  setup(ctx: ServiceContext): Promise<Result<void, DivbanError>>;
+  setup(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
 
   // === Runtime Methods ===
 
@@ -176,32 +178,32 @@ export interface Service {
    * Start the service.
    * @param ctx Service context
    */
-  start(ctx: ServiceContext): Promise<Result<void, DivbanError>>;
+  start(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
 
   /**
    * Stop the service.
    * @param ctx Service context
    */
-  stop(ctx: ServiceContext): Promise<Result<void, DivbanError>>;
+  stop(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
 
   /**
    * Restart the service.
    * @param ctx Service context
    */
-  restart(ctx: ServiceContext): Promise<Result<void, DivbanError>>;
+  restart(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
 
   /**
    * Get service status.
    * @param ctx Service context
    */
-  status(ctx: ServiceContext): Promise<Result<ServiceStatus, DivbanError>>;
+  status(ctx: ServiceContext<C>): Promise<Result<ServiceStatus, DivbanError>>;
 
   /**
    * View service logs.
    * @param ctx Service context
    * @param options Log viewing options
    */
-  logs(ctx: ServiceContext, options: LogOptions): Promise<Result<void, DivbanError>>;
+  logs(ctx: ServiceContext<C>, options: LogOptions): Promise<Result<void, DivbanError>>;
 
   // === Optional Methods ===
 
@@ -209,21 +211,24 @@ export interface Service {
    * Reload configuration without restart (if supported).
    * @param ctx Service context
    */
-  reload?(ctx: ServiceContext): Promise<Result<void, DivbanError>>;
+  reload?(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
 
   /**
    * Create a backup (if supported).
    * @param ctx Service context
    */
-  backup?(ctx: ServiceContext): Promise<Result<BackupResult, DivbanError>>;
+  backup?(ctx: ServiceContext<C>): Promise<Result<BackupResult, DivbanError>>;
 
   /**
    * Restore from backup (if supported).
    * @param ctx Service context
    * @param backupPath Path to backup file
    */
-  restore?(ctx: ServiceContext, backupPath: AbsolutePath): Promise<Result<void, DivbanError>>;
+  restore?(ctx: ServiceContext<C>, backupPath: AbsolutePath): Promise<Result<void, DivbanError>>;
 }
+
+/** Type-erased service for registry and CLI usage */
+export type AnyService = Service<unknown>;
 
 /**
  * Create an empty GeneratedFiles object.

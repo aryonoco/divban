@@ -13,9 +13,11 @@ import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
 import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import type { AbsolutePath } from "../../lib/types";
+import { userIdToGroupId } from "../../lib/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { ensureServiceDirectories } from "../../system/directories";
 import { enableLinger } from "../../system/linger";
 import { createServiceUser, getUserByName } from "../../system/user";
@@ -23,7 +25,7 @@ import type { ParsedArgs } from "../parser";
 import { getContextOptions, getDataDirFromConfig } from "./utils";
 
 export interface SetupOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -92,8 +94,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
     return userResult;
   }
   const { uid, homeDir } = userResult.value;
-  // GID is typically same as UID for service users
-  const gid = uid as unknown as GroupId;
+  const gid = userIdToGroupId(uid);
 
   // Step 2: Enable linger
   logger.step(2, 6, "Enabling user linger...");
@@ -104,20 +105,20 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
 
   // Step 3: Create service directories
   logger.step(3, 6, "Creating service directories...");
-  const dataDir = getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath);
+  const dataDir = getDataDirFromConfig(configResult.value, userDataDir(homeDir));
   const dirsResult = await ensureServiceDirectories(dataDir, homeDir, { uid, gid });
   if (!dirsResult.ok) {
     return dirsResult;
   }
 
   // Build service context
-  const ctx: ServiceContext = {
+  const ctx: ServiceContext<unknown> = {
     config: configResult.value,
     logger,
     paths: {
       dataDir,
-      quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
-      configDir: `${homeDir}/.config/divban` as AbsolutePath,
+      quadletDir: userQuadletDir(homeDir),
+      configDir: userConfigDir(homeDir),
     },
     user: {
       name: username,

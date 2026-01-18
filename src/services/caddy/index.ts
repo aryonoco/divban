@@ -11,6 +11,7 @@
 
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
+import { configFilePath } from "../../lib/paths";
 import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
@@ -19,24 +20,8 @@ import {
   generateContainerQuadlet,
   generateVolumeQuadlet,
 } from "../../quadlet";
-import { writeFile } from "../../system/fs";
-import {
-  daemonReload,
-  enableService,
-  isServiceActive,
-  journalctl,
-  restartService,
-  startService,
-  stopService,
-} from "../../system/systemctl";
-import type {
-  GeneratedFiles,
-  LogOptions,
-  Service,
-  ServiceContext,
-  ServiceDefinition,
-  ServiceStatus,
-} from "../types";
+import { createSingleContainerOps, reloadAndEnableServices, writeGeneratedFiles } from "../helpers";
+import type { GeneratedFiles, Service, ServiceContext, ServiceDefinition } from "../types";
 import { createGeneratedFiles } from "../types";
 import { generateCaddyfile } from "./caddyfile";
 import { reloadCaddy } from "./commands/reload";
@@ -62,6 +47,14 @@ const definition: ServiceDefinition = {
 };
 
 /**
+ * Single-container operations for Caddy.
+ */
+const ops = createSingleContainerOps<CaddyConfig>({
+  serviceName: "caddy",
+  displayName: "Caddy",
+});
+
+/**
  * Validate Caddy configuration file.
  */
 const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanError>> => {
@@ -75,8 +68,10 @@ const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanEr
 /**
  * Generate all files for Caddy service.
  */
-const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const config = ctx.config as CaddyConfig;
+const generate = (
+  ctx: ServiceContext<CaddyConfig>
+): Promise<Result<GeneratedFiles, DivbanError>> => {
+  const { config } = ctx;
   const files = createGeneratedFiles();
 
   // Generate Caddyfile
@@ -141,72 +136,28 @@ const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanErr
 /**
  * Full setup for Caddy service.
  */
-const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
+const setup = async (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
   const { logger } = ctx;
 
   // 1. Generate files
-  logger.step(1, 5, "Generating configuration files...");
+  logger.step(1, 3, "Generating configuration files...");
   const filesResult = await generate(ctx);
   if (!filesResult.ok) {
     return filesResult;
   }
-  const files = filesResult.value;
 
   // 2. Write files
-  logger.step(2, 5, "Writing configuration files...");
-
-  // Write Caddyfile
-  const caddyfileContent = files.other.get("Caddyfile");
-  if (caddyfileContent) {
-    const caddyfilePath = `${ctx.paths.configDir}/Caddyfile` as AbsolutePath;
-    const writeResult = await writeFile(caddyfilePath, caddyfileContent);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
+  logger.step(2, 3, "Writing configuration files...");
+  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
+  if (!writeResult.ok) {
+    return writeResult;
   }
 
-  // Write quadlets
-  for (const [filename, content] of files.quadlets) {
-    const path = `${ctx.paths.quadletDir}/${filename}` as AbsolutePath;
-    const writeResult = await writeFile(path, content);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
-  }
-
-  for (const [filename, content] of files.volumes) {
-    const path = `${ctx.paths.quadletDir}/${filename}` as AbsolutePath;
-    const writeResult = await writeFile(path, content);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
-  }
-
-  // 3. Reload systemd daemon
-  logger.step(3, 5, "Reloading systemd daemon...");
-  const reloadResult = await daemonReload({ user: ctx.user.name, uid: ctx.user.uid });
-  if (!reloadResult.ok) {
-    return reloadResult;
-  }
-
-  // 4. Enable service
-  logger.step(4, 5, "Enabling service...");
-  const enableResult = await enableService("caddy.service", {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
+  // 3. Reload and enable
+  logger.step(3, 3, "Enabling and starting service...");
+  const enableResult = await reloadAndEnableServices(ctx, ["caddy"]);
   if (!enableResult.ok) {
     return enableResult;
-  }
-
-  // 5. Start service
-  logger.step(5, 5, "Starting service...");
-  const startResult = await startService("caddy.service", {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
-  if (!startResult.ok) {
-    return startResult;
   }
 
   logger.success("Caddy setup completed successfully");
@@ -214,79 +165,11 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
 };
 
 /**
- * Start Caddy service.
- */
-const start = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Starting Caddy...");
-  const result = await startService("caddy.service", { user: ctx.user.name, uid: ctx.user.uid });
-  if (result.ok) {
-    ctx.logger.success("Caddy started successfully");
-  }
-  return result;
-};
-
-/**
- * Stop Caddy service.
- */
-const stop = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Stopping Caddy...");
-  const result = await stopService("caddy.service", { user: ctx.user.name, uid: ctx.user.uid });
-  if (result.ok) {
-    ctx.logger.success("Caddy stopped successfully");
-  }
-  return result;
-};
-
-/**
- * Restart Caddy service.
- */
-const restart = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Restarting Caddy...");
-  const result = await restartService("caddy.service", { user: ctx.user.name, uid: ctx.user.uid });
-  if (result.ok) {
-    ctx.logger.success("Caddy restarted successfully");
-  }
-  return result;
-};
-
-/**
- * Get Caddy status.
- */
-const status = async (ctx: ServiceContext): Promise<Result<ServiceStatus, DivbanError>> => {
-  const running = await isServiceActive("caddy.service", {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
-
-  return Ok({
-    running,
-    containers: [
-      {
-        name: "caddy",
-        status: running ? "running" : "stopped",
-      },
-    ],
-  });
-};
-
-/**
- * View Caddy logs.
- */
-const logs = (ctx: ServiceContext, options: LogOptions): Promise<Result<void, DivbanError>> => {
-  return journalctl("caddy.service", {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    follow: options.follow,
-    lines: options.lines,
-  });
-};
-
-/**
  * Reload Caddy configuration.
  */
-const reload = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
+const reload = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
   return reloadCaddy({
-    caddyfilePath: `${ctx.paths.configDir}/Caddyfile` as AbsolutePath,
+    caddyfilePath: configFilePath(ctx.paths.configDir, "Caddyfile"),
     user: ctx.user.name,
     uid: ctx.user.uid,
     logger: ctx.logger,
@@ -296,15 +179,15 @@ const reload = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
 /**
  * Caddy service implementation.
  */
-export const caddyService: Service = {
+export const caddyService: Service<CaddyConfig> = {
   definition,
   validate,
   generate,
   setup,
-  start,
-  stop,
-  restart,
-  status,
-  logs,
+  start: ops.start,
+  stop: ops.stop,
+  restart: ops.restart,
+  status: ops.status,
+  logs: ops.logs,
   reload,
 };

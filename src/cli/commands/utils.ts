@@ -13,14 +13,14 @@ import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import { Err, type Result } from "../../lib/result";
 import type { AbsolutePath } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 
 /**
  * Extract context options from parsed args.
  */
-export const getContextOptions = (args: ParsedArgs): ServiceContext["options"] => ({
+export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["options"] => ({
   dryRun: args.dryRun,
   verbose: args.verbose,
   force: args.force,
@@ -40,7 +40,7 @@ const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): AbsolutePat
  * Searches in common locations if no explicit path is provided.
  */
 export const resolveServiceConfig = async (
-  service: Service,
+  service: AnyService,
   homeDir: AbsolutePath,
   explicitPath?: string
 ): Promise<Result<unknown, DivbanError>> => {

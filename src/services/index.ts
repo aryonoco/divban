@@ -11,22 +11,22 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
-import type { Service, ServiceDefinition } from "./types";
+import type { AnyService, ServiceDefinition } from "./types";
 
 // Service registry
-const services = new Map<string, Service>();
+const services = new Map<string, AnyService>();
 
 /**
  * Register a service in the registry.
  */
-export const registerService = (service: Service): void => {
+export const registerService = (service: AnyService): void => {
   services.set(service.definition.name, service);
 };
 
 /**
  * Get a service by name.
  */
-export const getService = (name: string): Result<Service, DivbanError> => {
+export const getService = (name: string): Result<AnyService, DivbanError> => {
   const service = services.get(name);
 
   if (!service) {
@@ -65,6 +65,7 @@ export const getServiceNames = (): string[] => {
 
 // Re-export types
 export type {
+  AnyService,
   BackupResult,
   GeneratedFiles,
   LogOptions,
@@ -99,7 +100,7 @@ export const initializeServices = async (): Promise<void> => {
 /**
  * Get service or throw (for use in CLI where we want to exit on error).
  */
-export const getServiceOrThrow = (name: string): Service => {
+export const getServiceOrThrow = (name: string): AnyService => {
   const result = getService(name);
   if (!result.ok) {
     throw result.error;

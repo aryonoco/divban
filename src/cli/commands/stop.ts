@@ -12,15 +12,16 @@
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import { buildServicePaths, userDataDir } from "../../lib/paths";
 import { Err, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import { userIdToGroupId } from "../../lib/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface StopOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -49,20 +50,19 @@ export const executeStop = async (options: StopOptions): Promise<Result<void, Di
   }
 
   const { uid, homeDir } = userResult.value;
-  const gid = uid as unknown as GroupId;
+  const gid = userIdToGroupId(uid);
 
   // Resolve config (may fail if not found, which is OK for stop)
   const configResult = await resolveServiceConfig(service, homeDir);
 
   // Build service context
-  const ctx: ServiceContext = {
+  const dataDir = userDataDir(homeDir);
+  const paths = buildServicePaths(homeDir, dataDir);
+
+  const ctx: ServiceContext<unknown> = {
     config: configResult.ok ? configResult.value : {},
     logger,
-    paths: {
-      dataDir: `${homeDir}/data` as AbsolutePath,
-      quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
-      configDir: `${homeDir}/.config/divban` as AbsolutePath,
-    },
+    paths,
     user: {
       name: username,
       uid,

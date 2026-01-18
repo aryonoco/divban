@@ -16,23 +16,19 @@ import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
-import { ensureDirectory, writeFile } from "../../system/fs";
+import { ensureDirectory } from "../../system/fs";
 import {
-  daemonReload,
-  enableService,
-  isServiceActive,
-  journalctl,
-  startService,
-  stopService,
-} from "../../system/systemctl";
+  createSingleContainerOps,
+  reloadAndEnableServices,
+  wrapBackupResult,
+  writeGeneratedFiles,
+} from "../helpers";
 import type {
   BackupResult,
   GeneratedFiles,
-  LogOptions,
   Service,
   ServiceContext,
   ServiceDefinition,
-  ServiceStatus,
 } from "../types";
 import { createGeneratedFiles } from "../types";
 import { backupActual, restoreActual } from "./commands/backup";
@@ -59,6 +55,14 @@ const definition: ServiceDefinition = {
 };
 
 /**
+ * Single-container operations for Actual.
+ */
+const ops = createSingleContainerOps<ActualConfig>({
+  serviceName: CONTAINER_NAME,
+  displayName: "Actual",
+});
+
+/**
  * Validate Actual configuration file.
  */
 const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanError>> => {
@@ -72,8 +76,10 @@ const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanEr
 /**
  * Generate all files for Actual service.
  */
-const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const config = ctx.config as ActualConfig;
+const generate = (
+  ctx: ServiceContext<ActualConfig>
+): Promise<Result<GeneratedFiles, DivbanError>> => {
+  const { config } = ctx;
   const files = createGeneratedFiles();
 
   // Build container quadlet
@@ -139,9 +145,8 @@ const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanErr
 /**
  * Full setup for Actual service.
  */
-const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  const { logger } = ctx;
-  const config = ctx.config as ActualConfig;
+const setup = async (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanError>> => {
+  const { logger, config } = ctx;
 
   // 1. Generate files
   logger.step(1, 4, "Generating configuration files...");
@@ -149,37 +154,28 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
   if (!filesResult.ok) {
     return filesResult;
   }
-  const files = filesResult.value;
 
   // 2. Create data directories
   logger.step(2, 4, "Creating data directories...");
   const dataDir = config.paths.dataDir;
   const dirs = [dataDir, `${dataDir}/server-files`, `${dataDir}/user-files`, `${dataDir}/backups`];
   for (const dir of dirs) {
-    await ensureDirectory(dir as AbsolutePath);
+    const result = await ensureDirectory(dir as AbsolutePath);
+    if (!result.ok) {
+      return result;
+    }
   }
 
   // 3. Write quadlet files
   logger.step(3, 4, "Writing quadlet files...");
-  for (const [filename, content] of files.quadlets) {
-    const path = `${ctx.paths.quadletDir}/${filename}` as AbsolutePath;
-    const writeResult = await writeFile(path, content);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
+  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
+  if (!writeResult.ok) {
+    return writeResult;
   }
 
-  // 4. Reload systemd daemon and enable service
+  // 4. Enable service (don't start - user may want to configure first)
   logger.step(4, 4, "Enabling service...");
-  const reloadResult = await daemonReload({ user: ctx.user.name, uid: ctx.user.uid });
-  if (!reloadResult.ok) {
-    return reloadResult;
-  }
-
-  const enableResult = await enableService(`${CONTAINER_NAME}.service`, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
+  const enableResult = await reloadAndEnableServices(ctx, [CONTAINER_NAME], false);
   if (!enableResult.ok) {
     return enableResult;
   }
@@ -189,120 +185,28 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
 };
 
 /**
- * Start Actual service.
- */
-const start = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Starting Actual...");
-
-  const result = await startService(`${CONTAINER_NAME}.service`, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  ctx.logger.success("Actual started");
-  return Ok(undefined);
-};
-
-/**
- * Stop Actual service.
- */
-const stop = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Stopping Actual...");
-
-  const result = await stopService(`${CONTAINER_NAME}.service`, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  ctx.logger.success("Actual stopped");
-  return Ok(undefined);
-};
-
-/**
- * Restart Actual service.
- */
-const restart = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Restarting Actual...");
-  const stopResult = await stop(ctx);
-  if (!stopResult.ok) {
-    return stopResult;
-  }
-  return start(ctx);
-};
-
-/**
- * Get Actual status.
- */
-const status = async (ctx: ServiceContext): Promise<Result<ServiceStatus, DivbanError>> => {
-  const running = await isServiceActive(`${CONTAINER_NAME}.service`, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-  });
-
-  return Ok({
-    running,
-    containers: [
-      {
-        name: CONTAINER_NAME,
-        status: running ? "running" : "stopped",
-      },
-    ],
-  });
-};
-
-/**
- * View Actual logs.
- */
-const logs = (ctx: ServiceContext, options: LogOptions): Promise<Result<void, DivbanError>> => {
-  return journalctl(`${CONTAINER_NAME}.service`, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    follow: options.follow,
-    lines: options.lines,
-  });
-};
-
-/**
  * Backup Actual data.
  */
-const backup = async (ctx: ServiceContext): Promise<Result<BackupResult, DivbanError>> => {
-  const config = ctx.config as ActualConfig;
-
-  const result = await backupActual({
-    dataDir: config.paths.dataDir as AbsolutePath,
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    logger: ctx.logger,
-  });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  const file = Bun.file(result.value);
-  return Ok({
-    path: result.value,
-    size: file.size,
-    timestamp: new Date(),
-  });
+const backup = (ctx: ServiceContext<ActualConfig>): Promise<Result<BackupResult, DivbanError>> => {
+  const { config } = ctx;
+  return wrapBackupResult(() =>
+    backupActual({
+      dataDir: config.paths.dataDir as AbsolutePath,
+      user: ctx.user.name,
+      uid: ctx.user.uid,
+      logger: ctx.logger,
+    })
+  );
 };
 
 /**
  * Restore Actual data from backup.
  */
 const restore = (
-  ctx: ServiceContext,
+  ctx: ServiceContext<ActualConfig>,
   backupPath: AbsolutePath
 ): Promise<Result<void, DivbanError>> => {
-  const config = ctx.config as ActualConfig;
+  const { config } = ctx;
 
   return restoreActual(
     backupPath,
@@ -316,16 +220,16 @@ const restore = (
 /**
  * Actual service implementation.
  */
-export const actualService: Service = {
+export const actualService: Service<ActualConfig> = {
   definition,
   validate,
   generate,
   setup,
-  start,
-  stop,
-  restart,
-  status,
-  logs,
+  start: ops.start,
+  stop: ops.stop,
+  restart: ops.restart,
+  status: ops.status,
+  logs: ops.logs,
   backup,
   restore,
 };

@@ -13,11 +13,11 @@ import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath } from "../../lib/types";
-import type { Service } from "../../services/types";
+import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 
 export interface ValidateOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }

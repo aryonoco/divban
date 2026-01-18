@@ -11,9 +11,9 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { SYSTEM_PATHS } from "../lib/paths";
 import { Err, Ok, type Result } from "../lib/result";
 import type { SubordinateId, UserId } from "../lib/types";
-import type { AbsolutePath } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
 
@@ -65,7 +65,7 @@ export const getUsedUids = async (): Promise<Result<Set<number>, DivbanError>> =
   const usedUids = new Set<number>();
 
   // Method 1: Parse /etc/passwd directly (always available, all distros)
-  const passwdContent = await readFileOrEmpty("/etc/passwd" as AbsolutePath);
+  const passwdContent = await readFileOrEmpty(SYSTEM_PATHS.passwd);
   for (const uid of parsePasswdFile(passwdContent)) {
     usedUids.add(uid);
   }
@@ -91,7 +91,7 @@ export const getUsedSubuidRanges = async (): Promise<
 > => {
   const ranges: Array<{ user: string; start: number; end: number }> = [];
 
-  const content = await readFileOrEmpty("/etc/subuid" as AbsolutePath);
+  const content = await readFileOrEmpty(SYSTEM_PATHS.subuid);
   for (const line of content.split("\n")) {
     if (!line.trim() || line.startsWith("#")) {
       continue;
@@ -220,18 +220,14 @@ export const getExistingSubuidStart = async (
  * Get nologin shell path (distribution-independent).
  */
 export const getNologinShell = async (): Promise<string> => {
-  const paths = [
-    "/usr/sbin/nologin", // Debian, Ubuntu, RHEL, Fedora, Arch, openSUSE
-    "/sbin/nologin", // Older systems, Alpine, Slackware
-    "/bin/false", // Fallback (POSIX)
-  ];
-
-  for (const path of paths) {
+  // Check standard nologin locations first
+  for (const path of SYSTEM_PATHS.nologinPaths) {
     const file = Bun.file(path);
     if (await file.exists()) {
       return path;
     }
   }
 
+  // Fallback (POSIX)
   return "/bin/false";
 };

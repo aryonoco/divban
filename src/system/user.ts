@@ -13,8 +13,10 @@
 import { getServiceUsername } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Option } from "../lib/option";
+import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { Err, Ok, type Result } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
+import { userIdToGroupId } from "../lib/types";
 import { execSuccess } from "./exec";
 import { appendFile, readFileOrEmpty } from "./fs";
 import {
@@ -52,7 +54,7 @@ export const createServiceUser = async (
   }
   const username = usernameResult.value;
 
-  const homeDir = `/home/${username}` as AbsolutePath;
+  const homeDir = userHomeDir(username);
 
   // 1. Check if user already exists (idempotent)
   if (await userExists(username)) {
@@ -69,7 +71,7 @@ export const createServiceUser = async (
     return Ok({
       username,
       uid: uidResult.value,
-      gid: uidResult.value as unknown as GroupId, // Assuming GID matches UID
+      gid: userIdToGroupId(uidResult.value),
       subuidStart: subuidResult.value,
       subuidSize: SUBUID_RANGE.size,
       homeDir,
@@ -131,7 +133,7 @@ export const createServiceUser = async (
   return Ok({
     username,
     uid,
-    gid: uid as unknown as GroupId,
+    gid: userIdToGroupId(uid),
     subuidStart: subuidAlloc.start,
     subuidSize: subuidAlloc.size,
     homeDir,
@@ -148,7 +150,7 @@ export const configureSubordinateIds = async (
 ): Promise<Result<void, DivbanError>> => {
   const entry = `${username}:${start}:${range}\n`;
 
-  for (const file of ["/etc/subuid", "/etc/subgid"] as AbsolutePath[]) {
+  for (const file of [SYSTEM_PATHS.subuid, SYSTEM_PATHS.subgid]) {
     // Check if already configured
     const content = await readFileOrEmpty(file);
     if (content.includes(`${username}:`)) {
@@ -199,10 +201,10 @@ export const getServiceUser = async (
   return Ok({
     username,
     uid: uidResult.value,
-    gid: uidResult.value as unknown as GroupId,
+    gid: userIdToGroupId(uidResult.value),
     subuidStart,
     subuidSize: SUBUID_RANGE.size,
-    homeDir: `/home/${username}` as AbsolutePath,
+    homeDir: userHomeDir(username),
   });
 };
 
@@ -261,12 +263,12 @@ export const getUserByName = async (username: Username): Promise<Result<UserInfo
   }
 
   const uid = uidResult.value;
-  const homeDir = `/home/${username}` as AbsolutePath;
+  const homeDir = userHomeDir(username);
 
   return Ok({
     username,
     uid,
-    gid: uid as unknown as GroupId,
+    gid: userIdToGroupId(uid),
     homeDir,
   });
 };

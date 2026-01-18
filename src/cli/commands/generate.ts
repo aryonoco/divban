@@ -12,16 +12,23 @@
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import {
+  TEMP_PATHS,
+  configFilePath,
+  outputConfigDir,
+  outputQuadletDir,
+  quadletFilePath,
+} from "../../lib/paths";
 import { Err, Ok, type Result } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId, Username } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory, writeFile } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 import { getContextOptions } from "./utils";
 
 export interface GenerateOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -55,18 +62,31 @@ export const executeGenerate = async (
   }
 
   // Create mock service context for generation
-  const ctx: ServiceContext = {
+  const usernameResult = Username("divban-preview");
+  if (!usernameResult.ok) {
+    return usernameResult;
+  }
+  const uidResult = UserId(1000);
+  if (!uidResult.ok) {
+    return uidResult;
+  }
+  const gidResult = GroupId(1000);
+  if (!gidResult.ok) {
+    return gidResult;
+  }
+
+  const ctx: ServiceContext<unknown> = {
     config: configResult.value,
     logger,
     paths: {
-      dataDir: "/tmp/divban-generate" as AbsolutePath,
-      quadletDir: `${outputDir}/quadlets` as AbsolutePath,
-      configDir: `${outputDir}/config` as AbsolutePath,
+      dataDir: TEMP_PATHS.generateDataDir,
+      quadletDir: outputQuadletDir(outputDir),
+      configDir: outputConfigDir(outputDir),
     },
     user: {
-      name: Username("divban-preview"),
-      uid: UserId(1000),
-      gid: GroupId(1000),
+      name: usernameResult.value,
+      uid: uidResult.value,
+      gid: gidResult.value,
     },
     options: getContextOptions(args),
   };
@@ -104,15 +124,15 @@ export const executeGenerate = async (
   }
 
   // Create output directories
-  const quadletDir = `${outputDir}/quadlets` as AbsolutePath;
-  const configDir = `${outputDir}/config` as AbsolutePath;
+  const quadletDir = outputQuadletDir(outputDir);
+  const configDir = outputConfigDir(outputDir);
 
   await ensureDirectory(quadletDir);
   await ensureDirectory(configDir);
 
   // Write quadlet files
   for (const [name, content] of files.quadlets) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
@@ -122,7 +142,7 @@ export const executeGenerate = async (
 
   // Write network files
   for (const [name, content] of files.networks) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
@@ -132,7 +152,7 @@ export const executeGenerate = async (
 
   // Write volume files
   for (const [name, content] of files.volumes) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
@@ -142,7 +162,7 @@ export const executeGenerate = async (
 
   // Write environment files
   for (const [name, content] of files.environment) {
-    const path = `${configDir}/${name}` as AbsolutePath;
+    const path = configFilePath(configDir, name);
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
@@ -152,7 +172,7 @@ export const executeGenerate = async (
 
   // Write other files
   for (const [name, content] of files.other) {
-    const path = `${configDir}/${name}` as AbsolutePath;
+    const path = configFilePath(configDir, name);
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;

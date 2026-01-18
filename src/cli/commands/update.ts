@@ -13,14 +13,14 @@ import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { Err, Ok, type Result } from "../../lib/result";
-import type { Service } from "../../services/types";
+import type { AnyService } from "../../services/types";
 import { exec } from "../../system/exec";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { resolveServiceConfig } from "./utils";
 
 export interface UpdateOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }

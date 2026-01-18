@@ -20,11 +20,15 @@ export {
   isAbsolutePath,
   isServiceName,
   isUsername,
+  joinPath,
   NetworkName,
   requireEnv,
   ServiceName,
   SubordinateId,
+  unsafeJoinPath,
+  unsafePath,
   UserId,
+  userIdToGroupId,
   Username,
   VolumeName,
 } from "./types";
@@ -186,3 +190,20 @@ export {
   withDeadline,
 } from "./timing";
 export type { Stopwatch, TimedResult } from "./timing";
+
+// Paths - Centralized path construction
+export {
+  buildServicePaths,
+  configFilePath,
+  lingerFile,
+  outputConfigDir,
+  outputQuadletDir,
+  quadletFilePath,
+  SYSTEM_PATHS,
+  TEMP_PATHS,
+  userConfigDir,
+  userDataDir,
+  userHomeDir,
+  userQuadletDir,
+} from "./paths";
+export type { ServicePaths } from "./paths";

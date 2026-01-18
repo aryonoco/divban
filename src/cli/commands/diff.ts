@@ -13,16 +13,23 @@ import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import {
+  TEMP_PATHS,
+  configFilePath,
+  quadletFilePath,
+  userConfigDir,
+  userQuadletDir,
+} from "../../lib/paths";
 import { Err, Ok, type Result } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { getContextOptions } from "./utils";
 
 export interface DiffOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -69,20 +76,27 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
   let configDir: AbsolutePath;
 
   if (userResult.ok) {
-    quadletDir = `${userResult.value.homeDir}/.config/containers/systemd` as AbsolutePath;
-    configDir = `${userResult.value.homeDir}/.config/divban` as AbsolutePath;
+    quadletDir = userQuadletDir(userResult.value.homeDir);
+    configDir = userConfigDir(userResult.value.homeDir);
   } else {
     logger.warn("Service user does not exist. Showing generated files only.");
-    quadletDir = "/nonexistent" as AbsolutePath;
-    configDir = "/nonexistent" as AbsolutePath;
+    quadletDir = TEMP_PATHS.nonexistent;
+    configDir = TEMP_PATHS.nonexistent;
+  }
+
+  // Create fallback user IDs for when user doesn't exist
+  const fallbackUidResult = UserId(0);
+  const fallbackGidResult = GroupId(0);
+  if (!(fallbackUidResult.ok && fallbackGidResult.ok)) {
+    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to create fallback user IDs"));
   }
 
   // Create service context for generation
-  const ctx: ServiceContext = {
+  const ctx: ServiceContext<unknown> = {
     config: configResult.value,
     logger,
     paths: {
-      dataDir: "/tmp/divban-diff" as AbsolutePath,
+      dataDir: TEMP_PATHS.diffDataDir,
       quadletDir,
       configDir,
     },
@@ -94,8 +108,8 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
         }
       : {
           name: username,
-          uid: UserId(0),
-          gid: GroupId(0),
+          uid: fallbackUidResult.value,
+          gid: fallbackGidResult.value,
         },
     options: getContextOptions(args),
   };
@@ -112,35 +126,35 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
 
   // Compare quadlet files
   for (const [name, newContent] of files.quadlets) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const diff = await compareFile(path, newContent);
     diffs.push({ path, ...diff });
   }
 
   // Compare network files
   for (const [name, newContent] of files.networks) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const diff = await compareFile(path, newContent);
     diffs.push({ path, ...diff });
   }
 
   // Compare volume files
   for (const [name, newContent] of files.volumes) {
-    const path = `${quadletDir}/${name}` as AbsolutePath;
+    const path = quadletFilePath(quadletDir, name);
     const diff = await compareFile(path, newContent);
     diffs.push({ path, ...diff });
   }
 
   // Compare environment files
   for (const [name, newContent] of files.environment) {
-    const path = `${configDir}/${name}` as AbsolutePath;
+    const path = configFilePath(configDir, name);
     const diff = await compareFile(path, newContent);
     diffs.push({ path, ...diff });
   }
 
   // Compare other files
   for (const [name, newContent] of files.other) {
-    const path = `${configDir}/${name}` as AbsolutePath;
+    const path = configFilePath(configDir, name);
     const diff = await compareFile(path, newContent);
     diffs.push({ path, ...diff });
   }

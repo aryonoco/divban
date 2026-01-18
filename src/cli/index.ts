@@ -14,7 +14,7 @@ import { type Logger, createLogger } from "../lib/logger";
 import type { Result } from "../lib/result";
 import { Err, Ok } from "../lib/result";
 import { getService, initializeServices, listServices } from "../services";
-import type { Service } from "../services/types";
+import type { AnyService } from "../services/types";
 import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
 import { executeBackup } from "./commands/backup";
@@ -108,7 +108,7 @@ export const run = async (argv: string[]): Promise<number> => {
  * Execute a command on a single service.
  */
 const executeCommand = (
-  service: Service,
+  service: AnyService,
   args: ParsedArgs,
   logger: Logger
 ): Promise<Result<void, DivbanError>> => {

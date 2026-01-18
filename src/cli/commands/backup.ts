@@ -12,9 +12,10 @@
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
 import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, GroupId } from "../../lib/types";
-import type { Service, ServiceContext } from "../../services/types";
+import { userIdToGroupId } from "../../lib/types";
+import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import {
@@ -25,7 +26,7 @@ import {
 } from "./utils";
 
 export interface BackupOptions {
-  service: Service;
+  service: AnyService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -64,7 +65,7 @@ export const executeBackup = async (options: BackupOptions): Promise<Result<void
   }
 
   const { uid, homeDir } = userResult.value;
-  const gid = uid as unknown as GroupId;
+  const gid = userIdToGroupId(uid);
 
   // Resolve config
   const configResult = await resolveServiceConfig(service, homeDir);
@@ -73,13 +74,15 @@ export const executeBackup = async (options: BackupOptions): Promise<Result<void
   }
 
   // Build service context
-  const ctx: ServiceContext = {
+  const dataDir = getDataDirFromConfig(configResult.value, userDataDir(homeDir));
+
+  const ctx: ServiceContext<unknown> = {
     config: configResult.value,
     logger,
     paths: {
-      dataDir: getDataDirFromConfig(configResult.value, `${homeDir}/data` as AbsolutePath),
-      quadletDir: `${homeDir}/.config/containers/systemd` as AbsolutePath,
-      configDir: `${homeDir}/.config/divban` as AbsolutePath,
+      dataDir,
+      quadletDir: userQuadletDir(homeDir),
+      configDir: userConfigDir(homeDir),
     },
     user: {
       name: username,

@@ -12,6 +12,7 @@
 
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
+import { configFilePath } from "../../lib/paths";
 import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
@@ -29,8 +30,9 @@ import {
   stopStack,
 } from "../../stack";
 import type { StackContainer } from "../../stack/types";
-import { ensureDirectory, writeFile } from "../../system/fs";
+import { ensureDirectory } from "../../system/fs";
 import { daemonReload, enableService, journalctl } from "../../system/systemctl";
+import { wrapBackupResult, writeGeneratedFiles } from "../helpers";
 import type {
   BackupResult,
   GeneratedFiles,
@@ -81,8 +83,10 @@ const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanEr
 /**
  * Generate all files for Immich service.
  */
-const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
+const generate = (
+  ctx: ServiceContext<ImmichConfig>
+): Promise<Result<GeneratedFiles, DivbanError>> => {
+  const { config } = ctx;
   const files = createGeneratedFiles();
 
   // Get hardware configuration
@@ -246,7 +250,7 @@ const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanErr
   });
 
   const stackFiles = generateStackQuadlets(stack, {
-    envFilePath: `${ctx.paths.configDir}/immich.env` as AbsolutePath,
+    envFilePath: configFilePath(ctx.paths.configDir, "immich.env"),
     userNs: createKeepIdNs(),
   });
 
@@ -267,9 +271,8 @@ const generate = (ctx: ServiceContext): Promise<Result<GeneratedFiles, DivbanErr
 /**
  * Full setup for Immich service.
  */
-const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  const { logger } = ctx;
-  const config = ctx.config as ImmichConfig;
+const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+  const { logger, config } = ctx;
 
   // 1. Generate files
   logger.step(1, 5, "Generating configuration files...");
@@ -277,9 +280,8 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
   if (!filesResult.ok) {
     return filesResult;
   }
-  const files = filesResult.value;
 
-  // 2. Create data directories using native fs
+  // 2. Create data directories
   logger.step(2, 5, "Creating data directories...");
   const dataDir = config.paths.dataDir;
   const dirs = [
@@ -300,32 +302,9 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
 
   // 3. Write files
   logger.step(3, 5, "Writing configuration files...");
-
-  // Write environment file
-  const envContent = files.environment.get("immich.env");
-  if (envContent) {
-    const envPath = `${ctx.paths.configDir}/immich.env` as AbsolutePath;
-    const writeResult = await writeFile(envPath, envContent);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
-  }
-
-  // Write quadlets
-  for (const [filename, content] of files.quadlets) {
-    const path = `${ctx.paths.quadletDir}/${filename}` as AbsolutePath;
-    const writeResult = await writeFile(path, content);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
-  }
-
-  for (const [filename, content] of files.networks) {
-    const path = `${ctx.paths.quadletDir}/${filename}` as AbsolutePath;
-    const writeResult = await writeFile(path, content);
-    if (!writeResult.ok) {
-      return writeResult;
-    }
+  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
+  if (!writeResult.ok) {
+    return writeResult;
   }
 
   // 4. Reload systemd daemon
@@ -353,8 +332,8 @@ const setup = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> =>
 /**
  * Start Immich service.
  */
-const start = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
+const start = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+  const { config } = ctx;
   const containers: StackContainer[] = [
     { name: "immich-redis", image: "", requires: [] },
     { name: "immich-postgres", image: "", requires: ["immich-redis"] },
@@ -372,8 +351,8 @@ const start = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
 /**
  * Stop Immich service.
  */
-const stop = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
+const stop = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+  const { config } = ctx;
   const containers: StackContainer[] = [
     { name: "immich-server", image: "", requires: ["immich-redis", "immich-postgres"] },
     { name: "immich-postgres", image: "", requires: ["immich-redis"] },
@@ -391,7 +370,7 @@ const stop = (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
 /**
  * Restart Immich service.
  */
-const restart = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> => {
+const restart = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
   ctx.logger.info("Restarting Immich...");
   const stopResult = await stop(ctx);
   if (!stopResult.ok) {
@@ -403,8 +382,10 @@ const restart = async (ctx: ServiceContext): Promise<Result<void, DivbanError>> 
 /**
  * Get Immich status.
  */
-const status = async (ctx: ServiceContext): Promise<Result<ServiceStatus, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
+const status = async (
+  ctx: ServiceContext<ImmichConfig>
+): Promise<Result<ServiceStatus, DivbanError>> => {
+  const { config } = ctx;
   const containers: StackContainer[] = [
     { name: "immich-redis", image: "" },
     { name: "immich-postgres", image: "" },
@@ -441,7 +422,10 @@ const status = async (ctx: ServiceContext): Promise<Result<ServiceStatus, Divban
 /**
  * View Immich logs.
  */
-const logs = (ctx: ServiceContext, options: LogOptions): Promise<Result<void, DivbanError>> => {
+const logs = (
+  ctx: ServiceContext<ImmichConfig>,
+  options: LogOptions
+): Promise<Result<void, DivbanError>> => {
   const unit = options.container ? `${options.container}.service` : "immich-server.service";
 
   return journalctl(unit, {
@@ -455,38 +439,28 @@ const logs = (ctx: ServiceContext, options: LogOptions): Promise<Result<void, Di
 /**
  * Backup Immich database.
  */
-const backup = async (ctx: ServiceContext): Promise<Result<BackupResult, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
-
-  const result = await backupDatabase({
-    dataDir: config.paths.dataDir as AbsolutePath,
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    logger: ctx.logger,
-    database: config.database.database,
-    dbUser: config.database.username,
-  });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  const file = Bun.file(result.value);
-  return Ok({
-    path: result.value,
-    size: file.size,
-    timestamp: new Date(),
-  });
+const backup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<BackupResult, DivbanError>> => {
+  const { config } = ctx;
+  return wrapBackupResult(() =>
+    backupDatabase({
+      dataDir: config.paths.dataDir as AbsolutePath,
+      user: ctx.user.name,
+      uid: ctx.user.uid,
+      logger: ctx.logger,
+      database: config.database.database,
+      dbUser: config.database.username,
+    })
+  );
 };
 
 /**
  * Restore Immich database.
  */
 const restore = (
-  ctx: ServiceContext,
+  ctx: ServiceContext<ImmichConfig>,
   backupPath: AbsolutePath
 ): Promise<Result<void, DivbanError>> => {
-  const config = ctx.config as ImmichConfig;
+  const { config } = ctx;
 
   return restoreDatabase({
     backupPath,
@@ -501,7 +475,7 @@ const restore = (
 /**
  * Immich service implementation.
  */
-export const immichService: Service = {
+export const immichService: Service<ImmichConfig> = {
   definition,
   validate,
   generate,
