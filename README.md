@@ -5,6 +5,7 @@ SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 
 # divban
 
+[![REUSE](https://api.reuse.software/badge/github.com/aryonoco/divban)](https://api.reuse.software/info/github.com/aryonoco/divban)
 ![License](https://img.shields.io/badge/license-MPL--2.0-blue)
 ![Bun](https://img.shields.io/badge/bun-1.0%2B-f9f1e1)
 ![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)
