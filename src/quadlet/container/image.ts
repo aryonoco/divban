@@ -9,7 +9,7 @@
  * Container image configuration for quadlet files.
  */
 
-import type { Option } from "../../lib/option";
+import { None, type Option, Some } from "../../lib/option";
 import { addEntry } from "../format";
 
 export interface ImageConfig {
@@ -57,14 +57,14 @@ export const parseImageReference = (
   digest?: string;
 } => {
   let remaining = ref;
-  let digest: Option<string> = null;
-  let tag: Option<string> = null;
-  let registry: Option<string> = null;
+  let digest: Option<string> = None;
+  let tag: Option<string> = None;
+  let registry: Option<string> = None;
 
   // Extract digest
   const digestIndex = remaining.indexOf("@");
   if (digestIndex !== -1) {
-    digest = remaining.slice(digestIndex + 1);
+    digest = Some(remaining.slice(digestIndex + 1));
     remaining = remaining.slice(0, digestIndex);
   }
 
@@ -73,7 +73,7 @@ export const parseImageReference = (
   // Only treat as tag if it's after the last slash (not a port)
   const lastSlash = remaining.lastIndexOf("/");
   if (tagIndex !== -1 && tagIndex > lastSlash) {
-    tag = remaining.slice(tagIndex + 1);
+    tag = Some(remaining.slice(tagIndex + 1));
     remaining = remaining.slice(0, tagIndex);
   }
 
@@ -82,7 +82,7 @@ export const parseImageReference = (
   if (firstSlash !== -1) {
     const potentialRegistry = remaining.slice(0, firstSlash);
     if (potentialRegistry.includes(".") || potentialRegistry.includes(":")) {
-      registry = potentialRegistry;
+      registry = Some(potentialRegistry);
       remaining = remaining.slice(firstSlash + 1);
     }
   }
@@ -94,14 +94,14 @@ export const parseImageReference = (
     digest?: string;
   } = { name: remaining };
 
-  if (registry !== null) {
-    result.registry = registry;
+  if (registry.isSome) {
+    result.registry = registry.value;
   }
-  if (tag !== null) {
-    result.tag = tag;
+  if (tag.isSome) {
+    result.tag = tag.value;
   }
-  if (digest !== null) {
-    result.digest = digest;
+  if (digest.isSome) {
+    result.digest = digest.value;
   }
 
   return result;

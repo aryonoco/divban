@@ -10,7 +10,7 @@
  * Provides nanosecond-precision timing for performance measurement.
  */
 
-import type { Option } from "./option";
+import { None, type Option, Some } from "./option";
 
 /**
  * Get the current time in nanoseconds since process start.
@@ -219,16 +219,18 @@ export const debounce = <T extends (...args: unknown[]) => unknown>(
   fn: T,
   delayMs: number
 ): ((...args: Parameters<T>) => void) => {
-  let timeoutId: Option<ReturnType<typeof setTimeout>> = null;
+  let timeoutId: Option<ReturnType<typeof setTimeout>> = None;
 
   const debouncedFn = (...args: Parameters<T>): void => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+    if (timeoutId.isSome) {
+      clearTimeout(timeoutId.value);
     }
-    timeoutId = setTimeout(() => {
-      fn(...args);
-      timeoutId = null;
-    }, delayMs);
+    timeoutId = Some(
+      setTimeout(() => {
+        fn(...args);
+        timeoutId = None;
+      }, delayMs)
+    );
   };
   return debouncedFn;
 };

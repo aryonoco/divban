@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import type { Option } from "../../../lib/option";
+import { None, type Option, Some } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -41,12 +41,12 @@ export interface RestoreOptions {
  */
 const detectCompression = (path: string): Option<"gzip" | "zstd"> => {
   if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
-    return "gzip";
+    return Some("gzip");
   }
   if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
-    return "zstd";
+    return Some("zstd");
   }
-  return null;
+  return None;
 };
 
 /**
@@ -76,7 +76,7 @@ export const restoreDatabase = async (
 
   // Detect compression type
   const compression = detectCompression(backupPath);
-  if (!compression) {
+  if (!compression.isSome) {
     return Err(
       new DivbanError(
         ErrorCode.RESTORE_FAILED,
@@ -90,7 +90,7 @@ export const restoreDatabase = async (
   const compressedData = await file.bytes();
 
   // Read and validate metadata
-  const metadata = await readArchiveMetadata(compressedData, { decompress: compression });
+  const metadata = await readArchiveMetadata(compressedData, { decompress: compression.value });
   if (metadata) {
     logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`);
   }
@@ -98,7 +98,7 @@ export const restoreDatabase = async (
   // Extract archive
   let sqlData: string;
   try {
-    const files = await extractArchive(compressedData, { decompress: compression });
+    const files = await extractArchive(compressedData, { decompress: compression.value });
     const sqlBytes = files.get("database.sql");
 
     if (!sqlBytes) {
@@ -158,7 +158,7 @@ export const validateBackup = async (
 
   // Detect compression type
   const compression = detectCompression(backupPath);
-  if (!compression) {
+  if (!compression.isSome) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
@@ -173,7 +173,7 @@ export const validateBackup = async (
     const compressedData = await file.bytes();
 
     // Attempt to extract - this validates both compression and tar format
-    const files = await extractArchive(compressedData, { decompress: compression });
+    const files = await extractArchive(compressedData, { decompress: compression.value });
 
     // Check for database.sql
     if (!files.has("database.sql")) {

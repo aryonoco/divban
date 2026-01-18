@@ -12,7 +12,7 @@
 
 import { getServiceUsername } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
-import type { Option } from "../lib/option";
+import { None, type Option, Some } from "../lib/option";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { Err, Ok, type Result } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
@@ -186,7 +186,7 @@ export const getServiceUser = async (
   const username = usernameResult.value;
 
   if (!(await userExists(username))) {
-    return Ok(null);
+    return Ok(None);
   }
 
   const uidResult = await getUidByUsername(username);
@@ -198,14 +198,16 @@ export const getServiceUser = async (
   // If subuid not found, user may exist but not be fully configured
   const subuidStart = subuidResult.ok ? subuidResult.value : (SUBUID_RANGE.start as SubordinateId);
 
-  return Ok({
-    username,
-    uid: uidResult.value,
-    gid: userIdToGroupId(uidResult.value),
-    subuidStart,
-    subuidSize: SUBUID_RANGE.size,
-    homeDir: userHomeDir(username),
-  });
+  return Ok(
+    Some({
+      username,
+      uid: uidResult.value,
+      gid: userIdToGroupId(uidResult.value),
+      subuidStart,
+      subuidSize: SUBUID_RANGE.size,
+      homeDir: userHomeDir(username),
+    })
+  );
 };
 
 /**

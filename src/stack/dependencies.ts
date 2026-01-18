@@ -11,7 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import type { Option } from "../lib/option";
+import { None, type Option, Some } from "../lib/option";
 import { Err, Ok, type Result } from "../lib/result";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
@@ -58,10 +58,10 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
 
   const hasCycle = (name: string, path: string[]): Option<string[]> => {
     if (recursionStack.has(name)) {
-      return [...path, name];
+      return Some([...path, name]);
     }
     if (visited.has(name)) {
-      return null;
+      return None;
     }
 
     visited.add(name);
@@ -71,23 +71,23 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
     if (node) {
       for (const dep of [...node.requires, ...node.wants]) {
         const cycle = hasCycle(dep, [...path, name]);
-        if (cycle) {
+        if (cycle.isSome) {
           return cycle;
         }
       }
     }
 
     recursionStack.delete(name);
-    return null;
+    return None;
   };
 
   for (const node of nodes) {
     const cycle = hasCycle(node.name, []);
-    if (cycle) {
+    if (cycle.isSome) {
       return Err(
         new DivbanError(
           ErrorCode.GENERAL_ERROR,
-          `Circular dependency detected: ${cycle.join(" -> ")}`
+          `Circular dependency detected: ${cycle.value.join(" -> ")}`
         )
       );
     }

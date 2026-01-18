@@ -11,7 +11,7 @@
  */
 
 import { semver } from "bun";
-import type { Option } from "./option";
+import { None, type Option, Some } from "./option";
 
 /**
  * Check if a version satisfies a semver range.
@@ -102,38 +102,40 @@ export const neq = (a: string, b: string): boolean => {
 
 /**
  * Get the maximum version from an array of versions.
- * Returns null if array is empty.
+ * Returns None if array is empty.
  *
  * @example
- * maxVersion(["1.0.0", "2.0.0", "1.5.0"]) // "2.0.0"
+ * maxVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("2.0.0")
  */
 export const maxVersion = (versions: string[]): Option<string> => {
   if (versions.length === 0) {
-    return null;
+    return None;
   }
-  return sortVersionsDesc(versions)[0] ?? null;
+  const sorted = sortVersionsDesc(versions);
+  return sorted[0] !== undefined ? Some(sorted[0]) : None;
 };
 
 /**
  * Get the minimum version from an array of versions.
- * Returns null if array is empty.
+ * Returns None if array is empty.
  *
  * @example
- * minVersion(["1.0.0", "2.0.0", "1.5.0"]) // "1.0.0"
+ * minVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("1.0.0")
  */
 export const minVersion = (versions: string[]): Option<string> => {
   if (versions.length === 0) {
-    return null;
+    return None;
   }
-  return sortVersions(versions)[0] ?? null;
+  const sorted = sortVersions(versions);
+  return sorted[0] !== undefined ? Some(sorted[0]) : None;
 };
 
 /**
  * Get the maximum version that satisfies a range.
- * Returns null if no version satisfies the range.
+ * Returns None if no version satisfies the range.
  *
  * @example
- * maxSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // "1.5.0"
+ * maxSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // Some("1.5.0")
  */
 export const maxSatisfying = (versions: string[], range: string): Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));
@@ -142,10 +144,10 @@ export const maxSatisfying = (versions: string[], range: string): Option<string>
 
 /**
  * Get the minimum version that satisfies a range.
- * Returns null if no version satisfies the range.
+ * Returns None if no version satisfies the range.
  *
  * @example
- * minSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // "1.0.0"
+ * minSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // Some("1.0.0")
  */
 export const minSatisfying = (versions: string[], range: string): Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));

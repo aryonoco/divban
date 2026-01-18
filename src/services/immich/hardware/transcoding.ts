@@ -9,7 +9,7 @@
  * Hardware acceleration device mappings for transcoding.
  */
 
-import type { Option } from "../../../lib/option";
+import { None, type Option, Some } from "../../../lib/option";
 import type { TranscodingBackend } from "../schema";
 
 /**
@@ -74,17 +74,17 @@ const getRkmppDevices = (): TranscodingDevices => ({
 export const getTranscodingDevices = (backend: TranscodingBackend): Option<TranscodingDevices> => {
   switch (backend) {
     case "nvenc":
-      return getNvencDevices();
+      return Some(getNvencDevices());
     case "qsv":
-      return getQsvDevices();
+      return Some(getQsvDevices());
     case "vaapi":
-      return getVaapiDevices();
+      return Some(getVaapiDevices());
     case "vaapi-wsl":
-      return getVaapiWslDevices();
+      return Some(getVaapiWslDevices());
     case "rkmpp":
-      return getRkmppDevices();
+      return Some(getRkmppDevices());
     case "disabled":
-      return null;
+      return None;
     default: {
       const unknownBackend: never = backend;
       throw new Error(`Unknown transcoding backend: ${unknownBackend}`);

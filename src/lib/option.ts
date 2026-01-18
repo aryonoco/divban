@@ -7,41 +7,139 @@
 
 /**
  * Option type for explicit nullable value handling.
- * Inspired by Rust's Option<T> and OCaml's 'a option.
+ * Rust-inspired discriminated union with isSome boolean discriminator.
  */
 
 import type { Result } from "./result";
 
-export type Option<T> = T | null;
+// ============================================================================
+// Core Type Definition
+// ============================================================================
 
-export const Some = <T>(value: T): Option<T> => value;
-export const None: Option<never> = null;
+export type Option<T> = { readonly isSome: true; readonly value: T } | { readonly isSome: false };
 
-export const isSome = <T>(opt: Option<T>): opt is T => opt !== null;
-export const isNone = <T>(opt: Option<T>): opt is null => opt === null;
+// ============================================================================
+// Constructors
+// ============================================================================
+
+export const Some = <T>(value: T): Option<T> => ({ isSome: true, value });
+export const None: Option<never> = { isSome: false };
+
+// ============================================================================
+// Type Guards
+// ============================================================================
+
+export const isSome = <T>(opt: Option<T>): opt is { isSome: true; value: T } => opt.isSome;
+export const isNone = <T>(opt: Option<T>): opt is { isSome: false } => !opt.isSome;
+
+// ============================================================================
+// Core Transformations
+// ============================================================================
 
 export const mapOption = <T, U>(opt: Option<T>, fn: (value: T) => U): Option<U> =>
-  opt !== null ? fn(opt) : null;
+  opt.isSome ? Some(fn(opt.value)) : None;
 
 export const flatMapOption = <T, U>(opt: Option<T>, fn: (value: T) => Option<U>): Option<U> =>
-  opt !== null ? fn(opt) : null;
-
-export const getOrElse = <T>(opt: Option<T>, defaultValue: T): T =>
-  opt !== null ? opt : defaultValue;
-
-export const getOrElseLazy = <T>(opt: Option<T>, fn: () => T): T => (opt !== null ? opt : fn());
-
-export const okOr = <T, E>(opt: Option<T>, error: E): Result<T, E> =>
-  opt !== null ? { ok: true, value: opt } : { ok: false, error };
+  opt.isSome ? fn(opt.value) : None;
 
 export const filter = <T>(opt: Option<T>, predicate: (value: T) => boolean): Option<T> =>
-  opt !== null && predicate(opt) ? opt : null;
+  opt.isSome && predicate(opt.value) ? opt : None;
+
+// ============================================================================
+// Value Extraction
+// ============================================================================
+
+export const getOrElse = <T>(opt: Option<T>, defaultValue: T): T =>
+  opt.isSome ? opt.value : defaultValue;
+
+export const getOrElseLazy = <T>(opt: Option<T>, fn: () => T): T => (opt.isSome ? opt.value : fn());
+
+export const unwrap = <T>(opt: Option<T>): T => {
+  if (opt.isSome) {
+    return opt.value;
+  }
+  throw new Error("Called unwrap() on None");
+};
+
+export const expect = <T>(opt: Option<T>, msg: string): T => {
+  if (opt.isSome) {
+    return opt.value;
+  }
+  throw new Error(msg);
+};
+
+// ============================================================================
+// Result Conversion
+// ============================================================================
+
+export const okOr = <T, E>(opt: Option<T>, error: E): Result<T, E> =>
+  opt.isSome ? { ok: true, value: opt.value } : { ok: false, error };
+
+export const okOrElse = <T, E>(opt: Option<T>, errorFn: () => E): Result<T, E> =>
+  opt.isSome ? { ok: true, value: opt.value } : { ok: false, error: errorFn() };
+
+export const transpose = <T, E>(opt: Option<Result<T, E>>): Result<Option<T>, E> => {
+  if (!opt.isSome) {
+    return { ok: true, value: None };
+  }
+  return opt.value.ok ? { ok: true, value: Some(opt.value.value) } : opt.value;
+};
+
+// ============================================================================
+// Map With Default
+// ============================================================================
+
+export const mapOr = <T, U>(opt: Option<T>, defaultValue: U, fn: (value: T) => U): U =>
+  opt.isSome ? fn(opt.value) : defaultValue;
+
+export const mapOrElse = <T, U>(opt: Option<T>, defaultFn: () => U, fn: (value: T) => U): U =>
+  opt.isSome ? fn(opt.value) : defaultFn();
+
+// ============================================================================
+// Boolean Combinators
+// ============================================================================
+
+export const and = <T, U>(opt: Option<T>, other: Option<U>): Option<U> =>
+  opt.isSome ? other : None;
+
+export const or = <T>(opt: Option<T>, other: Option<T>): Option<T> => (opt.isSome ? opt : other);
+
+export const xor = <T>(opt: Option<T>, other: Option<T>): Option<T> => {
+  if (opt.isSome && !other.isSome) {
+    return opt;
+  }
+  if (!opt.isSome && other.isSome) {
+    return other;
+  }
+  return None;
+};
+
+// ============================================================================
+// Combining & Nesting
+// ============================================================================
 
 export const zip = <T, U>(a: Option<T>, b: Option<U>): Option<[T, U]> =>
-  a !== null && b !== null ? [a, b] : null;
+  a.isSome && b.isSome ? Some([a.value, b.value]) : None;
+
+export const zipWith = <T, U, R>(a: Option<T>, b: Option<U>, fn: (t: T, u: U) => R): Option<R> =>
+  a.isSome && b.isSome ? Some(fn(a.value, b.value)) : None;
+
+export const flatten = <T>(opt: Option<Option<T>>): Option<T> => (opt.isSome ? opt.value : None);
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+export const contains = <T>(opt: Option<T>, value: T): boolean => opt.isSome && opt.value === value;
+
+export const toArray = <T>(opt: Option<T>): T[] => (opt.isSome ? [opt.value] : []);
+
+// ============================================================================
+// Construction from Nullable
+// ============================================================================
 
 export const fromUndefined = <T>(value: T | undefined): Option<T> =>
-  value === undefined ? null : value;
+  value === undefined ? None : Some(value);
 
 export const fromNullable = <T>(value: T | null | undefined): Option<T> =>
-  value == null ? null : value;
+  value == null ? None : Some(value);

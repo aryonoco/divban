@@ -11,7 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "./errors";
-import type { Option } from "./option";
+import { None, type Option, Some } from "./option";
 import { Err, Ok, type Result } from "./result";
 
 /** User ID (1000-65534 range for regular users) */
@@ -206,7 +206,10 @@ export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
 /**
  * Get an environment variable value.
  */
-export const getEnv = (key: string): Option<string> => Bun.env[key] ?? null;
+export const getEnv = (key: string): Option<string> => {
+  const value = Bun.env[key];
+  return value === undefined ? None : Some(value);
+};
 
 /**
  * Get a required environment variable, throwing if not set.

@@ -65,19 +65,42 @@ export type { Result } from "./result";
 
 // Option - Explicit nullable value handling
 export {
-  filter as filterOption,
+  // Constructors
+  Some,
+  None,
+  // Type guards
+  isSome,
+  isNone,
+  // Core transformations
+  mapOption,
   flatMapOption,
-  fromNullable,
-  fromUndefined,
+  filter as filterOption,
+  // Value extraction
   getOrElse,
   getOrElseLazy,
-  isNone,
-  isSome,
-  mapOption,
-  None,
+  unwrap as unwrapOption,
+  expect as expectOption,
+  // Result conversion
   okOr,
-  Some,
+  okOrElse,
+  transpose as transposeOption,
+  // Map with default
+  mapOr,
+  mapOrElse,
+  // Boolean combinators
+  and as andOption,
+  or as orOption,
+  xor as xorOption,
+  // Combining & nesting
   zip as zipOption,
+  zipWith as zipWithOption,
+  flatten as flattenOption,
+  // Utilities
+  contains as containsOption,
+  toArray as optionToArray,
+  // Construction
+  fromUndefined,
+  fromNullable,
 } from "./option";
 export type { Option } from "./option";
 
