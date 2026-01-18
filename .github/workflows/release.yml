@@ -1,0 +1,216 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
+# divban Release Workflow
+# Cross-compiles standalone binaries for Linux architectures
+# - linux-amd64: Baseline x86_64 (compatible with older systems)
+# - linux-amd64v3: x86_64 with AVX2+ (modern CPUs)
+# - linux-arm64: AArch64 (Raspberry Pi 4+, cloud ARM instances)
+#
+# Workflow structure:
+# 1. setup-bun: Setup Bun once and upload node_modules as artifact
+# 2. build: 3 parallel jobs download artifact and build for their target
+# 3. release: Collect all binaries and publish
+#
+# Binaries compressed with zstd level 22 --ultra (maximum compression)
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # Setup Bun - Install once, share with all build jobs
+  # This prevents 3 jobs from racing to download dependencies
+  setup-bun:
+    name: Setup Bun
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load versions from versions.env
+        run: |
+          if [ -f versions.env ]; then
+            source versions.env
+            echo "BUN_VERSION=$BUN_VERSION" >> $GITHUB_ENV
+            echo "Loaded: BUN=$BUN_VERSION"
+          else
+            echo "ERROR: versions.env not found"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests before building
+        run: bun test
+
+      - name: Create Bun environment tarball
+        run: |
+          tar -cf bun-env.tar node_modules
+          ls -lh bun-env.tar
+
+      - name: Upload Bun environment as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bun-env-${{ env.BUN_VERSION }}
+          path: bun-env.tar
+          retention-days: 1
+          compression-level: 0
+
+  # Build - Compile for all architectures in parallel
+  build:
+    name: Build ${{ matrix.target }}
+    needs: setup-bun
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            bun_target: bun-linux-x64
+          - target: linux-amd64v3
+            bun_target: bun-linux-x64-modern
+          - target: linux-arm64
+            bun_target: bun-linux-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load versions from versions.env
+        run: |
+          if [ -f versions.env ]; then
+            source versions.env
+            echo "BUN_VERSION=$BUN_VERSION" >> $GITHUB_ENV
+            echo "Loaded: BUN=$BUN_VERSION"
+          else
+            echo "ERROR: versions.env not found"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Download Bun environment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bun-env-${{ env.BUN_VERSION }}
+          path: .
+
+      - name: Extract Bun environment
+        run: |
+          tar -xf bun-env.tar
+          rm bun-env.tar
+          echo "Dependencies restored"
+
+      - name: Build ${{ matrix.target }} binary
+        run: |
+          mkdir -p bin
+          echo "Building for ${{ matrix.target }}..."
+          bun build ./src/index.ts \
+            --compile \
+            --minify \
+            --bytecode \
+            --sourcemap \
+            --target=${{ matrix.bun_target }} \
+            --outfile bin/divban-${{ matrix.target }}
+          echo "Built: bin/divban-${{ matrix.target }}"
+
+      - name: Verify binary
+        run: |
+          echo "=== divban-${{ matrix.target }} ==="
+          file bin/divban-${{ matrix.target }}
+          ls -lh bin/divban-${{ matrix.target }}
+
+      - name: Prepare release archive
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCHIVE_NAME="divban-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${ARCHIVE_NAME}"
+
+          # Copy binary
+          cp bin/divban-${{ matrix.target }} "${ARCHIVE_NAME}/divban"
+          chmod +x "${ARCHIVE_NAME}/divban"
+
+          # Copy examples if they exist
+          if [ -d examples ]; then
+            cp -r examples "${ARCHIVE_NAME}/"
+          fi
+
+          # Copy README
+          if [ -f README.md ]; then
+            cp README.md "${ARCHIVE_NAME}/"
+          fi
+
+          # Create tarball with zstd maximum compression (level 22 --ultra)
+          tar -cvf - "${ARCHIVE_NAME}" | zstd -22 --ultra -o "${ARCHIVE_NAME}.tar.zst"
+
+          # List contents for verification
+          echo ""
+          echo "Archive contents:"
+          zstd -d -c "${ARCHIVE_NAME}.tar.zst" | tar -tvf -
+          ls -lh "${ARCHIVE_NAME}.tar.zst"
+
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}.tar.zst
+          retention-days: 1
+
+  # Release - Collect all binaries and publish
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: divban-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.zst > SHA256SUMS
+          echo "Generated checksums:"
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.tar.zst
+            artifacts/SHA256SUMS
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

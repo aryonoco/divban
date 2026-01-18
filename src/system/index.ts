@@ -1,6 +1,24 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * System operations module exports.
  */
+
+// Archive - Native tar archive operations using Bun.Archive
+export {
+  createArchive,
+  createArchiveFromDirectory,
+  extractArchive,
+  extractArchiveToDirectory,
+  listArchive,
+  readArchiveMetadata,
+} from "./archive";
+export type { ArchiveMetadata } from "./archive";
 
 // Exec - Command execution
 export {
@@ -12,6 +30,8 @@ export {
   shell,
   shellAsUser,
   shellBlob,
+  shellBraces,
+  shellEscape,
   shellJson,
   shellLines,
   shellText,
@@ -24,6 +44,7 @@ export {
   atomicWrite,
   backupFile,
   copyFile,
+  createFileWriter,
   deleteFile,
   deleteFileIfExists,
   directoryExists,
@@ -33,6 +54,7 @@ export {
   globFiles,
   globMatch,
   hashContent,
+  hashContentWith,
   hashFile,
   isDirectory,
   listDirectory,
@@ -44,6 +66,7 @@ export {
   watchFile,
   writeFile,
 } from "./fs";
+export type { HashAlgorithm } from "./fs";
 
 // Compress - Compression utilities (gzip, deflate, zstd)
 export {

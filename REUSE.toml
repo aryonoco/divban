@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+
+version = 1
+
+# =============================================================================
+# Source Code (MPL-2.0) - Code with actual logic
+# =============================================================================
+
+[[annotations]]
+path = ["src/**", "tests/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "MPL-2.0"
+
+# Compiled binaries (derived from MPL-2.0 source)
+[[annotations]]
+path = ["bin/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "MPL-2.0"
+
+# =============================================================================
+# Plumbing/Config (0BSD) - Configuration without substantial logic
+# =============================================================================
+
+[[annotations]]
+path = [".devcontainer/**", ".github/**", "examples/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "0BSD"
+
+# Build system and task runner
+[[annotations]]
+path = ["justfile"]
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "0BSD"
+
+# Data/config files (no logic)
+[[annotations]]
+path = [
+  "**/*.toml",
+  "**/*.json",
+  "**/*.yml",
+  "**/*.yaml",
+  "**/*.env",
+  ".gitignore",
+  "bun.lock",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "0BSD"
+
+# =============================================================================
+# Documentation (CC-BY-4.0)
+# =============================================================================
+
+[[annotations]]
+path = ["docs/**", "**/*.md", "**/*.txt"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2023-2026 Aryan Ameri <info@ameri.me>"
+SPDX-License-Identifier = "CC-BY-4.0"

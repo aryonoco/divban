@@ -1,11 +1,20 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Immich database restore command.
+ * Uses Bun.Archive for extraction - no external gunzip/tar commands.
  */
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
+import { extractArchive, readArchiveMetadata } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
 import { fileExists } from "../../../system/fs";
 
@@ -27,7 +36,21 @@ export interface RestoreOptions {
 }
 
 /**
+ * Detect compression type from file extension.
+ */
+const detectCompression = (path: string): "gzip" | "zstd" | null => {
+  if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
+    return "gzip";
+  }
+  if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
+    return "zstd";
+  }
+  return null;
+};
+
+/**
  * Restore a PostgreSQL database from backup.
+ * Uses Bun.Archive for extraction - no subprocess gunzip needed.
  */
 export const restoreDatabase = async (
   options: RestoreOptions
@@ -50,15 +73,42 @@ export const restoreDatabase = async (
   logger.info(`Restoring database from: ${backupPath}`);
   logger.warn("This will overwrite the existing database!");
 
-  // Decompress the backup
-  const gunzipResult = await execAsUser(user, uid, ["gunzip", "-c", backupPath], {
-    captureStdout: true,
-    captureStderr: true,
-  });
+  // Detect compression type
+  const compression = detectCompression(backupPath);
+  if (!compression) {
+    return Err(
+      new DivbanError(
+        ErrorCode.RESTORE_FAILED,
+        `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`
+      )
+    );
+  }
 
-  if (!gunzipResult.ok || gunzipResult.value.exitCode !== 0) {
-    const stderr = gunzipResult.ok ? gunzipResult.value.stderr : "";
-    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to decompress backup: ${stderr}`));
+  // Read the backup file
+  const file = Bun.file(backupPath);
+  const compressedData = await file.bytes();
+
+  // Read and validate metadata
+  const metadata = await readArchiveMetadata(compressedData, { decompress: compression });
+  if (metadata) {
+    logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`);
+  }
+
+  // Extract archive
+  let sqlData: string;
+  try {
+    const files = await extractArchive(compressedData, { decompress: compression });
+    const sqlBytes = files.get("database.sql");
+
+    if (!sqlBytes) {
+      return Err(
+        new DivbanError(ErrorCode.RESTORE_FAILED, "Backup archive does not contain database.sql")
+      );
+    }
+
+    sqlData = new TextDecoder().decode(sqlBytes);
+  } catch (e) {
+    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to extract backup archive: ${e}`));
   }
 
   // Restore using psql
@@ -67,7 +117,7 @@ export const restoreDatabase = async (
     uid,
     ["podman", "exec", "-i", containerName, "psql", "-U", dbUser, "-d", database],
     {
-      stdin: gunzipResult.value.stdout,
+      stdin: sqlData,
       captureStdout: true,
       captureStderr: true,
     }
@@ -95,26 +145,47 @@ export const restoreDatabase = async (
 
 /**
  * Validate a backup file.
+ * Uses Bun's native decompression to validate.
  */
 export const validateBackup = async (
-  backupPath: AbsolutePath,
-  user: Username,
-  uid: UserId
+  backupPath: AbsolutePath
 ): Promise<Result<void, DivbanError>> => {
   // Check file exists
   if (!(await fileExists(backupPath))) {
     return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
   }
 
-  // Check it's a valid gzip file
-  const result = await execAsUser(user, uid, ["gzip", "-t", backupPath], { captureStderr: true });
-
-  if (!result.ok || result.value.exitCode !== 0) {
+  // Detect compression type
+  const compression = detectCompression(backupPath);
+  if (!compression) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Invalid backup file (not valid gzip): ${backupPath}`
+        `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`
       )
+    );
+  }
+
+  // Try to read and decompress the archive
+  try {
+    const file = Bun.file(backupPath);
+    const compressedData = await file.bytes();
+
+    // Attempt to extract - this validates both compression and tar format
+    const files = await extractArchive(compressedData, { decompress: compression });
+
+    // Check for database.sql
+    if (!files.has("database.sql")) {
+      return Err(
+        new DivbanError(
+          ErrorCode.GENERAL_ERROR,
+          "Invalid backup file: missing database.sql in archive"
+        )
+      );
+    }
+  } catch (e) {
+    return Err(
+      new DivbanError(ErrorCode.GENERAL_ERROR, `Invalid backup file: decompression failed: ${e}`)
     );
   }
 

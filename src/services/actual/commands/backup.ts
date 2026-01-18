@@ -1,15 +1,28 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Actual Budget backup command.
- * Creates a compressed archive of the Actual data directory.
+ * Uses Bun.Archive for native tar operations - no external tar commands.
  */
 
+import { Glob } from "bun";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
-import { execAsUser } from "../../../system/exec";
-import { directoryExists } from "../../../system/fs";
+import {
+  type ArchiveMetadata,
+  createArchive,
+  extractArchive,
+  readArchiveMetadata,
+} from "../../../system/archive";
+import { directoryExists, ensureDirectory } from "../../../system/fs";
 
 export interface BackupOptions {
   /** Data directory containing Actual files */
@@ -24,12 +37,12 @@ export interface BackupOptions {
 
 /**
  * Create a backup of the Actual data directory.
- * Creates a compressed tar archive of all data files.
+ * Creates a compressed tar archive using Bun.Archive.
  */
 export const backupActual = async (
   options: BackupOptions
 ): Promise<Result<AbsolutePath, DivbanError>> => {
-  const { dataDir, user, uid, logger } = options;
+  const { dataDir, logger } = options;
 
   // Check data directory exists
   if (!(await directoryExists(dataDir))) {
@@ -44,7 +57,7 @@ export const backupActual = async (
   logger.info(`Creating backup: ${backupFilename}`);
 
   // Ensure backup directory exists
-  const mkdirResult = await execAsUser(user, uid, ["mkdir", "-p", backupsDir]);
+  const mkdirResult = await ensureDirectory(backupsDir);
   if (!mkdirResult.ok) {
     return Err(
       new DivbanError(
@@ -55,35 +68,48 @@ export const backupActual = async (
     );
   }
 
-  // Create tar archive of data directory
-  // Exclude the backups directory itself to avoid recursion
-  const tarResult = await execAsUser(
-    user,
-    uid,
-    ["tar", "-czf", backupPath, "--exclude=backups", "-C", dataDir, "."],
-    { captureStderr: true }
-  );
+  // Collect files to archive using Bun.Glob
+  const glob = new Glob("**/*");
+  const files: Record<string, Uint8Array> = {};
+  const fileList: string[] = [];
 
-  if (!tarResult.ok) {
-    return Err(
-      new DivbanError(ErrorCode.BACKUP_FAILED, "Failed to create backup archive", tarResult.error)
-    );
+  for await (const path of glob.scan({ cwd: dataDir, onlyFiles: true })) {
+    // Exclude the backups directory itself to avoid recursion
+    if (path.startsWith("backups/") || path === "backups") {
+      continue;
+    }
+
+    const fullPath = `${dataDir}/${path}`;
+    const content = await Bun.file(fullPath).bytes();
+    files[path] = content;
+    fileList.push(path);
   }
 
-  if (tarResult.value.exitCode !== 0) {
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `tar failed: ${tarResult.value.stderr}`));
+  // Create metadata
+  const metadata: ArchiveMetadata = {
+    version: "1.0",
+    service: "actual",
+    timestamp: new Date().toISOString(),
+    files: fileList,
+  };
+
+  // Create archive with gzip compression
+  try {
+    const archiveData = await createArchive(files, {
+      compress: "gzip",
+      metadata,
+    });
+
+    // Write archive to disk
+    await Bun.write(backupPath, archiveData);
+  } catch (e) {
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to create backup archive: ${e}`));
   }
 
   // Get backup size
-  const statResult = await execAsUser(user, uid, ["stat", "-c", "%s", backupPath], {
-    captureStdout: true,
-  });
-
-  let sizeStr = "unknown";
-  if (statResult.ok && statResult.value.exitCode === 0) {
-    const bytes = Number.parseInt(statResult.value.stdout.trim(), 10);
-    sizeStr = formatBytes(bytes);
-  }
+  const file = Bun.file(backupPath);
+  const size = file.size;
+  const sizeStr = formatBytes(size);
 
   logger.success(`Backup created: ${backupPath} (${sizeStr})`);
   return Ok(backupPath);
@@ -91,65 +117,88 @@ export const backupActual = async (
 
 /**
  * List available backups.
+ * Uses Bun.Glob for native file discovery - no subprocess needed.
  */
 export const listBackups = async (
-  dataDir: AbsolutePath,
-  user: Username,
-  uid: UserId
+  dataDir: AbsolutePath
 ): Promise<Result<string[], DivbanError>> => {
   const backupsDir = `${dataDir}/backups`;
 
-  const result = await execAsUser(user, uid, ["ls", "-1t", backupsDir], { captureStdout: true });
-
-  if (!result.ok) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to list backups", result.error));
-  }
-
-  if (result.value.exitCode !== 0) {
-    // Directory might not exist yet
+  if (!(await directoryExists(backupsDir as AbsolutePath))) {
     return Ok([]);
   }
 
-  const files = result.value.stdout.split("\n").filter((f) => f.endsWith(".tar.gz"));
+  const glob = new Glob("*.tar.gz");
+  const files: string[] = [];
 
-  return Ok(files);
+  for await (const file of glob.scan({ cwd: backupsDir, onlyFiles: true })) {
+    files.push(file);
+  }
+
+  // Sort by modification time (newest first)
+  const withStats = await Promise.all(
+    files.map(async (f) => ({
+      name: f,
+      mtime: (await Bun.file(`${backupsDir}/${f}`).stat())?.mtimeMs ?? 0,
+    }))
+  );
+
+  withStats.sort((a, b) => b.mtime - a.mtime);
+  return Ok(withStats.map((f) => f.name));
 };
 
 /**
  * Restore from a backup archive.
+ * Uses Bun.Archive for extraction - no subprocess tar needed.
  */
 export const restoreActual = async (
   backupPath: AbsolutePath,
   dataDir: AbsolutePath,
-  user: Username,
-  uid: UserId,
+  _user: Username,
+  _uid: UserId,
   logger: Logger
 ): Promise<Result<void, DivbanError>> => {
   // Check backup file exists
-  const checkResult = await execAsUser(user, uid, ["test", "-f", backupPath], {});
-
-  if (!checkResult.ok || checkResult.value.exitCode !== 0) {
+  const file = Bun.file(backupPath);
+  if (!(await file.exists())) {
     return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
   }
 
   logger.info(`Restoring from: ${backupPath}`);
   logger.warn("This will overwrite existing data!");
 
-  // Extract archive to data directory
-  const tarResult = await execAsUser(user, uid, ["tar", "-xzf", backupPath, "-C", dataDir], {
-    captureStderr: true,
-  });
+  try {
+    // Read and decompress archive
+    const compressedData = await file.bytes();
 
-  if (!tarResult.ok) {
-    return Err(
-      new DivbanError(ErrorCode.RESTORE_FAILED, "Failed to extract backup archive", tarResult.error)
-    );
-  }
+    // Read metadata first to validate
+    const metadata = await readArchiveMetadata(compressedData, { decompress: "gzip" });
+    if (metadata) {
+      logger.info(`Backup from: ${metadata.timestamp}, files: ${metadata.files.length}`);
+    }
 
-  if (tarResult.value.exitCode !== 0) {
-    return Err(
-      new DivbanError(ErrorCode.RESTORE_FAILED, `tar extract failed: ${tarResult.value.stderr}`)
-    );
+    // Extract archive
+    const files = await extractArchive(compressedData, { decompress: "gzip" });
+
+    // Write files to data directory
+    for (const [name, content] of files) {
+      // Skip metadata.json
+      if (name === "metadata.json") {
+        continue;
+      }
+
+      const fullPath = `${dataDir}/${name}`;
+
+      // Ensure parent directory exists
+      const parentDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
+      if (parentDir && parentDir !== dataDir) {
+        await ensureDirectory(parentDir as AbsolutePath);
+      }
+
+      await Bun.write(fullPath, content);
+    }
+  } catch (e) {
+    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to extract backup archive: ${e}`));
   }
 
   logger.success("Restore completed successfully");

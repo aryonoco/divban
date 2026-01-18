@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: 0BSD
-# Copyright (c) 2023-2026 Aryan Ameri
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 #
 # Powerlevel10k Lean ASCII Configuration
 

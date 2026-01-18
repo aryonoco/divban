@@ -1,11 +1,18 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Filesystem operations with Result-based error handling.
  * Uses Bun.file, Bun.write, Bun.Glob, and node:fs for optimal performance.
  */
 
 import { watch } from "node:fs";
-import { appendFile as fsAppendFile, mkdir, readdir, rename } from "node:fs/promises";
-import { Glob } from "bun";
+import { mkdir, rename } from "node:fs/promises";
+import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
@@ -54,8 +61,27 @@ export const writeFile = async (
 };
 
 /**
+ * Create a file writer for incremental writes.
+ * Uses Bun's FileSink for optimal streaming performance.
+ */
+export interface FileWriter {
+  writer: FileSink;
+  close: () => number | Promise<number>;
+}
+
+export const createFileWriter = (path: AbsolutePath): FileWriter => {
+  const file = Bun.file(path);
+  const writer = file.writer();
+  const close = (): number | Promise<number> => writer.end();
+  return {
+    writer,
+    close,
+  };
+};
+
+/**
  * Append content to a file.
- * Uses native node:fs appendFile for optimal performance.
+ * Uses Bun's FileSink for optimal performance.
  */
 export const appendFile = async (
   path: AbsolutePath,
@@ -63,7 +89,10 @@ export const appendFile = async (
 ): Promise<Result<void, DivbanError>> => {
   return tryCatch(
     async () => {
-      await fsAppendFile(path, content);
+      const file = Bun.file(path);
+      const writer = file.writer();
+      writer.write(content);
+      await writer.end();
     },
     (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to append to file: ${path}`)
   );
@@ -89,18 +118,28 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 };
 
 /**
- * Copy a file.
+ * Copy a file using kernel-level operations.
+ * Uses Bun.write(dest, Bun.file(src)) which leverages:
+ * - copy_file_range on Linux
+ * - clonefile on macOS
  */
 export const copyFile = async (
   source: AbsolutePath,
   dest: AbsolutePath
 ): Promise<Result<void, DivbanError>> => {
-  const content = await readFile(source);
-  if (!content.ok) {
-    return content;
+  const sourceFile = Bun.file(source);
+
+  if (!(await sourceFile.exists())) {
+    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `Source file not found: ${source}`));
   }
 
-  return writeFile(dest, content.value);
+  return tryCatch(
+    async () => {
+      await Bun.write(dest, sourceFile);
+    },
+    (e) =>
+      wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to copy file from ${source} to ${dest}`)
+  );
 };
 
 /**
@@ -206,11 +245,18 @@ export const ensureDirectory = async (path: AbsolutePath): Promise<Result<void, 
 
 /**
  * List files in a directory.
- * Uses node:fs readdir.
+ * Uses Bun.Glob for native file discovery.
  */
 export const listDirectory = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
   return tryCatch(
-    () => readdir(path),
+    async () => {
+      const glob = new Glob("*");
+      const entries: string[] = [];
+      for await (const entry of glob.scan({ cwd: path, onlyFiles: false })) {
+        entries.push(entry);
+      }
+      return entries;
+    },
     (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to list directory: ${path}`)
   );
 };
@@ -353,4 +399,27 @@ export const watchFile = (
     watcher.close();
   };
   return cleanup;
+};
+
+/**
+ * Supported hash algorithms for hashContentWith.
+ */
+export type HashAlgorithm = "sha256" | "sha512" | "sha1" | "md5" | "blake2b256" | "blake2b512";
+
+/**
+ * Hash content with a specified algorithm using Bun.CryptoHasher.
+ * Supports multiple algorithms for different use cases.
+ *
+ * @example
+ * hashContentWith("hello", "sha256") // "2cf24dba..."
+ * hashContentWith(data, "blake2b256") // faster alternative
+ */
+export const hashContentWith = (
+  content: string | Uint8Array | ArrayBuffer,
+  algorithm: HashAlgorithm,
+  encoding: "hex" | "base64" = "hex"
+): string => {
+  const hasher = new Bun.CryptoHasher(algorithm);
+  hasher.update(content);
+  return hasher.digest(encoding);
 };

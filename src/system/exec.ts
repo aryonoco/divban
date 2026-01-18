@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Command execution wrapper with Result-based error handling.
  * Uses Bun.spawn for process management and Bun Shell for complex piping.
@@ -299,15 +306,35 @@ export const shellLines = async (
 };
 
 /**
+ * Escape a string for safe use in shell commands.
+ * Uses Bun Shell's native $.escape() for proper escaping.
+ */
+export const shellEscape = (input: string): string => {
+  return $.escape(input);
+};
+
+/**
+ * Expand brace expressions in a string.
+ * Uses Bun Shell's native $.braces() for brace expansion.
+ *
+ * @example
+ * shellBraces("file{1,2,3}.txt") // ["file1.txt", "file2.txt", "file3.txt"]
+ */
+export const shellBraces = (pattern: string): string[] => {
+  return $.braces(pattern);
+};
+
+/**
  * Execute shell command as another user via sudo.
+ * Uses $.escape() for safe command escaping.
  */
 export const shellAsUser = (
   user: string,
   uid: number,
   command: string
 ): Promise<Result<ExecResult, DivbanError>> => {
-  const escapedCommand = command.replace(/'/g, "'\\''");
-  return shell(`sudo -u ${user} -- sh -c '${escapedCommand}'`, { uid });
+  const escapedCommand = $.escape(command);
+  return shell(`sudo -u ${user} -- sh -c ${escapedCommand}`, { uid });
 };
 
 /**

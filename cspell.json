@@ -28,8 +28,5 @@
     "divban",
     "divban-linux-*"
   ],
-  "ignoreRegExpList": [
-    "/[a-f0-9]{32,}/gi",
-    "/ghcr\\.io\\/[\\w\\-\\/]+/gi"
-  ]
+  "ignoreRegExpList": ["/[a-f0-9]{32,}/gi", "/ghcr\\.io\\/[\\w\\-\\/]+/gi"]
 }

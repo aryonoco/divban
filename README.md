@@ -1,3 +1,8 @@
+<!--
+SPDX-License-Identifier: CC-BY-4.0
+SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+-->
+
 # divban
 
 Unified CLI for managing rootless Podman services with systemd Quadlet integration.

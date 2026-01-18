@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
+# divban CI Workflow
+# Runs spell check, format check, lint, typecheck, and tests on every push/PR
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  reuse-lint:
+    name: REUSE Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install reuse
+        run: pip install reuse
+
+      - name: Check REUSE compliance
+        run: reuse lint
+
+  spell-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install cspell
+        run: npm install -g cspell@latest
+
+      - name: Run spell check
+        run: cspell "**/*.ts" "**/*.md" --no-progress
+
+  ci:
+    name: Format, Lint, Typecheck, Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load versions from versions.env
+        run: |
+          if [ -f versions.env ]; then
+            source versions.env
+            echo "BUN_VERSION=$BUN_VERSION" >> $GITHUB_ENV
+            echo "Loaded: BUN=$BUN_VERSION"
+          else
+            echo "ERROR: versions.env not found"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify toolchain
+        run: |
+          bun --version
+          bunx @biomejs/biome --version
+          bunx tsc --version
+
+      - name: Check formatting
+        run: bunx @biomejs/biome format --check .
+
+      - name: Lint
+        run: bunx @biomejs/biome check .
+
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      - name: Run tests with coverage
+        run: bun test --coverage --coverage-reporter=lcov --coverage-reporter=text
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7

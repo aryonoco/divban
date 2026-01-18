@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Utility functions using Bun standard library.
  */
@@ -26,8 +33,9 @@ export const generateIdBase64 = (): string => Bun.randomUUIDv7("base64url");
 
 /**
  * Generate a random UUID v4 (standard random UUID).
+ * Uses Bun.randomUUIDv7() for time-sortable UUIDs with better performance.
  */
-export const generateUUID = (): string => crypto.randomUUID();
+export const generateUUID = (): string => Bun.randomUUIDv7();
 
 // ============================================================================
 // Timing
@@ -364,4 +372,55 @@ export const supportsColor = (): boolean => Bun.color("white", "ansi") !== null;
 export const colorize = (text: string, color: string): string => {
   const ansi = Bun.color(color, "ansi");
   return ansi ? `${ansi}${text}\x1b[0m` : text;
+};
+
+// ============================================================================
+// Buffer Building (using ArrayBufferSink)
+// ============================================================================
+
+/**
+ * Options for creating a buffer builder.
+ */
+export interface BufferBuilderOptions {
+  /** Initial capacity in bytes (default: 16KB) */
+  initialCapacity?: number;
+  /** Whether to return buffer in stream mode for chunked reading */
+  stream?: boolean;
+}
+
+/**
+ * Create an efficient buffer builder using ArrayBufferSink.
+ * Useful for incrementally building binary data.
+ *
+ * @example
+ * const builder = createBufferBuilder();
+ * builder.write("hello ");
+ * builder.write("world");
+ * const result = builder.end(); // Uint8Array
+ */
+export const createBufferBuilder = (
+  options: BufferBuilderOptions = {}
+): {
+  write: (data: string | Uint8Array | ArrayBuffer) => number;
+  flush: () => Uint8Array;
+  end: () => Uint8Array;
+} => {
+  const sink = new Bun.ArrayBufferSink();
+  sink.start({
+    highWaterMark: options.initialCapacity ?? 16 * 1024,
+    stream: options.stream ?? false,
+    asUint8Array: true,
+  });
+
+  return {
+    write: (data: string | Uint8Array | ArrayBuffer): number => {
+      return sink.write(data);
+    },
+    flush: (): Uint8Array => {
+      return sink.flush() as Uint8Array;
+    },
+    end: (): Uint8Array => {
+      return sink.end() as Uint8Array;
+    },
+  };
 };

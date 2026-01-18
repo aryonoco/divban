@@ -1,6 +1,13 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Immich database backup command.
- * Uses Bun.gzipSync() for in-memory compression and Bun.Glob for file listing.
+ * Uses Bun.Archive for native tar operations with metadata support.
  */
 
 import { Glob } from "bun";
@@ -9,6 +16,7 @@ import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
+import { type ArchiveMetadata, createArchive } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
 import { directoryExists, ensureDirectory } from "../../../system/fs";
 
@@ -18,16 +26,6 @@ import { directoryExists, ensureDirectory } from "../../../system/fs";
  * - gzip: Standard gzip compression (good compatibility)
  */
 export type CompressionMethod = "zstd" | "gzip";
-
-/**
- * Compress data using the specified method.
- */
-const compressData = (
-  data: Uint8Array<ArrayBuffer>,
-  method: CompressionMethod = "zstd"
-): Uint8Array => {
-  return method === "zstd" ? Bun.zstdCompressSync(data, { level: 6 }) : Bun.gzipSync(data);
-};
 
 /**
  * Get file extension for the compression method.
@@ -57,6 +55,7 @@ export interface BackupOptions {
 
 /**
  * Create a PostgreSQL database backup.
+ * Uses Bun.Archive to create a tar archive containing SQL dump and metadata.
  */
 export const backupDatabase = async (
   options: BackupOptions
@@ -73,7 +72,7 @@ export const backupDatabase = async (
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const ext = getCompressionExtension(compression);
-  const backupFilename = `immich-db-backup-${timestamp}.sql${ext}`;
+  const backupFilename = `immich-db-backup-${timestamp}.tar${ext}`;
   const backupPath = `${dataDir}/backups/${backupFilename}` as AbsolutePath;
 
   logger.info(`Creating database backup: ${backupFilename}`);
@@ -107,15 +106,29 @@ export const backupDatabase = async (
     return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Database dump failed: ${stderr}`));
   }
 
-  // Compress in-memory using Bun compression - no subprocess needed
-  const dumpData = new TextEncoder().encode(dumpResult.value.stdout);
-  const compressed = compressData(dumpData, compression);
+  // Create metadata
+  const metadata: ArchiveMetadata = {
+    version: "1.0",
+    service: "immich",
+    timestamp: new Date().toISOString(),
+    files: ["database.sql"],
+  };
 
-  // Write compressed data to file
+  // Create archive with SQL dump and metadata
+  const files: Record<string, string | Uint8Array> = {
+    "database.sql": dumpResult.value.stdout,
+  };
+
   try {
-    await Bun.write(backupPath, compressed);
+    const archiveData = await createArchive(files, {
+      compress: compression,
+      metadata,
+    });
+
+    // Write archive to disk
+    await Bun.write(backupPath, archiveData);
   } catch (e) {
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to write backup file: ${e}`));
+    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to create backup archive: ${e}`));
   }
 
   const file = Bun.file(backupPath);
@@ -128,7 +141,7 @@ export const backupDatabase = async (
 /**
  * List available backups.
  * Uses Bun.Glob for native file discovery - no subprocess needed.
- * Finds both gzip (.sql.gz) and zstd (.sql.zst) compressed backups.
+ * Finds both gzip (.tar.gz) and zstd (.tar.zst) compressed backups.
  */
 export const listBackups = async (
   dataDir: AbsolutePath
@@ -139,8 +152,8 @@ export const listBackups = async (
     return Ok([]);
   }
 
-  // Match both gzip and zstd compressed backups
-  const glob = new Glob("*.sql.{gz,zst}");
+  // Match both gzip and zstd compressed tar archives
+  const glob = new Glob("*.tar.{gz,zst}");
   const files: string[] = [];
 
   for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {

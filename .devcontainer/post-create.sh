@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
 # =============================================================================
 # divban Development Container Post-Create Script
 # Sets up Antidote, Powerlevel10k, and project dependencies
@@ -20,7 +22,7 @@ echo ""
 # =============================================================================
 # 1. Install Antidote Plugin Manager
 # =============================================================================
-echo "[1/5] Installing Antidote plugin manager..."
+echo "[1/7] Installing Antidote plugin manager..."
 
 if [[ ! -d "${ANTIDOTE_DIR}" ]]; then
     git clone --depth=1 "${ANTIDOTE_REPO}" "${ANTIDOTE_DIR}"
@@ -32,7 +34,7 @@ fi
 # =============================================================================
 # 2. Copy Configuration Files
 # =============================================================================
-echo "[2/5] Copying configuration files..."
+echo "[2/7] Copying configuration files..."
 
 # Copy zsh_plugins.txt
 cp "${SCRIPT_DIR}/zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
@@ -45,7 +47,7 @@ echo "  OK: .p10k.zsh"
 # =============================================================================
 # 3. Create .zshrc
 # =============================================================================
-echo "[3/5] Creating .zshrc..."
+echo "[3/7] Creating .zshrc..."
 
 cat > "${HOME}/.zshrc" << 'ZSHRC_EOF'
 # Powerlevel10k instant prompt (must stay at top)
@@ -85,11 +87,6 @@ export ZSHZ_DATA="${HOME}/.z"
 export EDITOR='vim'
 export VISUAL='vim'
 
-if command -v code &>/dev/null; then
-  export EDITOR='code --wait'
-  export VISUAL='code --wait'
-fi
-
 HISTSIZE=500000
 SAVEHIST=500000
 setopt HIST_IGNORE_ALL_DUPS HIST_SAVE_NO_DUPS SHARE_HISTORY AUTO_CD AUTO_PUSHD
@@ -116,6 +113,12 @@ alias btc='bun run typecheck'
 alias fd='fdfind'
 alias bat='batcat'
 
+# Modern ls/tree (eza)
+alias ls='eza'
+alias ll='eza -la --git'
+alias la='eza -a'
+alias lt='eza --tree'
+
 #=============================================================================
 # Powerlevel10k Configuration
 #=============================================================================
@@ -125,9 +128,63 @@ ZSHRC_EOF
 echo "  OK: .zshrc created"
 
 # =============================================================================
-# 4. Pre-cache Antidote Plugins
+# 4. Create .bashrc
 # =============================================================================
-echo "[4/5] Pre-caching Antidote plugins (this may take a moment)..."
+echo "[4/7] Creating .bashrc..."
+
+cat > "${HOME}/.bashrc" << 'BASHRC_EOF'
+#=============================================================================
+# divban Development Container - Bash Configuration
+#=============================================================================
+
+# Default editor
+export EDITOR='vim'
+export VISUAL='vim'
+
+# History settings
+HISTSIZE=500000
+HISTFILESIZE=500000
+HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend
+
+# Shell options
+shopt -s checkwinsize
+shopt -s autocd 2>/dev/null
+
+# Prompt
+PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+
+# Aliases
+alias j='just'
+alias jls='just --list'
+alias bb='bun run build'
+alias bd='bun run dev'
+alias bt='bun test'
+alias bl='bun run lint'
+alias bf='bun run format'
+alias fd='fdfind'
+alias bat='batcat'
+
+# Modern ls/tree (eza)
+alias ls='eza'
+alias ll='eza -la --git'
+alias la='eza -a'
+alias lt='eza --tree'
+
+# FZF
+export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border --info=inline"
+if command -v fdfind &>/dev/null; then
+  export FZF_DEFAULT_COMMAND="fdfind --type f --hidden --follow --exclude .git"
+fi
+[ -f /usr/share/doc/fzf/examples/key-bindings.bash ] && source /usr/share/doc/fzf/examples/key-bindings.bash
+BASHRC_EOF
+
+echo "  OK: .bashrc created"
+
+# =============================================================================
+# 5. Pre-cache Antidote Plugins
+# =============================================================================
+echo "[5/7] Pre-caching Antidote plugins (this may take a moment)..."
 
 mkdir -p "${HOME}/.cache/antidote"
 
@@ -140,13 +197,37 @@ zsh -c "
 echo "  OK: Plugins pre-cached"
 
 # =============================================================================
-# 5. Install Project Dependencies
+# 6. Install Project Dependencies
 # =============================================================================
-echo "[5/5] Installing project dependencies..."
+echo "[6/7] Installing project dependencies..."
 
 cd /workspaces/divban
 bun install
 echo "  OK: Dependencies installed"
+
+# =============================================================================
+# 7. Start Podman Socket
+# =============================================================================
+echo "[7/7] Starting Podman user socket..."
+
+# Start Podman API socket for Pod Manager extension
+# Use XDG_RUNTIME_DIR if set, otherwise use a user-writable fallback
+PODMAN_SOCKET_DIR="${XDG_RUNTIME_DIR:-${HOME}/.local/run}/podman"
+mkdir -p "${PODMAN_SOCKET_DIR}"
+
+if podman system service --time=0 "unix://${PODMAN_SOCKET_DIR}/podman.sock" &>/dev/null & then
+    disown
+    echo "  OK: Podman socket started at ${PODMAN_SOCKET_DIR}/podman.sock"
+else
+    echo "  WARN: Could not start Podman socket (non-fatal)"
+fi
+
+# Verify Podman works
+if podman --version &>/dev/null; then
+    echo "  Podman: $(podman --version)"
+else
+    echo "  WARN: Podman not responding"
+fi
 
 # =============================================================================
 # Version Validation

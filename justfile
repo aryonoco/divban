@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
 # divban - Unified Podman service manager
 # Run 'just' to see all available commands
 
@@ -19,21 +22,104 @@ versions:
 setup:
     bun install
 
-# Build standalone binary
+# =============================================================================
+# BUILD
+# =============================================================================
+
+# Build standalone binary (native)
 build:
+    mkdir -p bin
     bun run build
+
+# Build for Linux amd64 (baseline x86_64)
+build-linux-amd64:
+    mkdir -p bin
+    bun run build:linux-amd64
+
+# Build for Linux amd64v3 (x86_64 with AVX2+)
+build-linux-amd64v3:
+    mkdir -p bin
+    bun run build:linux-amd64v3
+
+# Build for Linux arm64 (AArch64)
+build-linux-arm64:
+    mkdir -p bin
+    bun run build:linux-arm64
 
 # Build for all platforms
 build-all:
+    mkdir -p bin
     bun run build:all
 
-# Build for Linux x64
-build-linux-x64:
-    bun run build:linux-x64
+# Build and compress for release (matches CI/CD output)
+release-local VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-# Build for Linux ARM64
-build-linux-arm64:
-    bun run build:linux-arm64
+    # Validate version format
+    if [[ ! "{{VERSION}}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+        echo "ERROR: Version must match [v]X.Y.Z or [v]X.Y.Z-suffix"
+        exit 1
+    fi
+
+    # Strip 'v' prefix if present
+    VERSION="{{VERSION}}"
+    VERSION="${VERSION#v}"
+
+    mkdir -p bin
+
+    echo "Building all platforms..."
+    bun run build:all
+
+    echo ""
+    echo "Creating release archives with zstd (level 22 --ultra)..."
+
+    for target in linux-amd64 linux-amd64v3 linux-arm64; do
+        binary="bin/divban-${target}"
+        if [[ -f "$binary" ]]; then
+            archive_name="divban-${VERSION}-${target}"
+
+            # Create archive directory
+            rm -rf "${archive_name}"
+            mkdir -p "${archive_name}"
+
+            # Copy binary
+            cp "$binary" "${archive_name}/divban"
+            chmod +x "${archive_name}/divban"
+
+            # Copy examples if they exist
+            if [ -d examples ]; then
+                cp -r examples "${archive_name}/"
+            fi
+
+            # Copy README
+            if [ -f README.md ]; then
+                cp README.md "${archive_name}/"
+            fi
+
+            # Create tarball with maximum compression
+            tar -cvf - "${archive_name}" | zstd -22 --ultra -o "bin/${archive_name}.tar.zst"
+            rm -rf "${archive_name}"
+
+            echo "  Created: bin/${archive_name}.tar.zst"
+        fi
+    done
+
+    # Clean up uncompressed binaries
+    rm -f bin/divban-linux-*[!t]
+
+    echo ""
+    echo "Generating checksums..."
+    cd bin && sha256sum *.tar.zst > SHA256SUMS
+    cat SHA256SUMS
+
+    echo ""
+    echo "Release artifacts in bin/:"
+    ls -lh
+
+# =============================================================================
+# DEVELOPMENT
+# =============================================================================
 
 # Run in development mode
 dev *args:
@@ -51,6 +137,10 @@ test-watch:
 test-coverage:
     bun test --coverage
 
+# =============================================================================
+# CODE QUALITY
+# =============================================================================
+
 # Run linter
 lint:
     bun run lint
@@ -61,7 +151,7 @@ fmt:
 
 # Check formatting without writing
 fmt-check:
-    bunx @biomejs/biome check .
+    bunx @biomejs/biome format --check .
 
 # Run type checker
 typecheck:
@@ -73,9 +163,32 @@ check: lint typecheck
 # Run full CI pipeline
 ci: fmt-check lint typecheck test
 
+# Run spell check
+spell:
+    @echo "Running spell check..."
+    bunx cspell "**/*.ts" "**/*.md" --no-progress
+    @echo "Spell check passed"
+
+# Run REUSE compliance check
+reuse:
+    @echo "Running REUSE compliance check..."
+    reuse lint
+    @echo "REUSE compliance passed"
+
+# Run full CI pipeline with spell check and REUSE
+ci-full: spell reuse ci
+    @echo ""
+    @echo "============================================"
+    @echo "All CI checks passed!"
+    @echo "============================================"
+
+# =============================================================================
+# UTILITIES
+# =============================================================================
+
 # Clean build artifacts
 clean:
-    rm -f divban divban-linux-x64 divban-linux-arm64
+    rm -rf bin
     rm -rf dist coverage
 
 # Generate Quadlet for a service (example)
@@ -85,3 +198,46 @@ quadlet service config:
 # Validate config for a service
 validate service config:
     bun run dev {{service}} validate {{config}}
+
+# =============================================================================
+# RELEASE
+# =============================================================================
+
+# Create a release tag (validates, updates version, runs CI)
+# Usage: just tag v1.0.0
+# For prerelease: just tag v1.0.0-rc1
+tag VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Validate version format
+    if [[ ! "{{VERSION}}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+        echo "ERROR: Version must match vX.Y.Z or vX.Y.Z-suffix (e.g., v0.5.0, v1.0.0-rc1)"
+        exit 1
+    fi
+
+    # Extract version without 'v' prefix
+    SEMVER="{{VERSION}}"
+    SEMVER="${SEMVER#v}"
+    echo "Preparing release $SEMVER..."
+
+    # Update version in package.json
+    sed -i "s/\"version\": \".*\"/\"version\": \"$SEMVER\"/" package.json
+    echo "Updated package.json to version $SEMVER"
+
+    # Run CI first
+    echo ""
+    echo "Running CI checks..."
+    just ci
+
+    echo ""
+    echo "============================================"
+    echo "Ready to release {{VERSION}}"
+    echo "============================================"
+    echo ""
+    echo "Next steps (run manually):"
+    echo "  git add ."
+    echo "  git commit -m 'Release {{VERSION}}'"
+    echo "  git push"
+    echo "  git tag -a {{VERSION}} -m 'Release {{VERSION}}'"
+    echo "  git push origin {{VERSION}}"

@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MPL-2.0
+// SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * Compression utilities using Bun's native compression APIs.
  * Provides gzip, deflate, and zstd compression without external dependencies.
@@ -180,8 +187,7 @@ export const compressFile = async (
   destPath: string,
   options: GzipOptions = {}
 ): Promise<void> => {
-  const sourceFile = Bun.file(sourcePath);
-  const data = new Uint8Array(await sourceFile.arrayBuffer());
+  const data = await Bun.file(sourcePath).bytes();
   const compressed = gzipSync(data, options);
   await Bun.write(destPath, compressed);
 };
@@ -190,8 +196,7 @@ export const compressFile = async (
  * Decompress a gzip file and write to destination.
  */
 export const decompressFile = async (sourcePath: string, destPath: string): Promise<void> => {
-  const sourceFile = Bun.file(sourcePath);
-  const data = new Uint8Array(await sourceFile.arrayBuffer());
+  const data = await Bun.file(sourcePath).bytes();
   const decompressed = gunzipSync(data);
   await Bun.write(destPath, decompressed);
 };
@@ -205,8 +210,7 @@ export const compressFileZstd = async (
   destPath: string,
   options: ZstdOptions = {}
 ): Promise<void> => {
-  const sourceFile = Bun.file(sourcePath);
-  const data = new Uint8Array(await sourceFile.arrayBuffer());
+  const data = await Bun.file(sourcePath).bytes();
   const compressed = await zstdCompress(data, options);
   await Bun.write(destPath, compressed);
 };
@@ -215,8 +219,7 @@ export const compressFileZstd = async (
  * Decompress a Zstandard file and write to destination.
  */
 export const decompressFileZstd = async (sourcePath: string, destPath: string): Promise<void> => {
-  const sourceFile = Bun.file(sourcePath);
-  const data = new Uint8Array(await sourceFile.arrayBuffer());
+  const data = await Bun.file(sourcePath).bytes();
   const decompressed = await zstdDecompress(data);
   await Bun.write(destPath, decompressed);
 };
