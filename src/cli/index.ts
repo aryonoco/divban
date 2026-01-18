@@ -51,7 +51,7 @@ export const run = async (argv: string[]): Promise<number> => {
   // Handle version flag early
   if (args.version) {
     const pkg = await import("../../package.json");
-    console.log(`divban ${pkg.version}`);
+    console.info(`divban ${pkg.version}`);
     return 0;
   }
 
@@ -64,7 +64,7 @@ export const run = async (argv: string[]): Promise<number> => {
   // Handle help
   if (args.help || args.command === "help") {
     const { getMainHelp } = await import("./help");
-    console.log(getMainHelp());
+    console.info(getMainHelp());
     return 0;
   }
 

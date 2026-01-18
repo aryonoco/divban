@@ -81,7 +81,7 @@ jobs:
           bunx tsc --version
 
       - name: Check formatting
-        run: bunx @biomejs/biome format --check .
+        run: bunx @biomejs/biome format .
 
       - name: Lint
         run: bunx @biomejs/biome check .

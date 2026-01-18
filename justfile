@@ -151,7 +151,7 @@ fmt:
 
 # Check formatting without writing
 fmt-check:
-    bunx @biomejs/biome format --check .
+    bunx @biomejs/biome format .
 
 # Run type checker
 typecheck:
