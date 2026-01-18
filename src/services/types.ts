@@ -103,20 +103,55 @@ export interface GeneratedFiles {
 }
 
 /**
+ * Container status discriminated union.
+ */
+export type ContainerStatus =
+  | {
+      readonly status: "running";
+      readonly pid?: number | undefined;
+      readonly startedAt?: Date | undefined;
+    }
+  | {
+      readonly status: "stopped";
+      readonly exitCode?: number | undefined;
+      readonly stoppedAt?: Date | undefined;
+    }
+  | {
+      readonly status: "failed";
+      readonly exitCode?: number | undefined;
+      readonly error?: string | undefined;
+    }
+  | { readonly status: "starting" }
+  | { readonly status: "unknown"; readonly rawStatus?: string | undefined };
+
+/**
+ * Health check status discriminated union.
+ */
+export type HealthStatus =
+  | { readonly health: "healthy" }
+  | { readonly health: "unhealthy"; readonly failingStreak?: number | undefined }
+  | { readonly health: "starting" };
+
+/**
+ * Container information with status.
+ */
+export interface ContainerInfo {
+  /** Container name */
+  name: string;
+  /** Container status */
+  status: ContainerStatus;
+  /** Health status (if health check configured) */
+  health?: HealthStatus | undefined;
+}
+
+/**
  * Service status information.
  */
 export interface ServiceStatus {
   /** Overall running state */
   running: boolean;
   /** Container statuses (for multi-container services) */
-  containers: Array<{
-    /** Container name */
-    name: string;
-    /** Container status */
-    status: "running" | "stopped" | "failed" | "starting" | "unknown";
-    /** Health status (if health check configured) */
-    health?: "healthy" | "unhealthy" | "starting";
-  }>;
+  containers: ContainerInfo[];
 }
 
 /**

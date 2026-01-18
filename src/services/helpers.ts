@@ -152,7 +152,12 @@ export const createSingleContainerOps = <C>(
       const running = await isServiceActive(unit, { user: ctx.user.name, uid: ctx.user.uid });
       return Ok({
         running,
-        containers: [{ name: config.serviceName, status: running ? "running" : "stopped" }],
+        containers: [
+          {
+            name: config.serviceName,
+            status: running ? { status: "running" } : { status: "stopped" },
+          },
+        ],
       });
     },
 

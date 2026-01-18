@@ -55,16 +55,16 @@ export interface HealthCheck {
 }
 
 /**
- * User namespace configuration.
+ * User namespace configuration discriminated union.
  */
-export interface UserNamespace {
-  /** Namespace mode */
-  mode: "keep-id" | "auto" | "host";
-  /** UID mapping (for keep-id) */
-  uid?: number | undefined;
-  /** GID mapping (for keep-id) */
-  gid?: number | undefined;
-}
+export type UserNamespace =
+  | {
+      readonly mode: "keep-id";
+      readonly uid?: number | undefined;
+      readonly gid?: number | undefined;
+    }
+  | { readonly mode: "auto"; readonly size?: number | undefined }
+  | { readonly mode: "host" };
 
 /**
  * Service section configuration for systemd.

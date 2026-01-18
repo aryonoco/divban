@@ -9,10 +9,10 @@
  * Shared utilities for CLI commands.
  */
 
-import { resolve } from "node:path";
+import { normalize, resolve } from "node:path";
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, type Result } from "../../lib/result";
+import { Err, Ok, type Result } from "../../lib/result";
 import { type AbsolutePath, pathJoin } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import type { ParsedArgs } from "../parser";
@@ -27,14 +27,20 @@ export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["op
 });
 
 /**
- * Resolve a path to absolute.
- * Used at the boundary when a config file is found.
+ * Resolve a path to absolute with security validation.
+ * Rejects null bytes and validates normalization.
  */
-const toAbsolute = (p: string): AbsolutePath => {
-  if (p.startsWith("/")) {
-    return p as AbsolutePath;
+const toAbsolute = (p: string): Result<AbsolutePath, DivbanError> => {
+  // Reject null bytes (path injection attack)
+  if (p.includes("\x00")) {
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid path contains null byte: ${p}`));
   }
-  return resolve(process.cwd(), p) as AbsolutePath;
+
+  // Normalize to resolve ../ sequences, then make absolute
+  const normalized = normalize(p);
+  const absolute = normalized.startsWith("/") ? normalized : resolve(process.cwd(), normalized);
+
+  return Ok(absolute as AbsolutePath);
 };
 
 /**
@@ -58,7 +64,11 @@ export const resolveServiceConfig = async (
 ): Promise<Result<unknown, DivbanError>> => {
   // If explicit path provided, use it
   if (explicitPath) {
-    return loadServiceConfig(toAbsolute(explicitPath), service.definition.configSchema);
+    const pathResult = toAbsolute(explicitPath);
+    if (!pathResult.ok) {
+      return pathResult;
+    }
+    return loadServiceConfig(pathResult.value, service.definition.configSchema);
   }
 
   // Search common locations
@@ -67,7 +77,11 @@ export const resolveServiceConfig = async (
   for (const p of searchPaths) {
     const file = Bun.file(p);
     if (await file.exists()) {
-      return loadServiceConfig(toAbsolute(p), service.definition.configSchema);
+      const pathResult = toAbsolute(p);
+      if (!pathResult.ok) {
+        return pathResult;
+      }
+      return loadServiceConfig(pathResult.value, service.definition.configSchema);
     }
   }
 
@@ -155,16 +169,4 @@ export const truncateToWidth = (text: string, maxWidth: number): string => {
     result += char;
   }
   return `${result}…`;
-};
-
-/**
- * Prompt user for confirmation using console async iterable.
- */
-export const confirm = async (prompt: string): Promise<boolean> => {
-  console.write(`${prompt} [y/N] `);
-  for await (const line of console) {
-    const answer = line.toLowerCase().trim();
-    return answer === "y" || answer === "yes";
-  }
-  return false;
 };

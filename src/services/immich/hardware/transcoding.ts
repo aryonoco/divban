@@ -10,7 +10,8 @@
  */
 
 import { None, type Option, Some } from "../../../lib/option";
-import type { TranscodingBackend } from "../schema";
+import { assertNever } from "../../../lib/types";
+import type { TranscodingConfig } from "../schema";
 
 /**
  * Device mapping for hardware transcoding.
@@ -27,10 +28,13 @@ export interface TranscodingDevices {
 /**
  * Get device mappings for NVIDIA NVENC transcoding.
  */
-const getNvencDevices = (): TranscodingDevices => ({
-  devices: ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
+const getNvencDevices = (gpuIndex?: number): TranscodingDevices => ({
+  devices:
+    gpuIndex !== undefined
+      ? [`/dev/nvidia${gpuIndex}`, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"]
+      : ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
   environment: {
-    NVIDIA_VISIBLE_DEVICES: "all",
+    NVIDIA_VISIBLE_DEVICES: gpuIndex !== undefined ? String(gpuIndex) : "all",
     NVIDIA_DRIVER_CAPABILITIES: "compute,video,utility",
   },
 });
@@ -38,16 +42,16 @@ const getNvencDevices = (): TranscodingDevices => ({
 /**
  * Get device mappings for Intel Quick Sync Video.
  */
-const getQsvDevices = (): TranscodingDevices => ({
-  devices: ["/dev/dri/renderD128"],
+const getQsvDevices = (renderDevice?: string): TranscodingDevices => ({
+  devices: [renderDevice ?? "/dev/dri/renderD128"],
   environment: {},
 });
 
 /**
  * Get device mappings for VA-API (Intel/AMD).
  */
-const getVaapiDevices = (): TranscodingDevices => ({
-  devices: ["/dev/dri/renderD128"],
+const getVaapiDevices = (renderDevice?: string): TranscodingDevices => ({
+  devices: [renderDevice ?? "/dev/dri/renderD128"],
   environment: {},
 });
 
@@ -69,32 +73,28 @@ const getRkmppDevices = (): TranscodingDevices => ({
 });
 
 /**
- * Get device mappings for a transcoding backend.
+ * Get device mappings for a transcoding configuration.
  */
-export const getTranscodingDevices = (backend: TranscodingBackend): Option<TranscodingDevices> => {
-  switch (backend) {
+export const getTranscodingDevices = (config: TranscodingConfig): Option<TranscodingDevices> => {
+  switch (config.type) {
     case "nvenc":
-      return Some(getNvencDevices());
+      return Some(getNvencDevices(config.gpuIndex));
     case "qsv":
-      return Some(getQsvDevices());
+      return Some(getQsvDevices(config.renderDevice));
     case "vaapi":
-      return Some(getVaapiDevices());
+      return Some(getVaapiDevices(config.renderDevice));
     case "vaapi-wsl":
       return Some(getVaapiWslDevices());
     case "rkmpp":
       return Some(getRkmppDevices());
     case "disabled":
       return None;
-    default: {
-      const unknownBackend: never = backend;
-      throw new Error(`Unknown transcoding backend: ${unknownBackend}`);
-    }
+    default:
+      return assertNever(config);
   }
 };
 
 /**
- * Check if a transcoding backend requires special devices.
+ * Check if a transcoding configuration requires special devices.
  */
-export const requiresDevices = (backend: TranscodingBackend): boolean => {
-  return backend !== "disabled";
-};
+export const requiresDevices = (config: TranscodingConfig): boolean => config.type !== "disabled";

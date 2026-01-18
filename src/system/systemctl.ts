@@ -32,6 +32,27 @@ export interface SystemctlOptions {
 }
 
 /**
+ * Check if a systemd unit is generated (e.g., by Quadlet).
+ * Generated units cannot be enabled/disabled - they're auto-managed.
+ */
+const isGeneratedUnit = async (unit: string, options: SystemctlOptions): Promise<boolean> => {
+  const result = await execAsUser(
+    options.user,
+    options.uid,
+    ["systemctl", "--user", "show", unit, "--property=FragmentPath"],
+    { captureStdout: true }
+  );
+
+  if (!result.ok || result.value.exitCode !== 0) {
+    return false;
+  }
+
+  // Generated units have FragmentPath in /run/user/{uid}/systemd/generator/
+  const output = result.value.stdout.trim();
+  return output.includes("/generator/") || output.includes("/run/");
+};
+
+/**
  * Run a systemctl --user command as a service user.
  */
 export const systemctl = async (
@@ -149,19 +170,19 @@ export const reloadService = async (
 
 /**
  * Enable a systemd user service.
- * Note: Quadlet-generated units are auto-enabled and will return an error
- * about being "transient or generated" - we ignore this specific error.
+ * Skips generated units (Quadlet) as they're auto-enabled.
  */
 export const enableService = async (
   unit: string,
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
+  // Generated units (Quadlet) cannot and don't need to be enabled
+  if (await isGeneratedUnit(unit, options)) {
+    return Ok(undefined);
+  }
+
   const result = await systemctl("enable", unit, options);
   if (!result.ok) {
-    // Quadlet-generated units can't be enabled (they're auto-enabled)
-    if (result.error.message.includes("transient or generated")) {
-      return Ok(undefined);
-    }
     return Err(result.error);
   }
   return Ok(undefined);

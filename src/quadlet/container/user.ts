@@ -9,6 +9,7 @@
  * Container user namespace configuration for quadlet files.
  */
 
+import { assertNever } from "../../lib/types";
 import type { UserNamespace } from "../types";
 
 /**
@@ -41,11 +42,8 @@ export const addUserNsEntries = (
       // host disables user namespacing
       entries.push({ key: "UserNS", value: "host" });
       break;
-    default: {
-      // Exhaustiveness check - TypeScript will error if new modes are added
-      const unknownMode: never = config.mode;
-      throw new Error(`Unknown user namespace mode: ${unknownMode}`);
-    }
+    default:
+      assertNever(config);
   }
 };
 
@@ -53,16 +51,11 @@ export const addUserNsEntries = (
  * Create a keep-id user namespace configuration.
  * This maps the container root to the host user.
  */
-export const createKeepIdNs = (uid?: number, gid?: number): UserNamespace => {
-  const result: UserNamespace = { mode: "keep-id" };
-  if (uid !== undefined) {
-    result.uid = uid;
-  }
-  if (gid !== undefined) {
-    result.gid = gid;
-  }
-  return result;
-};
+export const createKeepIdNs = (uid?: number, gid?: number): UserNamespace => ({
+  mode: "keep-id",
+  uid,
+  gid,
+});
 
 /**
  * Create an auto user namespace configuration.

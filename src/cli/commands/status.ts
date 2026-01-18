@@ -105,10 +105,11 @@ export const executeStatus = async (options: StatusOptions): Promise<Result<void
       logger.raw("");
       logger.raw("Containers:");
       for (const container of status.containers) {
-        const containerStatus = container.status === "running" ? "\x1b[32m" : "\x1b[31m";
-        const healthStr = container.health ? ` (${container.health})` : "";
+        const containerStatusColor =
+          container.status.status === "running" ? "\x1b[32m" : "\x1b[31m";
+        const healthStr = container.health ? ` (${container.health.health})` : "";
         logger.raw(
-          `  ${container.name}: ${containerStatus}${container.status}${reset}${healthStr}`
+          `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`
         );
       }
     }

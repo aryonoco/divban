@@ -13,47 +13,58 @@ import { z } from "zod";
 import { absolutePathSchema } from "../../config/schema";
 
 /**
- * Hardware acceleration options for transcoding.
+ * Hardware acceleration configuration for video transcoding.
+ * Discriminated union with associated configuration per backend.
  */
-export type TranscodingBackend = "nvenc" | "qsv" | "vaapi" | "vaapi-wsl" | "rkmpp" | "disabled";
+export type TranscodingConfig =
+  | { readonly type: "nvenc"; readonly gpuIndex?: number | undefined }
+  | { readonly type: "qsv"; readonly renderDevice?: string | undefined }
+  | { readonly type: "vaapi"; readonly renderDevice?: string | undefined }
+  | { readonly type: "vaapi-wsl" }
+  | { readonly type: "rkmpp" }
+  | { readonly type: "disabled" };
 
-export const transcodingBackendSchema: z.ZodEnum<
-  ["nvenc", "qsv", "vaapi", "vaapi-wsl", "rkmpp", "disabled"]
-> = z.enum([
-  "nvenc", // NVIDIA NVENC
-  "qsv", // Intel Quick Sync Video
-  "vaapi", // VA-API (Intel/AMD)
-  "vaapi-wsl", // VA-API in WSL
-  "rkmpp", // Rockchip MPP
-  "disabled", // No hardware acceleration
-]);
+export const transcodingConfigSchema: z.ZodType<TranscodingConfig> = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("nvenc"), gpuIndex: z.number().int().min(0).optional() }),
+  z.object({ type: z.literal("qsv"), renderDevice: z.string().optional() }),
+  z.object({ type: z.literal("vaapi"), renderDevice: z.string().optional() }),
+  z.object({ type: z.literal("vaapi-wsl") }),
+  z.object({ type: z.literal("rkmpp") }),
+  z.object({ type: z.literal("disabled") }),
+]) as z.ZodType<TranscodingConfig>;
 
 /**
- * Hardware acceleration options for machine learning.
+ * Hardware acceleration configuration for machine learning.
+ * Discriminated union with associated configuration per backend.
  */
-export type MlBackend = "cuda" | "openvino" | "armnn" | "rknn" | "rocm" | "disabled";
+export type MlConfig =
+  | { readonly type: "cuda"; readonly gpuIndex?: number | undefined }
+  | { readonly type: "openvino"; readonly device?: "CPU" | "GPU" | "AUTO" | undefined }
+  | { readonly type: "armnn" }
+  | { readonly type: "rknn" }
+  | { readonly type: "rocm"; readonly gfxVersion?: string | undefined }
+  | { readonly type: "disabled" };
 
-export const mlBackendSchema: z.ZodEnum<["cuda", "openvino", "armnn", "rknn", "rocm", "disabled"]> =
-  z.enum([
-    "cuda", // NVIDIA CUDA
-    "openvino", // Intel OpenVINO
-    "armnn", // ARM NN
-    "rknn", // Rockchip NPU
-    "rocm", // AMD ROCm
-    "disabled", // CPU only
-  ]);
+export const mlConfigSchema: z.ZodType<MlConfig> = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("cuda"), gpuIndex: z.number().int().min(0).optional() }),
+  z.object({ type: z.literal("openvino"), device: z.enum(["CPU", "GPU", "AUTO"]).optional() }),
+  z.object({ type: z.literal("armnn") }),
+  z.object({ type: z.literal("rknn") }),
+  z.object({ type: z.literal("rocm"), gfxVersion: z.string().optional() }),
+  z.object({ type: z.literal("disabled") }),
+]) as z.ZodType<MlConfig>;
 
 /**
  * Hardware acceleration configuration.
  */
 export interface HardwareConfig {
-  transcoding: TranscodingBackend;
-  ml: MlBackend;
+  transcoding: TranscodingConfig;
+  ml: MlConfig;
 }
 
 export const hardwareSchema: z.ZodType<HardwareConfig> = z.object({
-  transcoding: transcodingBackendSchema.default("disabled"),
-  ml: mlBackendSchema.default("disabled"),
+  transcoding: transcodingConfigSchema.default({ type: "disabled" }),
+  ml: mlConfigSchema.default({ type: "disabled" }),
 }) as z.ZodType<HardwareConfig>;
 
 /**

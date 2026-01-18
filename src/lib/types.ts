@@ -322,3 +322,26 @@ export const requireEnv = (key: string): string => {
 export const getEnvOrDefault = (key: string, defaultValue: string): string => {
   return Bun.env[key] ?? defaultValue;
 };
+
+// ============================================================================
+// Exhaustiveness Checking
+// ============================================================================
+
+/**
+ * Exhaustiveness helper for switch statements on discriminated unions.
+ * TypeScript will error at compile time if a case is not handled.
+ *
+ * @example
+ * type Status = { type: 'running' } | { type: 'stopped' };
+ *
+ * const handle = (s: Status) => {
+ *   switch (s.type) {
+ *     case 'running': return 'Running';
+ *     case 'stopped': return 'Stopped';
+ *     default: return assertNever(s);
+ *   }
+ * };
+ */
+export const assertNever = (x: never): never => {
+  throw new Error(`Unexpected value: ${JSON.stringify(x)}`);
+};

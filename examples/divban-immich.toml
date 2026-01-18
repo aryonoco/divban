@@ -29,26 +29,23 @@ password = "change-me-in-production"
 # Hardware Acceleration
 # ─────────────────────────────────────────────────────────────────────────────
 
-[hardware]
-# Transcoding backend for video encoding
-# Options:
-#   - "disabled" (CPU only, no hardware acceleration)
-#   - "nvenc" (NVIDIA GPU via NVENC)
-#   - "qsv" (Intel Quick Sync Video)
-#   - "vaapi" (Video Acceleration API - Intel/AMD)
-#   - "vaapi-wsl" (VAAPI for WSL2)
-#   - "rkmpp" (Rockchip MPP for ARM SoCs)
-transcoding = "disabled"
+# Transcoding configuration for video encoding
+# type options: "disabled", "nvenc", "qsv", "vaapi", "vaapi-wsl", "rkmpp"
+[hardware.transcoding]
+type = "disabled"
+# Optional settings per type:
+#   nvenc:     gpuIndex = 0          (GPU index for multi-GPU systems)
+#   qsv:       renderDevice = "/dev/dri/renderD128"
+#   vaapi:     renderDevice = "/dev/dri/renderD128"
 
-# Machine Learning backend
-# Options:
-#   - "disabled" (no ML features)
-#   - "cuda" (NVIDIA CUDA)
-#   - "openvino" (Intel OpenVINO)
-#   - "armnn" (ARM NN for ARM CPUs)
-#   - "rknn" (Rockchip NPU)
-#   - "rocm" (AMD ROCm - experimental)
-ml = "disabled"
+# Machine Learning configuration
+# type options: "disabled", "cuda", "openvino", "armnn", "rknn", "rocm"
+[hardware.ml]
+type = "disabled"
+# Optional settings per type:
+#   cuda:      gpuIndex = 0          (GPU index for multi-GPU systems)
+#   openvino:  device = "CPU"        (CPU, GPU, or AUTO)
+#   rocm:      gfxVersion = "10.3.0" (AMD GPU architecture version)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # External Photo Libraries

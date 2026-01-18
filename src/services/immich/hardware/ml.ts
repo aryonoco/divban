@@ -9,7 +9,8 @@
  * Hardware acceleration for machine learning inference.
  */
 
-import type { MlBackend } from "../schema";
+import { assertNever } from "../../../lib/types";
+import type { MlConfig } from "../schema";
 
 /**
  * ML hardware configuration.
@@ -28,10 +29,13 @@ export interface MlDevices {
 /**
  * Get configuration for NVIDIA CUDA ML acceleration.
  */
-const getCudaConfig = (): MlDevices => ({
-  devices: ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
+const getCudaConfig = (gpuIndex?: number): MlDevices => ({
+  devices:
+    gpuIndex !== undefined
+      ? [`/dev/nvidia${gpuIndex}`, "/dev/nvidiactl", "/dev/nvidia-uvm"]
+      : ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
   environment: {
-    NVIDIA_VISIBLE_DEVICES: "all",
+    NVIDIA_VISIBLE_DEVICES: gpuIndex !== undefined ? String(gpuIndex) : "all",
     NVIDIA_DRIVER_CAPABILITIES: "compute,utility",
   },
   imageSuffix: "-cuda",
@@ -40,9 +44,9 @@ const getCudaConfig = (): MlDevices => ({
 /**
  * Get configuration for Intel OpenVINO ML acceleration.
  */
-const getOpenVinoConfig = (): MlDevices => ({
-  devices: ["/dev/dri/renderD128"],
-  environment: {},
+const getOpenVinoConfig = (device?: "CPU" | "GPU" | "AUTO"): MlDevices => ({
+  devices: device === "GPU" ? ["/dev/dri/renderD128"] : [],
+  environment: device ? { OPENVINO_DEVICE: device } : {},
   imageSuffix: "-openvino",
 });
 
@@ -67,10 +71,10 @@ const getRknnConfig = (): MlDevices => ({
 /**
  * Get configuration for AMD ROCm ML acceleration.
  */
-const getRocmConfig = (): MlDevices => ({
+const getRocmConfig = (gfxVersion?: string): MlDevices => ({
   devices: ["/dev/kfd", "/dev/dri/renderD128"],
   environment: {
-    HSA_OVERRIDE_GFX_VERSION: "10.3.0",
+    HSA_OVERRIDE_GFX_VERSION: gfxVersion ?? "10.3.0",
   },
   imageSuffix: "-rocm",
 });
@@ -85,35 +89,33 @@ const getCpuConfig = (): MlDevices => ({
 });
 
 /**
- * Get ML device configuration for a backend.
+ * Get ML device configuration for a config.
  */
-export const getMlDevices = (backend: MlBackend): MlDevices => {
-  switch (backend) {
+export const getMlDevices = (config: MlConfig): MlDevices => {
+  switch (config.type) {
     case "cuda":
-      return getCudaConfig();
+      return getCudaConfig(config.gpuIndex);
     case "openvino":
-      return getOpenVinoConfig();
+      return getOpenVinoConfig(config.device);
     case "armnn":
       return getArmnnConfig();
     case "rknn":
       return getRknnConfig();
     case "rocm":
-      return getRocmConfig();
+      return getRocmConfig(config.gfxVersion);
     case "disabled":
       return getCpuConfig();
-    default: {
-      const unknownBackend: never = backend;
-      throw new Error(`Unknown ML backend: ${unknownBackend}`);
-    }
+    default:
+      return assertNever(config);
   }
 };
 
 /**
  * Get the full ML container image with suffix.
  */
-export const getMlImage = (baseImage: string, backend: MlBackend): string => {
-  const config = getMlDevices(backend);
-  if (!config.imageSuffix) {
+export const getMlImage = (baseImage: string, config: MlConfig): string => {
+  const devices = getMlDevices(config);
+  if (!devices.imageSuffix) {
     return baseImage;
   }
 
@@ -122,18 +124,16 @@ export const getMlImage = (baseImage: string, backend: MlBackend): string => {
   // becomes ghcr.io/immich-app/immich-machine-learning:release-cuda
   const colonIndex = baseImage.lastIndexOf(":");
   if (colonIndex === -1) {
-    return `${baseImage}${config.imageSuffix}`;
+    return `${baseImage}${devices.imageSuffix}`;
   }
 
   const imagePart = baseImage.slice(0, colonIndex);
   const tagPart = baseImage.slice(colonIndex + 1);
-  return `${imagePart}:${tagPart}${config.imageSuffix}`;
+  return `${imagePart}:${tagPart}${devices.imageSuffix}`;
 };
 
 /**
- * Check if ML backend requires special devices.
+ * Check if ML config requires special devices.
  */
-export const mlRequiresDevices = (backend: MlBackend): boolean => {
-  const config = getMlDevices(backend);
-  return config.devices.length > 0;
-};
+export const mlRequiresDevices = (config: MlConfig): boolean =>
+  config.type !== "disabled" && getMlDevices(config).devices.length > 0;

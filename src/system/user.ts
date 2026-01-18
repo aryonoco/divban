@@ -17,7 +17,7 @@ import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { Err, Ok, type Result } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
-import { execSuccess } from "./exec";
+import { exec, execSuccess } from "./exec";
 import { appendFile, readFileOrEmpty } from "./fs";
 import {
   SUBUID_RANGE,
@@ -28,6 +28,70 @@ import {
   getUidByUsername,
   userExists,
 } from "./uid-allocator";
+
+/**
+ * Verify existing user has correct configuration.
+ * Checks UID, home directory, and shell match expectations.
+ */
+const verifyUserConfig = async (
+  username: Username,
+  expectedHome: AbsolutePath,
+  expectedUid: UserId
+): Promise<Result<void, DivbanError>> => {
+  const result = await exec(["getent", "passwd", username], { captureStdout: true });
+  if (!result.ok) {
+    return Err(
+      new DivbanError(
+        ErrorCode.USER_CREATE_FAILED,
+        `Failed to verify user ${username}: ${result.error.message}`,
+        result.error
+      )
+    );
+  }
+
+  const parts = result.value.stdout.trim().split(":");
+  if (parts.length < 7) {
+    return Err(
+      new DivbanError(ErrorCode.USER_CREATE_FAILED, `Invalid passwd entry for ${username}`)
+    );
+  }
+
+  const passwdUid = parts[2];
+  const homeDir = parts[5];
+  const shell = parts[6];
+
+  // Verify UID matches
+  if (Number(passwdUid) !== expectedUid) {
+    return Err(
+      new DivbanError(
+        ErrorCode.USER_CREATE_FAILED,
+        `User ${username} exists with UID ${passwdUid}, expected ${expectedUid}`
+      )
+    );
+  }
+
+  // Verify home directory matches
+  if (homeDir !== expectedHome) {
+    return Err(
+      new DivbanError(
+        ErrorCode.USER_CREATE_FAILED,
+        `User ${username} has home ${homeDir}, expected ${expectedHome}`
+      )
+    );
+  }
+
+  // Verify shell is nologin (security requirement)
+  if (!(shell?.includes("nologin") || shell?.includes("false"))) {
+    return Err(
+      new DivbanError(
+        ErrorCode.USER_CREATE_FAILED,
+        `User ${username} has interactive shell ${shell}, expected nologin`
+      )
+    );
+  }
+
+  return Ok(undefined);
+};
 
 export interface ServiceUser {
   username: Username;
@@ -56,11 +120,17 @@ export const createServiceUser = async (
 
   const homeDir = userHomeDir(username);
 
-  // 1. Check if user already exists (idempotent)
+  // 1. Check if user already exists (idempotent with verification)
   if (await userExists(username)) {
     const uidResult = await getUidByUsername(username);
     if (!uidResult.ok) {
       return uidResult;
+    }
+
+    // Verify existing user configuration is correct
+    const verifyResult = await verifyUserConfig(username, homeDir, uidResult.value);
+    if (!verifyResult.ok) {
+      return verifyResult;
     }
 
     const subuidResult = await getExistingSubuidStart(username);

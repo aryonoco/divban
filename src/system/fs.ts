@@ -173,7 +173,10 @@ export const atomicWrite = async (
   filePath: AbsolutePath,
   content: string
 ): Promise<Result<void, DivbanError>> => {
-  const tempPath = pathWithSuffix(filePath, `.tmp.${Bun.nanoseconds()}`);
+  const tempPath = pathWithSuffix(
+    filePath,
+    `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
+  );
 
   const writeResult = await writeFile(tempPath, content);
   if (!writeResult.ok) {

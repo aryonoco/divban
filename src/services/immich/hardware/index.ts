@@ -23,7 +23,7 @@ export {
 export type { MlDevices } from "./ml";
 
 import type { Option } from "../../../lib/option";
-import type { MlBackend, TranscodingBackend } from "../schema";
+import type { MlConfig, TranscodingConfig } from "../schema";
 import { type MlDevices, getMlDevices } from "./ml";
 import { type TranscodingDevices, getTranscodingDevices } from "./transcoding";
 
@@ -39,11 +39,11 @@ export interface HardwareConfig {
  * Get combined hardware configuration.
  */
 export const getHardwareConfig = (
-  transcodingBackend: TranscodingBackend,
-  mlBackend: MlBackend
+  transcoding: TranscodingConfig,
+  ml: MlConfig
 ): HardwareConfig => ({
-  transcoding: getTranscodingDevices(transcodingBackend),
-  ml: getMlDevices(mlBackend),
+  transcoding: getTranscodingDevices(transcoding),
+  ml: getMlDevices(ml),
 });
 
 /**

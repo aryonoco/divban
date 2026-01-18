@@ -91,8 +91,8 @@ const generate = (
 
   // Get hardware configuration
   const hardware = getHardwareConfig(
-    config.hardware?.transcoding ?? "disabled",
-    config.hardware?.ml ?? "disabled"
+    config.hardware?.transcoding ?? { type: "disabled" },
+    config.hardware?.ml ?? { type: "disabled" }
   );
 
   // Get external library mounts
@@ -222,7 +222,7 @@ const generate = (
   // Machine Learning container (optional)
   if (config.containers?.machineLearning?.enabled !== false) {
     const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_ML_IMAGE;
-    const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? "disabled");
+    const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
     const mlDevices = mergeDevices(hardware.ml);
     const mlEnv = mergeEnvironment(hardware.ml);
 
@@ -416,7 +416,7 @@ const status = async (
     running: allRunning,
     containers: containerStatuses.map((c) => ({
       name: c.name,
-      status: c.running ? "running" : "stopped",
+      status: c.running ? { status: "running" as const } : { status: "stopped" as const },
     })),
   });
 };
