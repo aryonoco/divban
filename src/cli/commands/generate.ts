@@ -68,13 +68,22 @@ export const executeGenerate = async (
   }
   const [username, uid, gid] = userResult.value;
 
+  const quadletDirResult = outputQuadletDir(outputDir);
+  if (!quadletDirResult.ok) {
+    return quadletDirResult;
+  }
+  const configDirResult = outputConfigDir(outputDir);
+  if (!configDirResult.ok) {
+    return configDirResult;
+  }
+
   const ctx: ServiceContext<unknown> = {
     config: configResult.value,
     logger,
     paths: {
       dataDir: TEMP_PATHS.generateDataDir,
-      quadletDir: outputQuadletDir(outputDir),
-      configDir: outputConfigDir(outputDir),
+      quadletDir: quadletDirResult.value,
+      configDir: configDirResult.value,
     },
     user: {
       name: username,
@@ -118,8 +127,16 @@ export const executeGenerate = async (
   }
 
   // Create output directories
-  const quadletDir = outputQuadletDir(outputDir);
-  const configDir = outputConfigDir(outputDir);
+  const quadletDir2Result = outputQuadletDir(outputDir);
+  if (!quadletDir2Result.ok) {
+    return quadletDir2Result;
+  }
+  const configDir2Result = outputConfigDir(outputDir);
+  if (!configDir2Result.ok) {
+    return configDir2Result;
+  }
+  const quadletDir = quadletDir2Result.value;
+  const configDir = configDir2Result.value;
 
   await ensureDirectory(quadletDir);
   await ensureDirectory(configDir);

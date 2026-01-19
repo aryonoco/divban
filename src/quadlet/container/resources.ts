@@ -9,6 +9,8 @@
  * Container resource limits configuration for quadlet files.
  */
 
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Err, Ok, type Result } from "../../lib/result";
 import { addEntry } from "../format";
 
 /**
@@ -61,10 +63,15 @@ export const addResourceEntries = (
 /**
  * Parse a memory size string to bytes.
  */
-export const parseMemorySize = (size: string): number => {
+export const parseMemorySize = (size: string): Result<number, DivbanError> => {
   const match = size.match(MEMORY_SIZE_REGEX);
   if (!match) {
-    throw new Error(`Invalid memory size: ${size}`);
+    return Err(
+      new DivbanError(
+        ErrorCode.CONFIG_VALIDATION_ERROR,
+        `Invalid memory size: ${size}. Expected format: <number>[k|m|g|t][b] (e.g., "512m", "2g")`
+      )
+    );
   }
 
   const value = Number.parseFloat(match[1] ?? "0");
@@ -78,7 +85,7 @@ export const parseMemorySize = (size: string): number => {
     t: 1024 * 1024 * 1024 * 1024,
   };
 
-  return Math.floor(value * (multipliers[unit] ?? 1));
+  return Ok(Math.floor(value * (multipliers[unit] ?? 1)));
 };
 
 /**

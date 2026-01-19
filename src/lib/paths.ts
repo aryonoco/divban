@@ -11,31 +11,38 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { AbsolutePath } from "./types";
-import { unsafeJoinPath, unsafePath } from "./types";
+import type { DivbanError } from "./errors";
+import type { Result } from "./result";
+import {
+  path,
+  AbsolutePath,
+  type AbsolutePath as AbsolutePathType,
+  joinPath,
+  pathJoin,
+} from "./types";
 
 // ============================================================================
 // System Paths (compile-time known valid)
 // ============================================================================
 
 export const SYSTEM_PATHS: {
-  readonly passwd: AbsolutePath;
-  readonly subuid: AbsolutePath;
-  readonly subgid: AbsolutePath;
-  readonly lingerDir: AbsolutePath;
-  readonly usrSbin: AbsolutePath;
-  readonly sbin: AbsolutePath;
-  readonly nologinPaths: readonly [AbsolutePath, AbsolutePath];
-  readonly sysctlUnprivilegedPorts: AbsolutePath;
+  readonly passwd: AbsolutePathType;
+  readonly subuid: AbsolutePathType;
+  readonly subgid: AbsolutePathType;
+  readonly lingerDir: AbsolutePathType;
+  readonly usrSbin: AbsolutePathType;
+  readonly sbin: AbsolutePathType;
+  readonly nologinPaths: readonly [AbsolutePathType, AbsolutePathType];
+  readonly sysctlUnprivilegedPorts: AbsolutePathType;
 } = {
-  passwd: unsafePath("/etc/passwd"),
-  subuid: unsafePath("/etc/subuid"),
-  subgid: unsafePath("/etc/subgid"),
-  lingerDir: unsafePath("/var/lib/systemd/linger"),
-  usrSbin: unsafePath("/usr/sbin"),
-  sbin: unsafePath("/sbin"),
-  nologinPaths: [unsafePath("/usr/sbin/nologin"), unsafePath("/sbin/nologin")],
-  sysctlUnprivilegedPorts: unsafePath("/etc/sysctl.d/50-divban-unprivileged-ports.conf"),
+  passwd: path("/etc/passwd"),
+  subuid: path("/etc/subuid"),
+  subgid: path("/etc/subgid"),
+  lingerDir: path("/var/lib/systemd/linger"),
+  usrSbin: path("/usr/sbin"),
+  sbin: path("/sbin"),
+  nologinPaths: [path("/usr/sbin/nologin"), path("/sbin/nologin")],
+  sysctlUnprivilegedPorts: path("/etc/sysctl.d/50-divban-unprivileged-ports.conf"),
 };
 
 // ============================================================================
@@ -49,7 +56,7 @@ export const SYSTEM_PATHS: {
  * Reads /etc/passwd directly to handle non-standard home directories
  * (e.g., /var/home on Fedora Silverblue/Atomic).
  */
-export const userHomeDir = (username: string): AbsolutePath => {
+export const userHomeDir = (username: string): AbsolutePathType => {
   try {
     const content = readFileSync("/etc/passwd", "utf-8");
 
@@ -57,7 +64,12 @@ export const userHomeDir = (username: string): AbsolutePath => {
       const fields = line.split(":");
       // passwd format: username:x:uid:gid:gecos:home:shell
       if (fields[0] === username && fields[5]) {
-        return unsafePath(fields[5]);
+        // Trust /etc/passwd contains valid absolute paths
+        const result = AbsolutePath(fields[5]);
+        if (result.ok) {
+          return result.value;
+        }
+        // Fall through to default if passwd has invalid path
       }
     }
   } catch {
@@ -65,31 +77,35 @@ export const userHomeDir = (username: string): AbsolutePath => {
   }
 
   // Fallback to /home/<username> if user not found or error reading passwd
-  return unsafeJoinPath("/home", username);
+  return pathJoin(path("/home"), username);
 };
 
-export const userQuadletDir = (homeDir: AbsolutePath): AbsolutePath =>
-  unsafeJoinPath(homeDir, ".config/containers/systemd");
+export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>
+  pathJoin(homeDir, ".config/containers/systemd");
 
-export const userConfigDir = (homeDir: AbsolutePath): AbsolutePath =>
-  unsafeJoinPath(homeDir, ".config/divban");
+export const userConfigDir = (homeDir: AbsolutePathType): AbsolutePathType =>
+  pathJoin(homeDir, ".config/divban");
 
-export const userDataDir = (homeDir: AbsolutePath): AbsolutePath => unsafeJoinPath(homeDir, "data");
+export const userDataDir = (homeDir: AbsolutePathType): AbsolutePathType =>
+  pathJoin(homeDir, "data");
 
-export const lingerFile = (username: string): AbsolutePath =>
-  unsafeJoinPath(SYSTEM_PATHS.lingerDir, username);
+export const lingerFile = (username: string): AbsolutePathType =>
+  pathJoin(SYSTEM_PATHS.lingerDir, username);
 
 // ============================================================================
 // Service Paths
 // ============================================================================
 
 export interface ServicePaths {
-  dataDir: AbsolutePath;
-  configDir: AbsolutePath;
-  quadletDir: AbsolutePath;
+  dataDir: AbsolutePathType;
+  configDir: AbsolutePathType;
+  quadletDir: AbsolutePathType;
 }
 
-export const buildServicePaths = (homeDir: AbsolutePath, dataDir: AbsolutePath): ServicePaths => ({
+export const buildServicePaths = (
+  homeDir: AbsolutePathType,
+  dataDir: AbsolutePathType
+): ServicePaths => ({
   dataDir,
   configDir: userConfigDir(homeDir),
   quadletDir: userQuadletDir(homeDir),
@@ -99,28 +115,28 @@ export const buildServicePaths = (homeDir: AbsolutePath, dataDir: AbsolutePath):
 // File Path Builders
 // ============================================================================
 
-export const quadletFilePath = (quadletDir: AbsolutePath, filename: string): AbsolutePath =>
-  unsafeJoinPath(quadletDir, filename);
+export const quadletFilePath = (quadletDir: AbsolutePathType, filename: string): AbsolutePathType =>
+  pathJoin(quadletDir, filename);
 
-export const configFilePath = (configDir: AbsolutePath, filename: string): AbsolutePath =>
-  unsafeJoinPath(configDir, filename);
+export const configFilePath = (configDir: AbsolutePathType, filename: string): AbsolutePathType =>
+  pathJoin(configDir, filename);
 
 // ============================================================================
 // Temporary/Mock Paths (for generate/diff commands)
 // ============================================================================
 
 export const TEMP_PATHS: {
-  readonly generateDataDir: AbsolutePath;
-  readonly diffDataDir: AbsolutePath;
-  readonly nonexistent: AbsolutePath;
+  readonly generateDataDir: AbsolutePathType;
+  readonly diffDataDir: AbsolutePathType;
+  readonly nonexistent: AbsolutePathType;
 } = {
-  generateDataDir: unsafePath("/tmp/divban-generate"),
-  diffDataDir: unsafePath("/tmp/divban-diff"),
-  nonexistent: unsafePath("/nonexistent"),
+  generateDataDir: path("/tmp/divban-generate"),
+  diffDataDir: path("/tmp/divban-diff"),
+  nonexistent: path("/nonexistent"),
 };
 
-export const outputQuadletDir = (outputDir: string): AbsolutePath =>
-  unsafeJoinPath(outputDir, "quadlets");
+export const outputQuadletDir = (outputDir: string): Result<AbsolutePathType, DivbanError> =>
+  joinPath(outputDir, "quadlets");
 
-export const outputConfigDir = (outputDir: string): AbsolutePath =>
-  unsafeJoinPath(outputDir, "config");
+export const outputConfigDir = (outputDir: string): Result<AbsolutePathType, DivbanError> =>
+  joinPath(outputDir, "config");

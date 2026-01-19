@@ -96,14 +96,3 @@ export const initializeServices = async (): Promise<void> => {
   registerService(immichService);
   registerService(actualService);
 };
-
-/**
- * Get service or throw (for use in CLI where we want to exit on error).
- */
-export const getServiceOrThrow = (name: string): AnyService => {
-  const result = getService(name);
-  if (!result.ok) {
-    throw result.error;
-  }
-  return result.value;
-};

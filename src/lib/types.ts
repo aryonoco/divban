@@ -347,24 +347,6 @@ export function pathWithSuffix(base: string, suffix: string): string {
   return `${base}${suffix}`;
 }
 
-// ============================================================================
-// Path Construction Helpers (Legacy)
-// ============================================================================
-
-/**
- * Unwrap AbsolutePath Result or throw.
- * Use only for compile-time known valid paths (string literals starting with /).
- *
- * @deprecated Use path() for string literals with compile-time validation.
- */
-export const unsafePath = (s: string): AbsolutePath => {
-  const result = AbsolutePath(s);
-  if (!result.ok) {
-    throw new Error(result.error.message);
-  }
-  return result.value;
-};
-
 /**
  * Join path segments into an AbsolutePath.
  * First segment must start with /.
@@ -377,20 +359,6 @@ export const joinPath = (...segments: string[]): Result<AbsolutePath, DivbanErro
   return AbsolutePath(joined);
 };
 
-/**
- * Join paths unsafely (throws on invalid).
- * Use only when all segments are known valid at compile time.
- *
- * @deprecated Use pathJoin() for type-preserving path concatenation.
- */
-export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
-  const result = joinPath(...segments);
-  if (!result.ok) {
-    throw new Error(result.error.message);
-  }
-  return result.value;
-};
-
 // ============================================================================
 // Environment Variable Helpers (using Bun.env)
 // ============================================================================
@@ -399,17 +367,6 @@ export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
  * Get an environment variable value.
  */
 export const getEnv = (key: string): Option<string> => fromUndefined(Bun.env[key]);
-
-/**
- * Get a required environment variable, throwing if not set.
- */
-export const requireEnv = (key: string): string => {
-  const value = Bun.env[key];
-  if (value === undefined) {
-    throw new Error(`Required environment variable ${key} is not set`);
-  }
-  return value;
-};
 
 /**
  * Get environment variable with a default fallback.
