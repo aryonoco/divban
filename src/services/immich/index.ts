@@ -13,7 +13,7 @@
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
 import { configFilePath } from "../../lib/paths";
-import { Ok, type Result } from "../../lib/result";
+import { Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
   createHttpHealthCheck,
@@ -376,11 +376,7 @@ const stop = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanErr
  */
 const restart = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
   ctx.logger.info("Restarting Immich...");
-  const stopResult = await stop(ctx);
-  if (!stopResult.ok) {
-    return stopResult;
-  }
-  return start(ctx);
+  return asyncFlatMapResult(await stop(ctx), () => start(ctx));
 };
 
 /**

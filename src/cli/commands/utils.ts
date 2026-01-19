@@ -12,7 +12,7 @@
 import { normalize, resolve } from "node:path";
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import { type AbsolutePath, pathJoin } from "../../lib/types";
 import type { AnyService, ServiceContext, SystemCapabilities } from "../../services/types";
 import { isSELinuxEnforcing } from "../../system/selinux";
@@ -65,11 +65,9 @@ export const resolveServiceConfig = async (
 ): Promise<Result<unknown, DivbanError>> => {
   // If explicit path provided, use it
   if (explicitPath) {
-    const pathResult = toAbsolute(explicitPath);
-    if (!pathResult.ok) {
-      return pathResult;
-    }
-    return loadServiceConfig(pathResult.value, service.definition.configSchema);
+    return asyncFlatMapResult(toAbsolute(explicitPath), (path) =>
+      loadServiceConfig(path, service.definition.configSchema)
+    );
   }
 
   // Search common locations
@@ -78,11 +76,9 @@ export const resolveServiceConfig = async (
   for (const p of searchPaths) {
     const file = Bun.file(p);
     if (await file.exists()) {
-      const pathResult = toAbsolute(p);
-      if (!pathResult.ok) {
-        return pathResult;
-      }
-      return loadServiceConfig(pathResult.value, service.definition.configSchema);
+      return asyncFlatMapResult(toAbsolute(p), (path) =>
+        loadServiceConfig(path, service.definition.configSchema)
+      );
     }
   }
 

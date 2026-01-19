@@ -14,7 +14,7 @@ import { watch } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, Ok, type Result, mapResult, tryCatch } from "../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, mapResult, tryCatch } from "../lib/result";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
@@ -175,14 +175,11 @@ export const atomicWrite = async (
     `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
   );
 
-  const writeResult = await writeFile(tempPath, content);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
-
-  return tryCatch(
-    () => rename(tempPath, filePath),
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${filePath}`)
+  return asyncFlatMapResult(await writeFile(tempPath, content), () =>
+    tryCatch(
+      () => rename(tempPath, filePath),
+      (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${filePath}`)
+    )
   );
 };
 

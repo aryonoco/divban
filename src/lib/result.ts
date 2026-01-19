@@ -47,6 +47,23 @@ export const flatMapResult = <T, U, E>(
 ): Result<U, E> => (result.ok ? fn(result.value) : result);
 
 /**
+ * Async FlatMap (chain) over a successful result.
+ * Allows sequencing operations where the continuation returns a Promise<Result>.
+ *
+ * @example
+ * // Chain sync result to async operation
+ * return asyncFlatMapResult(toAbsolute(path), (p) => loadServiceConfig(p, schema));
+ *
+ * @example
+ * // Chain two async operations
+ * return asyncFlatMapResult(await stopStack(stack, opts), () => startStack(stack, opts));
+ */
+export const asyncFlatMapResult = async <T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => Promise<Result<U, E>>
+): Promise<Result<U, E>> => (result.ok ? fn(result.value) : result);
+
+/**
  * Collect an array of Results into a Result of array.
  * Returns the first error encountered, or Ok with all values.
  */

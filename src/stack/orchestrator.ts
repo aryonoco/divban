@@ -11,7 +11,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Logger } from "../lib/logger";
-import { Err, Ok, type Result, collectResults } from "../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, collectResults } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -163,12 +163,7 @@ export const restartStack = async (
   logger.info(`Restarting stack '${stack.name}'...`);
 
   // Stop then start (to maintain proper order)
-  const stopResult = await stopStack(stack, options);
-  if (!stopResult.ok) {
-    return stopResult;
-  }
-
-  return startStack(stack, options);
+  return asyncFlatMapResult(await stopStack(stack, options), () => startStack(stack, options));
 };
 
 /**
