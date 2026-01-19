@@ -171,6 +171,7 @@ export const commandExists = (command: string): boolean => {
 
 /**
  * Run command as a specific user with proper environment.
+ * Uses /tmp as default cwd since target user may not have access to caller's cwd.
  */
 export const execAsUser = (
   user: string,
@@ -181,6 +182,8 @@ export const execAsUser = (
   return exec(command, {
     ...options,
     user,
+    // Default to /tmp if no cwd specified - target user may not have access to caller's cwd
+    cwd: options.cwd ?? "/tmp",
     env: {
       ...options.env,
       XDG_RUNTIME_DIR: `/run/user/${uid}`,
@@ -332,16 +335,23 @@ export const shellBraces = (pattern: string): string[] => {
 /**
  * Execute shell command as another user via sudo.
  * Uses $.escape() for safe command escaping.
+ * Uses /tmp as default cwd since target user may not have access to caller's cwd.
  */
 export const shellAsUser = (
   user: string,
   uid: number,
-  command: string
+  command: string,
+  options: Omit<ShellOptions, "uid"> = {}
 ): Promise<Result<ExecResult, DivbanError>> => {
   const escapedCommand = $.escape(command);
   return shell(
     `sudo --preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS -u ${user} -- sh -c ${escapedCommand}`,
-    { uid }
+    {
+      uid,
+      // Default to /tmp if no cwd specified - target user may not have access to caller's cwd
+      cwd: options.cwd ?? "/tmp",
+      ...options,
+    }
   );
 };
 
