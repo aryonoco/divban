@@ -16,10 +16,13 @@ import { configFilePath } from "../../lib/paths";
 import { Ok, type Result, asyncFlatMapResult, sequence } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
+  createEnvSecret,
   createHttpHealthCheck,
   createKeepIdNs,
+  createMountedSecret,
   createPostgresHealthCheck,
   createRedisHealthCheck,
+  getSecretMountPath,
 } from "../../quadlet";
 import {
   createStack,
@@ -31,6 +34,7 @@ import {
 } from "../../stack";
 import type { StackContainer } from "../../stack/types";
 import { ensureDirectory } from "../../system/directories";
+import { ensureServiceSecrets, getPodmanSecretName } from "../../system/secrets";
 import { daemonReload, enableService, journalctl } from "../../system/systemctl";
 import { wrapBackupResult, writeGeneratedFiles } from "../helpers";
 import type {
@@ -48,6 +52,7 @@ import { restoreDatabase } from "./commands/restore";
 import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
 import { getLibraryEnvironment, librariesToVolumeMounts } from "./libraries";
 import { type ImmichConfig, immichConfigSchema } from "./schema";
+import { IMMICH_SECRETS, ImmichSecretNames } from "./secrets";
 
 const SERVICE_NAME = "immich" as ServiceName;
 const DEFAULT_ML_IMAGE = "ghcr.io/immich-app/immich-machine-learning:release";
@@ -106,7 +111,7 @@ const generate = (
   const thumbsDir = config.paths.thumbsDir ?? `${dataDir}/thumbs`;
   const encodedDir = config.paths.encodedDir ?? `${dataDir}/encoded`;
 
-  // Generate environment file
+  // Generate environment file (DB_PASSWORD is injected via podman secret)
   const envContent = generateEnvFile({
     header: "Immich Environment Configuration",
     groups: [
@@ -117,7 +122,6 @@ const generate = (
           DB_PORT: 5432,
           DB_DATABASE_NAME: config.database.database,
           DB_USERNAME: config.database.username,
-          DB_PASSWORD: config.database.password,
         },
       },
       {
@@ -168,16 +172,18 @@ const generate = (
   });
 
   // PostgreSQL container
+  const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
   containers.push({
     name: "immich-postgres",
     description: "Immich PostgreSQL database with pgvecto.rs",
     image: config.containers?.postgres?.image ?? "docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0",
     environment: {
-      POSTGRES_PASSWORD: config.database.password,
+      POSTGRES_PASSWORD_FILE: getSecretMountPath(dbSecretName),
       POSTGRES_USER: config.database.username,
       POSTGRES_DB: config.database.database,
       POSTGRES_INITDB_ARGS: "--data-checksums",
     },
+    secrets: [createMountedSecret(dbSecretName)],
     volumes: [{ source: `${dataDir}/postgres`, target: "/var/lib/postgresql/data" }],
     healthCheck: createPostgresHealthCheck(config.database.username, config.database.database),
     shmSize: "256m",
@@ -210,6 +216,7 @@ const generate = (
     ],
     environmentFiles: [`${ctx.paths.configDir}/immich.env`],
     environment: serverEnv,
+    secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
     devices: serverDevices.length > 0 ? serverDevices : undefined,
     userNs: createKeepIdNs(),
     healthCheck: createHttpHealthCheck("http://localhost:2283/api/server/ping", {
@@ -234,6 +241,7 @@ const generate = (
       volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
       environmentFiles: [`${ctx.paths.configDir}/immich.env`],
       environment: mlEnv,
+      secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
       devices: mlDevices.length > 0 ? mlDevices : undefined,
       healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
         interval: "30s",
@@ -277,15 +285,30 @@ const generate = (
 const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
   const { logger, config } = ctx;
 
-  // 1. Generate files
-  logger.step(1, 5, "Generating configuration files...");
+  // 1. Generate secrets
+  logger.step(1, 6, "Generating secrets...");
+  const homeDir = ctx.paths.configDir.replace("/.config/divban", "") as AbsolutePath;
+  const secretsResult = await ensureServiceSecrets(
+    SERVICE_NAME,
+    IMMICH_SECRETS,
+    homeDir,
+    ctx.user.name,
+    ctx.user.uid,
+    ctx.user.gid
+  );
+  if (!secretsResult.ok) {
+    return secretsResult;
+  }
+
+  // 2. Generate files (now with secrets)
+  logger.step(2, 6, "Generating configuration files...");
   const filesResult = await generate(ctx);
   if (!filesResult.ok) {
     return filesResult;
   }
 
-  // 2. Create data directories
-  logger.step(2, 5, "Creating data directories...");
+  // 3. Create data directories
+  logger.step(3, 6, "Creating data directories...");
   const dataDir = config.paths.dataDir;
   const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
   const dirs = [
@@ -307,22 +330,22 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
     return dirsResult;
   }
 
-  // 3. Write files
-  logger.step(3, 5, "Writing configuration files...");
+  // 4. Write files
+  logger.step(4, 6, "Writing configuration files...");
   const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
   if (!writeResult.ok) {
     return writeResult;
   }
 
-  // 4. Reload systemd daemon
-  logger.step(4, 5, "Reloading systemd daemon...");
+  // 5. Reload systemd daemon
+  logger.step(5, 6, "Reloading systemd daemon...");
   const reloadResult = await daemonReload({ user: ctx.user.name, uid: ctx.user.uid });
   if (!reloadResult.ok) {
     return reloadResult;
   }
 
-  // 5. Enable services
-  logger.step(5, 5, "Enabling services...");
+  // 6. Enable services
+  logger.step(6, 6, "Enabling services...");
   const enableUnits = [
     "immich-redis",
     "immich-postgres",

@@ -14,6 +14,7 @@ import { Glob } from "bun";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
+import { isSome } from "../../../lib/option";
 import { Err, Ok, type Result, mapErr } from "../../../lib/result";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
 import {
@@ -176,8 +177,10 @@ export const restoreActual = async (
 
     // Read metadata first to validate
     const metadata = await readArchiveMetadata(compressedData, { decompress: "gzip" });
-    if (metadata) {
-      logger.info(`Backup from: ${metadata.timestamp}, files: ${metadata.files.length}`);
+    if (isSome(metadata)) {
+      logger.info(
+        `Backup from: ${metadata.value.timestamp}, files: ${metadata.value.files.length}`
+      );
     }
 
     // Extract archive

@@ -29,8 +29,9 @@ export const None: Option<never> = { isSome: false };
 // Type Guards
 // ============================================================================
 
-export const isSome = <T>(opt: Option<T>): opt is { isSome: true; value: T } => opt.isSome;
-export const isNone = <T>(opt: Option<T>): opt is { isSome: false } => !opt.isSome;
+export const isSome = <T>(opt: Option<T>): opt is { readonly isSome: true; readonly value: T } =>
+  opt.isSome;
+export const isNone = <T>(opt: Option<T>): opt is { readonly isSome: false } => !opt.isSome;
 
 // ============================================================================
 // Core Transformations
@@ -79,7 +80,7 @@ export const okOrElse = <T, E>(opt: Option<T>, errorFn: () => E): Result<T, E> =
   opt.isSome ? { ok: true, value: opt.value } : { ok: false, error: errorFn() };
 
 export const transpose = <T, E>(opt: Option<Result<T, E>>): Result<Option<T>, E> => {
-  if (!opt.isSome) {
+  if (isNone(opt)) {
     return { ok: true, value: None };
   }
   return opt.value.ok ? { ok: true, value: Some(opt.value.value) } : opt.value;
@@ -105,10 +106,10 @@ export const and = <T, U>(opt: Option<T>, other: Option<U>): Option<U> =>
 export const or = <T>(opt: Option<T>, other: Option<T>): Option<T> => (opt.isSome ? opt : other);
 
 export const xor = <T>(opt: Option<T>, other: Option<T>): Option<T> => {
-  if (opt.isSome && !other.isSome) {
+  if (isSome(opt) && isNone(other)) {
     return opt;
   }
-  if (!opt.isSome && other.isSome) {
+  if (isNone(opt) && isSome(other)) {
     return other;
   }
   return None;

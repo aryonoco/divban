@@ -31,6 +31,7 @@ export const COMMANDS: readonly string[] = [
   "restore",
   "reload",
   "remove",
+  "secret",
   "help",
 ] as const satisfies readonly string[];
 
@@ -52,6 +53,10 @@ export interface ParsedArgs {
   backupPath?: string;
   /** Container name (for logs in multi-container services) */
   container?: string;
+  /** Subcommand (for secret: show, list) */
+  subcommand?: string;
+  /** Secret name (for secret show) */
+  secretName?: string;
 
   // Flags
   /** Show help */
@@ -210,15 +215,26 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
       args.command = "status";
     }
 
-    // Third positional: config path or backup path
+    // Third positional: depends on command
     if (positionals.length >= 3) {
       const third = positionals[2];
       if (third !== undefined) {
         if (args.command === "restore") {
           args.backupPath = third;
+        } else if (args.command === "secret") {
+          // For secret: third is subcommand (show/list)
+          args.subcommand = third;
         } else {
           args.configPath = third;
         }
+      }
+    }
+
+    // Fourth positional: for secret show, the secret name
+    if (positionals.length >= 4 && args.command === "secret") {
+      const fourth = positionals[3];
+      if (fourth !== undefined) {
+        args.secretName = fourth;
       }
     }
 
@@ -265,6 +281,26 @@ export const validateArgs = (args: ParsedArgs): Result<void, DivbanError> => {
         "Backup path is required for 'restore' command. Usage: divban <service> restore <backup-path>"
       )
     );
+  }
+
+  // Secret requires subcommand
+  if (args.command === "secret") {
+    if (!(args.subcommand && ["show", "list"].includes(args.subcommand))) {
+      return Err(
+        new DivbanError(
+          ErrorCode.INVALID_ARGS,
+          "Secret command requires subcommand. Usage: divban <service> secret <show|list> [name]"
+        )
+      );
+    }
+    if (args.subcommand === "show" && !args.secretName) {
+      return Err(
+        new DivbanError(
+          ErrorCode.INVALID_ARGS,
+          "Secret name is required for 'show'. Usage: divban <service> secret show <name>"
+        )
+      );
+    }
   }
 
   return Ok(undefined);

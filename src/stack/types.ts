@@ -12,6 +12,7 @@
 import type {
   HealthCheck,
   PortMapping,
+  SecretMount,
   ServiceConfig,
   UserNamespace,
   VolumeMount,
@@ -43,6 +44,8 @@ export interface StackContainer {
   environment?: Record<string, string> | undefined;
   /** Environment file paths */
   environmentFiles?: string[] | undefined;
+  /** Podman secrets to mount or inject */
+  secrets?: SecretMount[] | undefined;
 
   /** User namespace configuration */
   userNs?: UserNamespace | undefined;

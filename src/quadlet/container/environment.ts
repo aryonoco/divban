@@ -16,8 +16,6 @@ export interface ContainerEnvironmentConfig {
   environmentFiles?: string[] | undefined;
   /** Environment variables */
   environment?: Record<string, string> | undefined;
-  /** Secret files (mounted from host) */
-  secretFiles?: Record<string, string> | undefined;
 }
 
 /**
@@ -36,9 +34,6 @@ export const addEnvironmentEntries = (
       entries.push({ key: "Environment", value: `${key}=${escapeIniValue(value)}` });
     }
   }
-
-  // Secret files are handled via environment variables with _FILE suffix
-  // and volume mounts - this is just documentation
 };
 
 /**
@@ -54,14 +49,6 @@ export const formatEnvironmentFile = (path: string): string => {
   }
   return path;
 };
-
-/**
- * Create environment variable entries for a secret file pattern.
- * Convention: VAR_FILE points to a file containing the secret.
- */
-export const createSecretFileEnv = (varName: string, filePath: string): Record<string, string> => ({
-  [`${varName}_FILE`]: filePath,
-});
 
 /**
  * Common environment variables.

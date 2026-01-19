@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { None, type Option, Some } from "../../../lib/option";
+import { None, type Option, Some, isNone, isSome } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -76,7 +76,7 @@ export const restoreDatabase = async (
 
   // Detect compression type
   const compression = detectCompression(backupPath);
-  if (!compression.isSome) {
+  if (isNone(compression)) {
     return Err(
       new DivbanError(
         ErrorCode.RESTORE_FAILED,
@@ -91,8 +91,8 @@ export const restoreDatabase = async (
 
   // Read and validate metadata
   const metadata = await readArchiveMetadata(compressedData, { decompress: compression.value });
-  if (metadata) {
-    logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`);
+  if (isSome(metadata)) {
+    logger.info(`Backup from: ${metadata.value.timestamp}, service: ${metadata.value.service}`);
   }
 
   // Extract archive
@@ -158,7 +158,7 @@ export const validateBackup = async (
 
   // Detect compression type
   const compression = detectCompression(backupPath);
-  if (!compression.isSome) {
+  if (isNone(compression)) {
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,

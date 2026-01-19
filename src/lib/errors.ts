@@ -52,6 +52,10 @@ interface ErrorCodeMap {
   readonly NETWORK_CREATE_FAILED: 42;
   readonly VOLUME_CREATE_FAILED: 43;
   readonly CONTAINER_NOT_FOUND: 44;
+  /** Secret generation or retrieval failed */
+  readonly SECRET_ERROR: 45;
+  /** Secret not found */
+  readonly SECRET_NOT_FOUND: 46;
 
   // Backup/Restore (50-59)
   readonly BACKUP_FAILED: 50;
@@ -102,6 +106,8 @@ export const ErrorCode: ErrorCodeMap = {
   NETWORK_CREATE_FAILED: 42,
   VOLUME_CREATE_FAILED: 43,
   CONTAINER_NOT_FOUND: 44,
+  SECRET_ERROR: 45,
+  SECRET_NOT_FOUND: 46,
 
   // Backup/Restore (50-59)
   BACKUP_FAILED: 50,

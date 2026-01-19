@@ -23,6 +23,7 @@ import { addImageEntries } from "./image";
 import { addMiscEntries } from "./misc";
 import { addNetworkEntries } from "./network";
 import { addResourceEntries } from "./resources";
+import { addSecretEntries } from "./secrets";
 import { addSecurityEntries } from "./security";
 import { addUserNsEntries } from "./user";
 import { addVolumeEntries } from "./volumes";
@@ -88,6 +89,9 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
       environment: config.environment,
     })
   );
+
+  // Secrets configuration
+  addSecretEntries(entries, defined({ secrets: config.secrets }));
 
   // User namespace configuration
   addUserNsEntries(entries, config.userNs);
@@ -197,11 +201,20 @@ export type { ContainerEnvironmentConfig } from "./environment";
 export {
   addEnvironmentEntries,
   formatEnvironmentFile,
-  createSecretFileEnv,
   CommonEnvVars,
   mergeEnvironments,
   filterEnvByPrefix,
 } from "./environment";
+
+// secrets.ts
+export type { ContainerSecretsConfig } from "./secrets";
+export {
+  addSecretEntries,
+  createEnvSecret,
+  createMountedSecret,
+  formatSecretMount,
+  getSecretMountPath,
+} from "./secrets";
 
 // health.ts
 export {

@@ -189,3 +189,11 @@ Caml's
 # Units
 kmgt
 KMGT
+
+# Age Encryption
+FiloSottile
+Sottile's
+encrypter
+Encrypter
+decrypter
+Decrypter

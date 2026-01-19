@@ -25,6 +25,7 @@ import { executeReload } from "./commands/reload";
 import { executeRemove } from "./commands/remove";
 import { executeRestart } from "./commands/restart";
 import { executeRestore } from "./commands/restore";
+import { executeSecret } from "./commands/secret";
 import { executeSetup } from "./commands/setup";
 import { executeStart } from "./commands/start";
 import { executeStatus } from "./commands/status";
@@ -155,6 +156,9 @@ const executeCommand = (
 
     case "remove":
       return executeRemove({ service, args, logger });
+
+    case "secret":
+      return executeSecret({ service, args, logger });
 
     case "help": {
       return Promise.resolve(Ok(undefined));

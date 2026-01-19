@@ -16,6 +16,7 @@ export type {
   HealthCheck,
   NetworkQuadlet,
   PortMapping,
+  SecretMount,
   ServiceConfig,
   UserNamespace,
   VolumeMount,
@@ -108,10 +109,15 @@ export {
   // Environment
   addEnvironmentEntries,
   CommonEnvVars,
-  createSecretFileEnv,
   filterEnvByPrefix,
   formatEnvironmentFile,
   mergeEnvironments,
+  // Secrets
+  addSecretEntries,
+  createEnvSecret,
+  createMountedSecret,
+  formatSecretMount,
+  getSecretMountPath,
   // Health
   addHealthCheckEntries,
   createHealthCheck,
@@ -160,6 +166,7 @@ export type {
   ContainerMiscConfig,
   ContainerNetworkConfig,
   ContainerResourcesConfig,
+  ContainerSecretsConfig,
   ContainerSecurityConfig,
   ContainerVolumeConfig,
   ImageConfig,

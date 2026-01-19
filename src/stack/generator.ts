@@ -77,6 +77,9 @@ const containerToQuadlet = (
     environmentFiles: environmentFiles.length > 0 ? environmentFiles : undefined,
     environment: container.environment,
 
+    // Secrets
+    secrets: container.secrets,
+
     // User namespace
     userNs: container.userNs ?? ctx.userNs,
 

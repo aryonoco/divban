@@ -37,6 +37,21 @@ export interface VolumeMount {
 }
 
 /**
+ * Secret mount configuration.
+ * Maps a podman secret to a container.
+ */
+export interface SecretMount {
+  /** Secret name (must exist in podman) */
+  name: string;
+  /** Target path or env var name */
+  target?: string | undefined;
+  /** How to expose the secret: mount as file or inject as env var */
+  type?: "mount" | "env" | undefined;
+  /** File mode for mounted secret (mount type only) */
+  mode?: string | undefined;
+}
+
+/**
  * Health check configuration.
  */
 export interface HealthCheck {
@@ -116,6 +131,9 @@ export interface ContainerQuadlet {
   /** Environment configuration */
   environmentFiles?: string[] | undefined;
   environment?: Record<string, string> | undefined;
+
+  /** Podman secrets to mount or inject */
+  secrets?: SecretMount[] | undefined;
 
   /** User namespace configuration */
   userNs?: UserNamespace | undefined;
