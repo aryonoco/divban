@@ -13,7 +13,7 @@
 import { generatePassword } from "../lib/crypto";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
-import { Err, Ok, type Result, mapResult } from "../lib/result";
+import { Err, Ok, type Result, flatMapResult, mapResult } from "../lib/result";
 import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
 import { pathJoin } from "../lib/types";
 import {
@@ -89,8 +89,14 @@ export const podmanSecretExists = async (
   );
 
 /**
+ * Check if error indicates secret already exists.
+ */
+const isSecretExistsError = (stderr: string): boolean => stderr.includes("already exists");
+
+/**
  * Create a podman secret from a value.
  * Uses shell piping to pass secret value through stdin.
+ * Treats "already exists" as success (idempotent).
  */
 const createPodmanSecret = async (
   secretName: string,
@@ -110,15 +116,23 @@ const createPodmanSecret = async (
   if (!result.ok) {
     return result;
   }
-  if (result.value.exitCode !== 0) {
+
+  // Use flatMapResult for clean recovery logic
+  return flatMapResult(result, (output) => {
+    if (output.exitCode === 0) {
+      return Ok(undefined);
+    }
+    // Recover if secret already exists (idempotent)
+    if (isSecretExistsError(output.stderr)) {
+      return Ok(undefined);
+    }
     return Err(
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to create podman secret: ${result.value.stderr}`
+        `Failed to create podman secret ${secretName}: ${output.stderr}`
       )
     );
-  }
-  return Ok(undefined);
+  });
 };
 
 /**

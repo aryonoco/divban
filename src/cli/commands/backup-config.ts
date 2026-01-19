@@ -22,9 +22,9 @@ import {
   Ok,
   type Result,
   asyncFlatMapResult,
-  collectResults,
   mapErr,
   mapResult,
+  parallel,
   tryCatch,
 } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
@@ -104,10 +104,13 @@ const collectServiceConfigFiles = async (
     [pathJoin(configDir, `${serviceName}.secrets.age`), `${serviceName}.secrets.age`],
   ] as const;
 
-  // Parallel reads with Result collection - short-circuits on first error
-  const results = await Promise.all(candidates.map(([path, name]) => readFileIfExists(path, name)));
+  // Parallel reads with Result collection - handles both errors and rejections
+  const result = await parallel(
+    candidates.map(([path, name]) => readFileIfExists(path, name)),
+    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, "Failed to read config file")
+  );
 
-  return mapResult(collectResults(results), (entries) =>
+  return mapResult(result, (entries) =>
     Object.fromEntries(entries.filter((entry): entry is FileEntry => entry !== null))
   );
 };
@@ -140,7 +143,9 @@ const scanAndReadFiles = async (
     readPromises.push(readFileAsEntry(filePath, archiveName));
   }
 
-  return collectResults(await Promise.all(readPromises));
+  return parallel(readPromises, (e) =>
+    wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to scan ${baseDir}`)
+  );
 };
 
 /**
@@ -154,25 +159,20 @@ const collectAllConfigFiles = async (
   const ageDir = pathJoin(configDir, ".age");
   const hasAgeDir = await directoryExists(ageDir);
 
-  // Parallel scans across different patterns
-  const [tomlResult, secretResult, keyResult] = await Promise.all([
-    scanAndReadFiles(configDir, "*.toml"),
-    scanAndReadFiles(configDir, "*.secrets.age"),
-    hasAgeDir ? scanAndReadFiles(ageDir, "*.key", ".age/") : Promise.resolve(Ok([] as FileEntry[])),
-  ]);
+  // Parallel scans across different patterns - handles both errors and rejections
+  const scanResults = await parallel(
+    [
+      scanAndReadFiles(configDir, "*.toml"),
+      scanAndReadFiles(configDir, "*.secrets.age"),
+      hasAgeDir
+        ? scanAndReadFiles(ageDir, "*.key", ".age/")
+        : Promise.resolve(Ok([] as FileEntry[])),
+    ],
+    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, "Failed to scan config files")
+  );
 
-  // Short-circuit on first error
-  if (!tomlResult.ok) {
-    return tomlResult;
-  }
-  if (!secretResult.ok) {
-    return secretResult;
-  }
-  if (!keyResult.ok) {
-    return keyResult;
-  }
-
-  return Ok(Object.fromEntries([...tomlResult.value, ...secretResult.value, ...keyResult.value]));
+  // Combine all file entries if successful
+  return mapResult(scanResults, (results) => Object.fromEntries(results.flat()));
 };
 
 // ============================================================================

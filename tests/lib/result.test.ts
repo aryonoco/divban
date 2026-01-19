@@ -14,10 +14,14 @@ import {
   combine2,
   combine3,
   flatMapResult,
+  fromSettled,
   isErr,
   isOk,
   mapErr,
   mapResult,
+  orElse,
+  parallel,
+  retry,
   tryCatchSync,
   unwrapOr,
 } from "../../src/lib/result.ts";
@@ -226,6 +230,197 @@ describe("Result", () => {
         (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
       );
       expect(result.ok).toBe(false);
+    });
+  });
+
+  describe("fromSettled", () => {
+    test("returns Ok value for fulfilled promise", () => {
+      const settled: PromiseSettledResult<typeof Ok<number>> = {
+        status: "fulfilled",
+        value: Ok(42),
+      };
+      const result = fromSettled(settled);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
+    });
+
+    test("returns Err value for fulfilled promise with Err", () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "test");
+      const settled: PromiseSettledResult<typeof Err<DivbanError>> = {
+        status: "fulfilled",
+        value: Err(error),
+      };
+      const result = fromSettled(settled);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe(error);
+      }
+    });
+
+    test("converts rejection to Err with mapper", () => {
+      const settled: PromiseSettledResult<typeof Ok<number>> = {
+        status: "rejected",
+        reason: new Error("rejected"),
+      };
+      const result = fromSettled(
+        settled,
+        (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
+      );
+      expect(result.ok).toBe(false);
+    });
+
+    test("throws rejection without mapper", () => {
+      const settled: PromiseSettledResult<typeof Ok<number>> = {
+        status: "rejected",
+        reason: new Error("rejected"),
+      };
+      expect(() => fromSettled(settled)).toThrow("rejected");
+    });
+  });
+
+  describe("parallel", () => {
+    test("collects all Ok values", async () => {
+      const result = await parallel([
+        Promise.resolve(Ok(1)),
+        Promise.resolve(Ok(2)),
+        Promise.resolve(Ok(3)),
+      ]);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual([1, 2, 3]);
+      }
+    });
+
+    test("returns first Err", async () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "test error");
+      const result = await parallel([
+        Promise.resolve(Ok(1)),
+        Promise.resolve(Err(error)),
+        Promise.resolve(Ok(3)),
+      ]);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe(error);
+      }
+    });
+
+    test("handles empty array", async () => {
+      const result = await parallel([]);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual([]);
+      }
+    });
+
+    test("converts rejection to Err with mapper", async () => {
+      const result = await parallel(
+        [Promise.resolve(Ok(1)), Promise.reject(new Error("rejected")), Promise.resolve(Ok(3))],
+        (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
+      );
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  describe("orElse", () => {
+    test("passes through Ok unchanged", () => {
+      const result = orElse(Ok(42), () => Ok(0));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
+    });
+
+    test("applies recovery on Err", () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "original");
+      const result = orElse(Err(error), () => Ok(0));
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(0);
+      }
+    });
+
+    test("can return different error type from recovery", () => {
+      const originalError = new DivbanError(ErrorCode.GENERAL_ERROR, "original");
+      const newError = new DivbanError(ErrorCode.EXEC_FAILED, "new");
+      const result = orElse(Err(originalError), () => Err(newError));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toBe(newError);
+      }
+    });
+  });
+
+  describe("retry", () => {
+    test("returns Ok on first success", async () => {
+      let attempts = 0;
+      const result = await retry(
+        () => {
+          attempts++;
+          return Promise.resolve(Ok(42));
+        },
+        () => true
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
+      expect(attempts).toBe(1);
+    });
+
+    test("retries on retryable error until success", async () => {
+      let attempts = 0;
+      const result = await retry(
+        () => {
+          attempts++;
+          if (attempts < 3) {
+            return Promise.resolve(Err(new DivbanError(ErrorCode.GENERAL_ERROR, "retry")));
+          }
+          return Promise.resolve(Ok(42));
+        },
+        () => true,
+        { maxAttempts: 5, baseDelayMs: 1 }
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toBe(42);
+      }
+      expect(attempts).toBe(3);
+    });
+
+    test("stops retrying on non-retryable error", async () => {
+      let attempts = 0;
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "non-retryable");
+      const result = await retry(
+        () => {
+          attempts++;
+          return Promise.resolve(Err(error));
+        },
+        () => false,
+        { maxAttempts: 5, baseDelayMs: 1 }
+      );
+      expect(result.ok).toBe(false);
+      expect(attempts).toBe(1);
+    });
+
+    test("returns last error after max attempts", async () => {
+      let attempts = 0;
+      const result = await retry(
+        () => {
+          attempts++;
+          return Promise.resolve(
+            Err(new DivbanError(ErrorCode.GENERAL_ERROR, `attempt ${attempts}`))
+          );
+        },
+        () => true,
+        { maxAttempts: 3, baseDelayMs: 1 }
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toBe("attempt 3");
+      }
+      expect(attempts).toBe(3);
     });
   });
 });

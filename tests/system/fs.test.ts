@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
+import { isSome } from "../../src/lib/option.ts";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import {
   atomicWrite,
@@ -18,6 +19,7 @@ import {
   listDirectory,
   readFile,
   writeFile,
+  writeFileExclusive,
 } from "../../src/system/fs.ts";
 
 const TEST_DIR = path("/tmp/divban-test");
@@ -177,6 +179,49 @@ describe("fs", () => {
       if (readResult.ok) {
         expect(readResult.value).toBe("atomic content");
       }
+    });
+  });
+
+  describe("writeFileExclusive", () => {
+    test("creates new file and returns Some", async () => {
+      const exclusivePath = pathJoin(TEST_DIR, "exclusive-new.txt");
+      const result = await writeFileExclusive(exclusivePath, "exclusive content");
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(isSome(result.value)).toBe(true);
+      }
+
+      const readResult = await readFile(exclusivePath);
+      expect(readResult.ok).toBe(true);
+      if (readResult.ok) {
+        expect(readResult.value).toBe("exclusive content");
+      }
+    });
+
+    test("returns None if file already exists", async () => {
+      const existingPath = pathJoin(TEST_DIR, "exclusive-existing.txt");
+      await writeFile(existingPath, "original content");
+
+      const result = await writeFileExclusive(existingPath, "new content");
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(isSome(result.value)).toBe(false);
+      }
+
+      // Verify original content unchanged
+      const readResult = await readFile(existingPath);
+      expect(readResult.ok).toBe(true);
+      if (readResult.ok) {
+        expect(readResult.value).toBe("original content");
+      }
+    });
+
+    test("returns Err for other errors (e.g., invalid path)", async () => {
+      const invalidPath = path("/nonexistent-dir/file.txt");
+      const result = await writeFileExclusive(invalidPath, "content");
+      expect(result.ok).toBe(false);
     });
   });
 });

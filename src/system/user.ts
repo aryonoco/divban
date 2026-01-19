@@ -14,11 +14,11 @@ import { getServiceUsername } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { None, type Option, Some } from "../lib/option";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
-import { Err, Ok, type Result, mapErr } from "../lib/result";
+import { Err, Ok, type Result, mapErr, mapResult, retry } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
 import { exec, execSuccess } from "./exec";
-import { appendFile, readFileOrEmpty } from "./fs";
+import { atomicWrite, readFileOrEmpty } from "./fs";
 import {
   SUBUID_RANGE,
   allocateSubuidRange,
@@ -103,6 +103,14 @@ export interface ServiceUser {
 }
 
 /**
+ * Check if error indicates UID conflict (already in use by concurrent process).
+ */
+const isUidConflictError = (error: DivbanError): boolean =>
+  error.message.toLowerCase().includes("uid") &&
+  (error.message.toLowerCase().includes("exists") ||
+    error.message.toLowerCase().includes("already in use"));
+
+/**
  * Create a service user with dynamically allocated UID.
  * Username is derived from service name: divban-<service>
  * UID is allocated from range 10000-59999
@@ -148,52 +156,62 @@ export const createServiceUser = async (
     });
   }
 
-  // 2. Dynamically allocate next available UID (10000-59999)
-  const uidResult = await allocateUid();
-  if (!uidResult.ok) {
-    return uidResult;
-  }
-  const uid = uidResult.value;
+  // 2. Get nologin shell (auto-detected per distro)
+  const shell = await getNologinShell();
 
-  // 3. Dynamically allocate next available subuid range
+  // 3. Allocate UID and create user with retry on UID conflict
+  const userResult = await retry(
+    async () => {
+      const uidResult = await allocateUid();
+      if (!uidResult.ok) {
+        return uidResult;
+      }
+      const uid = uidResult.value;
+
+      const createResult = await execSuccess([
+        "useradd",
+        "--uid",
+        String(uid),
+        "--home-dir",
+        homeDir,
+        "--create-home",
+        "--shell",
+        shell,
+        "--comment",
+        `divban service - ${serviceName}`,
+        username,
+      ]);
+
+      return mapResult(
+        mapErr(
+          createResult,
+          (err) =>
+            new DivbanError(
+              ErrorCode.USER_CREATE_FAILED,
+              `Failed to create user ${username}: ${err.message}`,
+              err
+            )
+        ),
+        () => uid
+      );
+    },
+    isUidConflictError,
+    { maxAttempts: 3, baseDelayMs: 50 }
+  );
+
+  if (!userResult.ok) {
+    return userResult;
+  }
+  const uid = userResult.value;
+
+  // 4. Dynamically allocate next available subuid range
   const subuidResult = await allocateSubuidRange(SUBUID_RANGE.size);
   if (!subuidResult.ok) {
     return subuidResult;
   }
   const subuidAlloc = subuidResult.value;
 
-  // 4. Get nologin shell (auto-detected per distro)
-  const shell = await getNologinShell();
-
-  // 5. Create user with useradd
-  const createResult = await execSuccess([
-    "useradd",
-    "--uid",
-    String(uid),
-    "--home-dir",
-    homeDir,
-    "--create-home",
-    "--shell",
-    shell,
-    "--comment",
-    `divban service - ${serviceName}`,
-    username,
-  ]);
-
-  const createMapped = mapErr(
-    createResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.USER_CREATE_FAILED,
-        `Failed to create user ${username}: ${err.message}`,
-        err
-      )
-  );
-  if (!createMapped.ok) {
-    return createMapped;
-  }
-
-  // 6. Configure subuid/subgid
+  // 5. Configure subuid/subgid
   const subuidConfigResult = await configureSubordinateIds(
     username,
     subuidAlloc.start,
@@ -214,7 +232,30 @@ export const createServiceUser = async (
 };
 
 /**
+ * Atomically append entry to subuid/subgid file if not already present.
+ */
+const appendSubidEntry = async (
+  file: AbsolutePath,
+  username: Username,
+  entry: string
+): Promise<Result<void, DivbanError>> => {
+  const content = await readFileOrEmpty(file);
+
+  // Already configured - return success (idempotent)
+  if (content.includes(`${username}:`)) {
+    return Ok(undefined);
+  }
+
+  // Atomic write entire file with appended entry
+  return mapErr(
+    await atomicWrite(file, content + entry),
+    (e) => new DivbanError(ErrorCode.SUBUID_CONFIG_FAILED, `Failed to configure ${file}`, e)
+  );
+};
+
+/**
  * Configure subordinate UIDs and GIDs for a user.
+ * Uses atomic writes to prevent race conditions.
  */
 export const configureSubordinateIds = async (
   username: Username,
@@ -223,27 +264,13 @@ export const configureSubordinateIds = async (
 ): Promise<Result<void, DivbanError>> => {
   const entry = `${username}:${start}:${range}\n`;
 
-  for (const file of [SYSTEM_PATHS.subuid, SYSTEM_PATHS.subgid]) {
-    // Check if already configured
-    const content = await readFileOrEmpty(file);
-    if (content.includes(`${username}:`)) {
-      continue; // Already configured
-    }
-
-    // Append new entry
-    const appendResult = await appendFile(file, entry);
-    if (!appendResult.ok) {
-      return Err(
-        new DivbanError(
-          ErrorCode.SUBUID_CONFIG_FAILED,
-          `Failed to configure ${file} for ${username}`,
-          appendResult.error
-        )
-      );
-    }
+  // Configure subuid first, then subgid (sequential to avoid partial configuration)
+  const subuidResult = await appendSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username, entry);
+  if (!subuidResult.ok) {
+    return subuidResult;
   }
 
-  return Ok(undefined);
+  return appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
 };
 
 /**

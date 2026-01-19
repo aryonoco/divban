@@ -36,11 +36,21 @@ export interface ContainerNetworkConfig {
 }
 
 /**
+ * Check if an IP address is IPv6.
+ */
+const isIPv6 = (ip: string): boolean => ip.includes(":");
+
+/**
+ * Format host IP for port mapping, wrapping IPv6 in brackets.
+ */
+const formatHostIp = (ip: string): string => (isIPv6(ip) ? `[${ip}]` : ip);
+
+/**
  * Format a port mapping for quadlet.
  */
 export const formatPortMapping = (port: PortMapping): string => {
   const protocol = port.protocol ?? "tcp";
-  const hostIp = port.hostIp ? `${port.hostIp}:` : "";
+  const hostIp = port.hostIp ? `${formatHostIp(port.hostIp)}:` : "";
 
   return `${hostIp}${port.host}:${port.container}/${protocol}`;
 };

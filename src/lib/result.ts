@@ -184,12 +184,32 @@ export const sequence = async <T, E>(
 };
 
 /**
+ * Convert a PromiseSettledResult to a Result.
+ * Follows the fromNullable pattern for converting external types to Result.
+ */
+export const fromSettled = <T, E>(
+  outcome: PromiseSettledResult<Result<T, E>>,
+  mapRejection?: (reason: unknown) => E
+): Result<T, E> => {
+  if (outcome.status === "fulfilled") {
+    return outcome.value;
+  }
+  if (mapRejection) {
+    return Err(mapRejection(outcome.reason));
+  }
+  throw outcome.reason;
+};
+
+/**
  * Execute multiple async operations in parallel, collecting all results or first error.
+ * Handles both Err results and promise rejections (converted to Err via mapRejection).
  */
 export const parallel = async <T, E>(
-  operations: readonly Promise<Result<T, E>>[]
+  operations: readonly Promise<Result<T, E>>[],
+  mapRejection?: (reason: unknown) => E
 ): Promise<Result<T[], E>> => {
-  const results = await Promise.all(operations);
+  const settled = await Promise.allSettled(operations);
+  const results = settled.map((outcome) => fromSettled(outcome, mapRejection));
   return collectResults(results);
 };
 
@@ -202,3 +222,53 @@ export const isOk = <T, E>(result: Result<T, E>): result is { ok: true; value: T
  * Check if a result is Err
  */
 export const isErr = <T, E>(result: Result<T, E>): result is { ok: false; error: E } => !result.ok;
+
+/**
+ * Recover from an error by trying an alternative operation.
+ * Mirrors Option's `or` combinator for the error case.
+ */
+export const orElse = <T, E, F>(
+  result: Result<T, E>,
+  recovery: (error: E) => Result<T, F>
+): Result<T, F> => (result.ok ? result : recovery(result.error));
+
+/**
+ * Async version of orElse for recovering with async operations.
+ */
+export const asyncOrElse = async <T, E, F>(
+  result: Result<T, E>,
+  recovery: (error: E) => Promise<Result<T, F>>
+): Promise<Result<T, F>> => (result.ok ? result : recovery(result.error));
+
+/**
+ * Retry an operation with exponential backoff on retryable errors.
+ * FP-style combinator that composes with Result operations.
+ */
+export const retry = async <T, E>(
+  operation: () => Promise<Result<T, E>>,
+  shouldRetry: (error: E, attempt: number) => boolean,
+  options: { maxAttempts: number; baseDelayMs: number } = { maxAttempts: 3, baseDelayMs: 50 }
+): Promise<Result<T, E>> => {
+  let lastError: E | undefined;
+
+  for (let attempt = 0; attempt < options.maxAttempts; attempt++) {
+    const result = await operation();
+
+    if (result.ok) {
+      return result;
+    }
+
+    if (!shouldRetry(result.error, attempt)) {
+      return result;
+    }
+
+    lastError = result.error;
+
+    if (attempt < options.maxAttempts - 1) {
+      await Bun.sleep(options.baseDelayMs * (attempt + 1));
+    }
+  }
+
+  // lastError is guaranteed to be set after at least one iteration
+  return Err(lastError as E);
+};

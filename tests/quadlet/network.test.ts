@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import { addNetworkEntries, formatNetworkMode } from "../../src/quadlet/container/network";
+import {
+  addNetworkEntries,
+  formatNetworkMode,
+  formatPortMapping,
+} from "../../src/quadlet/container/network";
 
 describe("formatNetworkMode", () => {
   test("returns mode unchanged when no mapHostLoopback", () => {
@@ -27,6 +31,40 @@ describe("formatNetworkMode", () => {
 
   test("formats pasta with IPv6 mapHostLoopback", () => {
     expect(formatNetworkMode("pasta", "fd00::1")).toBe("pasta:--map-host-loopback=fd00::1");
+  });
+});
+
+describe("formatPortMapping", () => {
+  test("formats basic port mapping", () => {
+    expect(formatPortMapping({ host: 80, container: 8080 })).toBe("80:8080/tcp");
+  });
+
+  test("formats port mapping with IPv4 hostIp", () => {
+    expect(formatPortMapping({ hostIp: "127.0.0.1", host: 80, container: 8080 })).toBe(
+      "127.0.0.1:80:8080/tcp"
+    );
+  });
+
+  test("formats port mapping with IPv6 hostIp", () => {
+    expect(formatPortMapping({ hostIp: "fd00::1", host: 80, container: 8080 })).toBe(
+      "[fd00::1]:80:8080/tcp"
+    );
+  });
+
+  test("formats port mapping with IPv6 loopback", () => {
+    expect(formatPortMapping({ hostIp: "::1", host: 3000, container: 3000 })).toBe(
+      "[::1]:3000:3000/tcp"
+    );
+  });
+
+  test("formats port mapping with UDP protocol", () => {
+    expect(formatPortMapping({ host: 443, container: 443, protocol: "udp" })).toBe("443:443/udp");
+  });
+
+  test("formats port mapping with IPv6 and UDP", () => {
+    expect(
+      formatPortMapping({ hostIp: "2001:db8::1", host: 443, container: 443, protocol: "udp" })
+    ).toBe("[2001:db8::1]:443:443/udp");
   });
 });
 

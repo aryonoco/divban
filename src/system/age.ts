@@ -13,10 +13,11 @@
 import { Decrypter, Encrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import type { DivbanError } from "../lib/errors";
 import { ErrorCode, wrapError } from "../lib/errors";
-import { Ok, type Result, tryCatch } from "../lib/result";
+import { isSome } from "../lib/option";
+import { Ok, type Result, asyncFlatMapResult, tryCatch } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
 import { chmod } from "./directories";
-import { fileExists, readFile, writeFile } from "./fs";
+import { readFile, writeFile, writeFileExclusive } from "./fs";
 
 /**
  * Age keypair (public key for encryption, secret key for decryption).
@@ -84,48 +85,38 @@ export const decrypt = async (
   );
 
 /**
+ * Load existing keypair from file.
+ */
+const loadExistingKeypair = async (
+  keyPath: AbsolutePath
+): Promise<Result<AgeKeypair, DivbanError>> =>
+  asyncFlatMapResult(await readFile(keyPath), (content) =>
+    tryCatch(
+      async () => {
+        const secretKey = content.trim();
+        return { publicKey: await identityToRecipient(secretKey), secretKey };
+      },
+      (e) => wrapError(e, ErrorCode.GENERAL_ERROR, "Failed to derive public key")
+    )
+  );
+
+/**
  * Load or generate an age keypair for a service.
+ * Uses atomic exclusive create to prevent race condition overwrites.
  * Stores secret key in ~/.config/divban/.age/<service>.key with mode 0600.
  */
 export const ensureKeypair = async (
   keyPath: AbsolutePath
-): Promise<Result<AgeKeypair, DivbanError>> => {
-  // Check if key already exists
-  if (await fileExists(keyPath)) {
-    const secretKeyResult = await readFile(keyPath);
-    if (!secretKeyResult.ok) {
-      return secretKeyResult;
-    }
-
-    const secretKey = secretKeyResult.value.trim();
-    return tryCatch(
-      async () => ({
-        publicKey: await identityToRecipient(secretKey),
-        secretKey,
-      }),
-      (e) => wrapError(e, ErrorCode.GENERAL_ERROR, "Failed to derive public key from secret key")
-    );
-  }
-
-  // Generate new keypair
-  const keypairResult = await generateKeypair();
-  if (!keypairResult.ok) {
-    return keypairResult;
-  }
-
-  // Write secret key with restrictive permissions
-  const writeResult = await writeFile(keyPath, `${keypairResult.value.secretKey}\n`);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
-
-  const chmodResult = await chmod(keyPath, "0600");
-  if (!chmodResult.ok) {
-    return chmodResult;
-  }
-
-  return keypairResult;
-};
+): Promise<Result<AgeKeypair, DivbanError>> =>
+  asyncFlatMapResult(await generateKeypair(), async (keypair) =>
+    asyncFlatMapResult(
+      await writeFileExclusive(keyPath, `${keypair.secretKey}\n`),
+      async (created) =>
+        isSome(created)
+          ? asyncFlatMapResult(await chmod(keyPath, "0600"), () => Promise.resolve(Ok(keypair)))
+          : loadExistingKeypair(keyPath)
+    )
+  );
 
 /**
  * Encrypt secrets map to a file.

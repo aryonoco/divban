@@ -11,9 +11,10 @@
  */
 
 import { watch } from "node:fs";
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, writeFile as nodeWriteFile, rename } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
+import { None, type Option, Some } from "../lib/option";
 import {
   Err,
   Ok,
@@ -63,6 +64,27 @@ export const writeFile = async (
     },
     (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to write file: ${path}`)
   );
+};
+
+/**
+ * Create a file exclusively - fails if file already exists.
+ * Uses O_CREAT | O_EXCL via 'wx' flag for atomic check-and-create.
+ * Returns Ok(Some(undefined)) if created, Ok(None) if file existed.
+ * Follows Option semantics: Some = created, None = already existed.
+ */
+export const writeFileExclusive = async (
+  path: AbsolutePath,
+  content: string
+): Promise<Result<Option<void>, DivbanError>> => {
+  try {
+    await nodeWriteFile(path, content, { flag: "wx", encoding: "utf8" });
+    return Ok(Some(undefined));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+      return Ok(None); // File already exists - not an error
+    }
+    return Err(wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to create ${path}`));
+  }
 };
 
 /**
