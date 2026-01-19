@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
+# Enforce LF line endings for all text files
+
+# Auto-detect text files and enforce LF
+* text=auto eol=lf
+
+# Source code
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Config files
+*.env text eol=lf
+*.env.* text eol=lf
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.npmrc text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+
+# Scripts
+*.sh text eol=lf
+justfile text eol=lf
+Makefile text eol=lf
+
+# Web
+*.html text eol=lf
+*.css text eol=lf
+
+# Docker/Containers
+Dockerfile text eol=lf
+Containerfile text eol=lf
+*.dockerfile text eol=lf
+
+# CI/CD
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary files (no conversion)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.zst binary
