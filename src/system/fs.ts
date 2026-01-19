@@ -220,7 +220,9 @@ export const filesEqual = async (
   path1: AbsolutePath,
   path2: AbsolutePath
 ): Promise<Result<boolean, DivbanError>> => {
-  const result = await parallel([readFile(path1), readFile(path2)]);
+  const result = await parallel([readFile(path1), readFile(path2)], (e) =>
+    wrapError(e, ErrorCode.FILE_READ_FAILED, "comparing files")
+  );
   if (!result.ok) {
     return result;
   }

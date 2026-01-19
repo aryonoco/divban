@@ -6,7 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import { DivbanError, ErrorCode } from "../../src/lib/errors.ts";
+import { DivbanError, ErrorCode, wrapError } from "../../src/lib/errors.ts";
 import {
   Err,
   Ok,
@@ -239,7 +239,10 @@ describe("Result", () => {
         status: "fulfilled",
         value: Ok(42),
       };
-      const result = fromSettled(settled);
+      const result = fromSettled(
+        settled,
+        (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toBe(42);
@@ -252,7 +255,10 @@ describe("Result", () => {
         status: "fulfilled",
         value: Err(error),
       };
-      const result = fromSettled(settled);
+      const result = fromSettled(
+        settled,
+        (e) => new DivbanError(ErrorCode.GENERAL_ERROR, String(e))
+      );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toBe(error);
@@ -270,23 +276,14 @@ describe("Result", () => {
       );
       expect(result.ok).toBe(false);
     });
-
-    test("throws rejection without mapper", () => {
-      const settled: PromiseSettledResult<typeof Ok<number>> = {
-        status: "rejected",
-        reason: new Error("rejected"),
-      };
-      expect(() => fromSettled(settled)).toThrow("rejected");
-    });
   });
 
   describe("parallel", () => {
     test("collects all Ok values", async () => {
-      const result = await parallel([
-        Promise.resolve(Ok(1)),
-        Promise.resolve(Ok(2)),
-        Promise.resolve(Ok(3)),
-      ]);
+      const result = await parallel(
+        [Promise.resolve(Ok(1)), Promise.resolve(Ok(2)), Promise.resolve(Ok(3))],
+        (e) => wrapError(e, ErrorCode.GENERAL_ERROR, "test")
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toEqual([1, 2, 3]);
@@ -295,11 +292,10 @@ describe("Result", () => {
 
     test("returns first Err", async () => {
       const error = new DivbanError(ErrorCode.GENERAL_ERROR, "test error");
-      const result = await parallel([
-        Promise.resolve(Ok(1)),
-        Promise.resolve(Err(error)),
-        Promise.resolve(Ok(3)),
-      ]);
+      const result = await parallel(
+        [Promise.resolve(Ok(1)), Promise.resolve(Err(error)), Promise.resolve(Ok(3))],
+        (e) => wrapError(e, ErrorCode.GENERAL_ERROR, "test")
+      );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error).toBe(error);
@@ -307,7 +303,7 @@ describe("Result", () => {
     });
 
     test("handles empty array", async () => {
-      const result = await parallel([]);
+      const result = await parallel([], (e) => wrapError(e, ErrorCode.GENERAL_ERROR, "test"));
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value).toEqual([]);

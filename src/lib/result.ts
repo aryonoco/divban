@@ -189,15 +189,12 @@ export const sequence = async <T, E>(
  */
 export const fromSettled = <T, E>(
   outcome: PromiseSettledResult<Result<T, E>>,
-  mapRejection?: (reason: unknown) => E
+  mapRejection: (reason: unknown) => E
 ): Result<T, E> => {
   if (outcome.status === "fulfilled") {
     return outcome.value;
   }
-  if (mapRejection) {
-    return Err(mapRejection(outcome.reason));
-  }
-  throw outcome.reason;
+  return Err(mapRejection(outcome.reason));
 };
 
 /**
@@ -206,7 +203,7 @@ export const fromSettled = <T, E>(
  */
 export const parallel = async <T, E>(
   operations: readonly Promise<Result<T, E>>[],
-  mapRejection?: (reason: unknown) => E
+  mapRejection: (reason: unknown) => E
 ): Promise<Result<T[], E>> => {
   const settled = await Promise.allSettled(operations);
   const results = settled.map((outcome) => fromSettled(outcome, mapRejection));

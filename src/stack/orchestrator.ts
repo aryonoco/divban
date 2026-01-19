@@ -9,7 +9,7 @@
  * Stack orchestration for starting, stopping, and managing multi-container stacks.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
+import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import type { Logger } from "../lib/logger";
 import { fromUndefined } from "../lib/option";
 import {
@@ -81,7 +81,8 @@ export const startStack = async (
     if (parallelStart && level.length > 1) {
       // Start all containers in this level in parallel
       const result = await parallel(
-        level.map((name) => startService(`${name}.service`, systemctlOpts))
+        level.map((name) => startService(`${name}.service`, systemctlOpts)),
+        (e) => wrapError(e, ErrorCode.SERVICE_START_FAILED, "starting services")
       );
       if (!result.ok) {
         return result;
@@ -137,7 +138,8 @@ export const stopStack = async (
     if (parallelStop && level.length > 1) {
       // Stop all containers in this level in parallel
       const result = await parallel(
-        level.map((name) => stopService(`${name}.service`, systemctlOpts))
+        level.map((name) => stopService(`${name}.service`, systemctlOpts)),
+        (e) => wrapError(e, ErrorCode.SERVICE_STOP_FAILED, "stopping services")
       );
       if (!result.ok) {
         return result;
@@ -147,8 +149,13 @@ export const stopStack = async (
       for (const name of level) {
         const result = await stopService(`${name}.service`, systemctlOpts);
         if (!result.ok) {
-          // Log warning but continue stopping other containers
-          logger.warn(`Failed to stop container ${name}: ${result.error.message}`);
+          return Err(
+            new DivbanError(
+              ErrorCode.SERVICE_STOP_FAILED,
+              `Failed to stop container ${name}`,
+              result.error
+            )
+          );
         }
       }
     }

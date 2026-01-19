@@ -49,6 +49,8 @@ export const SYSTEM_PATHS: {
 // User Directory Paths
 // ============================================================================
 
+const homeCache = new Map<string, AbsolutePathType>();
+
 /**
  * Get user's home directory from /etc/passwd.
  * Falls back to /home/<username> if user not found.
@@ -57,6 +59,11 @@ export const SYSTEM_PATHS: {
  * (e.g., /var/home on Fedora Silverblue/Atomic).
  */
 export const userHomeDir = (username: string): AbsolutePathType => {
+  const cached = homeCache.get(username);
+  if (cached) {
+    return cached;
+  }
+
   try {
     const content = readFileSync("/etc/passwd", "utf-8");
 
@@ -67,6 +74,7 @@ export const userHomeDir = (username: string): AbsolutePathType => {
         // Trust /etc/passwd contains valid absolute paths
         const result = AbsolutePath(fields[5]);
         if (result.ok) {
+          homeCache.set(username, result.value);
           return result.value;
         }
         // Fall through to default if passwd has invalid path
@@ -77,7 +85,9 @@ export const userHomeDir = (username: string): AbsolutePathType => {
   }
 
   // Fallback to /home/<username> if user not found or error reading passwd
-  return pathJoin(path("/home"), username);
+  const fallback = pathJoin(path("/home"), username);
+  homeCache.set(username, fallback);
+  return fallback;
 };
 
 export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>

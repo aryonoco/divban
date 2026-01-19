@@ -10,6 +10,7 @@
  * Rust-inspired discriminated union with isSome boolean discriminator.
  */
 
+import { DivbanError, ErrorCode } from "./errors";
 import type { Result } from "./result";
 
 // ============================================================================
@@ -59,14 +60,14 @@ export const unwrap = <T>(opt: Option<T>): T => {
   if (opt.isSome) {
     return opt.value;
   }
-  throw new Error("Called unwrap() on None");
+  throw new DivbanError(ErrorCode.GENERAL_ERROR, "Called unwrap() on None");
 };
 
 export const expect = <T>(opt: Option<T>, msg: string): T => {
   if (opt.isSome) {
     return opt.value;
   }
-  throw new Error(msg);
+  throw new DivbanError(ErrorCode.GENERAL_ERROR, msg);
 };
 
 // ============================================================================

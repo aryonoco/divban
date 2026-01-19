@@ -9,7 +9,7 @@
  * Directory management for service data and configuration.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
+import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Ok, type Result, mapErr, mapResult, parallel } from "../lib/result";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
@@ -61,7 +61,10 @@ export const ensureDirectories = async (
   owner: DirectoryOwner,
   mode = "0755"
 ): Promise<Result<void, DivbanError>> => {
-  const result = await parallel(paths.map((path) => ensureDirectory(path, owner, mode)));
+  const result = await parallel(
+    paths.map((path) => ensureDirectory(path, owner, mode)),
+    (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, "creating directories")
+  );
   return mapResult(result, () => undefined);
 };
 
@@ -151,10 +154,10 @@ export const ensureServiceDirectories = async (
   const configParent = pathJoin(homeDir, ".config");
 
   // Create in parallel
-  const result = await parallel([
-    ensureDirectories(dataDirs, owner),
-    ensureDirectory(configParent, owner),
-  ]);
+  const result = await parallel(
+    [ensureDirectories(dataDirs, owner), ensureDirectory(configParent, owner)],
+    (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, "creating service directories")
+  );
   if (!result.ok) {
     return result;
   }
