@@ -14,7 +14,7 @@ import { Glob } from "bun";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { Err, Ok, type Result } from "../../../lib/result";
+import { Err, Ok, type Result, mapErr } from "../../../lib/result";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
 import { type ArchiveMetadata, createArchive } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
@@ -80,15 +80,16 @@ export const backupDatabase = async (
 
   // Ensure backup directory exists using native fs
   const mkdirResult = await ensureDirectory(backupDir);
-  if (!mkdirResult.ok) {
-    return Err(
+  const mkdirMapped = mapErr(
+    mkdirResult,
+    (err) =>
       new DivbanError(
         ErrorCode.BACKUP_FAILED,
-        "Failed to create backup directory",
-        mkdirResult.error
+        `Failed to create backup directory: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!mkdirMapped.ok) return mkdirMapped;
 
   // Run pg_dumpall inside the postgres container
   const dumpResult = await execAsUser(

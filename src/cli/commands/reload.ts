@@ -13,7 +13,7 @@ import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
-import { Err, Ok, type Result } from "../../lib/result";
+import { Err, Ok, type Result, mapErr } from "../../lib/result";
 import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
@@ -55,16 +55,17 @@ export const executeReload = async (options: ReloadOptions): Promise<Result<void
   const username = usernameResult.value;
 
   const userResult = await getUserByName(username);
-  if (!userResult.ok) {
-    return Err(
+  const userMapped = mapErr(
+    userResult,
+    () =>
       new DivbanError(
         ErrorCode.SERVICE_NOT_FOUND,
         `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
       )
-    );
-  }
+  );
+  if (!userMapped.ok) return userMapped;
 
-  const { uid, homeDir } = userResult.value;
+  const { uid, homeDir } = userMapped.value;
   const gid = userIdToGroupId(uid);
 
   // Resolve config

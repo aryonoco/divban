@@ -13,7 +13,7 @@ import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { buildServicePaths, userDataDir } from "../../lib/paths";
-import { Err, type Result } from "../../lib/result";
+import { type Result, mapErr } from "../../lib/result";
 import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
@@ -40,16 +40,17 @@ export const executeStop = async (options: StopOptions): Promise<Result<void, Di
   const username = usernameResult.value;
 
   const userResult = await getUserByName(username);
-  if (!userResult.ok) {
-    return Err(
+  const userMapped = mapErr(
+    userResult,
+    () =>
       new DivbanError(
         ErrorCode.SERVICE_NOT_FOUND,
         `Service user '${username}' not found. Service may not be set up.`
       )
-    );
-  }
+  );
+  if (!userMapped.ok) return userMapped;
 
-  const { uid, homeDir } = userResult.value;
+  const { uid, homeDir } = userMapped.value;
   const gid = userIdToGroupId(uid);
 
   // Resolve config (may fail if not found, which is OK for stop)

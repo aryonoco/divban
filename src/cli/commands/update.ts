@@ -12,7 +12,7 @@
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { Err, Ok, type Result } from "../../lib/result";
+import { Err, Ok, type Result, mapErr } from "../../lib/result";
 import type { AnyService } from "../../services/types";
 import { exec } from "../../system/exec";
 import { getUserByName } from "../../system/user";
@@ -39,16 +39,17 @@ export const executeUpdate = async (options: UpdateOptions): Promise<Result<void
   const username = usernameResult.value;
 
   const userResult = await getUserByName(username);
-  if (!userResult.ok) {
-    return Err(
+  const userMapped = mapErr(
+    userResult,
+    () =>
       new DivbanError(
         ErrorCode.SERVICE_NOT_FOUND,
         `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
       )
-    );
-  }
+  );
+  if (!userMapped.ok) return userMapped;
 
-  const { uid, homeDir } = userResult.value;
+  const { uid, homeDir } = userMapped.value;
 
   // Resolve config
   const configResult = await resolveServiceConfig(service, homeDir);
@@ -78,13 +79,13 @@ export const executeUpdate = async (options: UpdateOptions): Promise<Result<void
     { captureStdout: true, captureStderr: true }
   );
 
-  if (!updateResult.ok) {
-    return Err(
-      new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to check for updates", updateResult.error)
-    );
-  }
+  const updateMapped = mapErr(
+    updateResult,
+    (err) => new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to check for updates", err)
+  );
+  if (!updateMapped.ok) return updateMapped;
 
-  const output = updateResult.value.stdout;
+  const output = updateMapped.value.stdout;
 
   if (output.includes("false")) {
     logger.info("No updates available");

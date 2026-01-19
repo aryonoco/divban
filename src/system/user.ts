@@ -14,7 +14,7 @@ import { getServiceUsername } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { None, type Option, Some } from "../lib/option";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapErr } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
 import { exec, execSuccess } from "./exec";
@@ -180,15 +180,16 @@ export const createServiceUser = async (
     username,
   ]);
 
-  if (!createResult.ok) {
-    return Err(
+  const createMapped = mapErr(
+    createResult,
+    (err) =>
       new DivbanError(
         ErrorCode.USER_CREATE_FAILED,
-        `Failed to create user ${username}: ${createResult.error.message}`,
-        createResult.error
+        `Failed to create user ${username}: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!createMapped.ok) return createMapped;
 
   // 6. Configure subuid/subgid
   const subuidConfigResult = await configureSubordinateIds(
@@ -298,15 +299,16 @@ export const deleteServiceUser = async (
   }
 
   const deleteResult = await execSuccess(["userdel", "--remove", username]);
-  if (!deleteResult.ok) {
-    return Err(
+  const deleteMapped = mapErr(
+    deleteResult,
+    (err) =>
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to delete user ${username}: ${deleteResult.error.message}`,
-        deleteResult.error
+        `Failed to delete user ${username}: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!deleteMapped.ok) return deleteMapped;
 
   // Remove from subuid/subgid
   // Note: userdel should handle this, but we verify

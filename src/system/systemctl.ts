@@ -10,7 +10,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapErr } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
 
@@ -96,16 +96,16 @@ export const startService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("start", unit, options);
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.SERVICE_START_FAILED,
-        `Failed to start ${unit}: ${result.error.message}`,
-        result.error
+        `Failed to start ${unit}: ${err.message}`,
+        err
       )
-    );
-  }
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -116,16 +116,12 @@ export const stopService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("stop", unit, options);
-  if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.SERVICE_STOP_FAILED,
-        `Failed to stop ${unit}: ${result.error.message}`,
-        result.error
-      )
-    );
-  }
-  return Ok(undefined);
+  const mapped = mapErr(
+    result,
+    (err) =>
+      new DivbanError(ErrorCode.SERVICE_STOP_FAILED, `Failed to stop ${unit}: ${err.message}`, err)
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -136,16 +132,12 @@ export const restartService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("restart", unit, options);
-  if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to restart ${unit}: ${result.error.message}`,
-        result.error
-      )
-    );
-  }
-  return Ok(undefined);
+  const mapped = mapErr(
+    result,
+    (err) =>
+      new DivbanError(ErrorCode.GENERAL_ERROR, `Failed to restart ${unit}: ${err.message}`, err)
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -156,16 +148,16 @@ export const reloadService = async (
   options: SystemctlOptions
 ): Promise<Result<void, DivbanError>> => {
   const result = await systemctl("reload", unit, options);
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.SERVICE_RELOAD_FAILED,
-        `Failed to reload ${unit}: ${result.error.message}`,
-        result.error
+        `Failed to reload ${unit}: ${err.message}`,
+        err
       )
-    );
-  }
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**

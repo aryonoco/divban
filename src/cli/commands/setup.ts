@@ -13,12 +13,13 @@ import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
+import { configFilePath, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
 import { Err, Ok, type Result } from "../../lib/result";
 import type { AbsolutePath } from "../../lib/types";
 import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
-import { ensureServiceDirectories } from "../../system/directories";
+import { chown, ensureServiceDirectories } from "../../system/directories";
+import { copyFile } from "../../system/fs";
 import { enableLinger } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { createServiceUser, getUserByName } from "../../system/user";
@@ -70,23 +71,25 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
       logger.info(`  2. Create user: ${username}`);
       logger.info(`  3. Enable linger for: ${username}`);
       logger.info("  4. Create data directories");
-      logger.info("  5. Generate and install quadlet files");
-      logger.info("  6. Reload systemd daemon");
-      logger.info("  7. Enable services");
+      logger.info("  5. Copy configuration file");
+      logger.info("  6. Generate and install quadlet files");
+      logger.info("  7. Reload systemd daemon");
+      logger.info("  8. Enable services");
     } else {
       logger.info(`  1. Create user: ${username}`);
       logger.info(`  2. Enable linger for: ${username}`);
       logger.info("  3. Create data directories");
-      logger.info("  4. Generate and install quadlet files");
-      logger.info("  5. Reload systemd daemon");
-      logger.info("  6. Enable services");
+      logger.info("  4. Copy configuration file");
+      logger.info("  5. Generate and install quadlet files");
+      logger.info("  6. Reload systemd daemon");
+      logger.info("  7. Enable services");
     }
     return Ok(undefined);
   }
 
   // For caddy, check if privileged port binding needs to be configured
   const needsSysctl = service.definition.name === "caddy" && !(await isUnprivilegedPortEnabled());
-  const totalSteps = needsSysctl ? 7 : 6;
+  const totalSteps = needsSysctl ? 8 : 7;
   let currentStep = 0;
 
   // Check if running as root (required for user creation and sysctl)
@@ -147,6 +150,19 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   const dirsResult = await ensureServiceDirectories(dataDir, homeDir, { uid, gid });
   if (!dirsResult.ok) {
     return dirsResult;
+  }
+
+  // Step: Copy config file to service user's config directory
+  currentStep++;
+  logger.step(currentStep, totalSteps, "Copying configuration file...");
+  const configDestPath = configFilePath(userConfigDir(homeDir), `${service.definition.name}.toml`);
+  const copyResult = await copyFile(configPath as AbsolutePath, configDestPath);
+  if (!copyResult.ok) {
+    return copyResult;
+  }
+  const chownResult = await chown(configDestPath, { uid, gid });
+  if (!chownResult.ok) {
+    return chownResult;
   }
 
   // Build service context

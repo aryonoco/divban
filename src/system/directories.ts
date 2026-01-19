@@ -10,7 +10,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { Err, Ok, type Result, mapResult, parallel } from "../lib/result";
+import { Ok, type Result, mapErr, mapResult, parallel } from "../lib/result";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
 
@@ -41,17 +41,16 @@ export const ensureDirectory = async (
     path,
   ]);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.DIRECTORY_CREATE_FAILED,
-        `Failed to create directory ${path}: ${result.error.message}`,
-        result.error
+        `Failed to create directory ${path}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -80,17 +79,16 @@ export const chown = async (
 
   const result = await execSuccess(args);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to change ownership of ${path}: ${result.error.message}`,
-        result.error
+        `Failed to change ownership of ${path}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -105,17 +103,16 @@ export const chmod = async (
 
   const result = await execSuccess(args);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to change permissions of ${path}: ${result.error.message}`,
-        result.error
+        `Failed to change permissions of ${path}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -187,15 +184,14 @@ export const removeDirectory = async (
 
   const result = await execSuccess(args);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to remove directory ${path}: ${result.error.message}`,
-        result.error
+        `Failed to remove directory ${path}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };

@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapErr } from "../lib/result";
 import { execOutput, execSuccess } from "./exec";
 import { writeFile } from "./fs";
 
@@ -80,29 +80,29 @@ ${SYSCTL_KEY} = ${threshold}
 
   // Write persistent configuration
   const writeResult = await writeFile(SYSTEM_PATHS.sysctlUnprivilegedPorts, configContent);
-  if (!writeResult.ok) {
-    return Err(
+  const writeMapped = mapErr(
+    writeResult,
+    (err) =>
       new DivbanError(
         ErrorCode.FILE_WRITE_FAILED,
-        `Failed to write sysctl configuration: ${writeResult.error.message}`,
-        writeResult.error
+        `Failed to write sysctl configuration: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!writeMapped.ok) return writeMapped;
 
   // Apply immediately
   const applyResult = await execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]);
-  if (!applyResult.ok) {
-    return Err(
+  const applyMapped = mapErr(
+    applyResult,
+    (err) =>
       new DivbanError(
         ErrorCode.EXEC_FAILED,
-        `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${applyResult.error.message}`,
-        applyResult.error
+        `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return applyMapped.ok ? Ok(undefined) : applyMapped;
 };
 
 /**
@@ -112,16 +112,14 @@ export const ensureUnprivilegedPorts = async (
   threshold: number = DEFAULT_UNPRIVILEGED_PORT_START,
   serviceName?: string
 ): Promise<Result<void, DivbanError>> => {
-  const result = await configureUnprivilegedPorts(threshold);
-  if (!result.ok) {
-    const context = serviceName ? ` for service ${serviceName}` : "";
-    return Err(
+  const context = serviceName ? ` for service ${serviceName}` : "";
+  return mapErr(
+    await configureUnprivilegedPorts(threshold),
+    (err) =>
       new DivbanError(
         ErrorCode.EXEC_FAILED,
         `Failed to configure unprivileged port binding${context}`,
-        result.error
+        err
       )
-    );
-  }
-  return Ok(undefined);
+  );
 };

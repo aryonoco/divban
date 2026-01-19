@@ -11,7 +11,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Logger } from "../lib/logger";
-import { Err, Ok, type Result, asyncFlatMapResult, parallel } from "../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, mapErr, parallel } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -263,15 +263,16 @@ export const startContainer = async (
   logger.info(`Starting container '${containerName}'...`);
   const result = await startService(`${containerName}.service`, systemctlOpts);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.SERVICE_START_FAILED,
         `Failed to start container ${containerName}`,
-        result.error
+        err
       )
-    );
-  }
+  );
+  if (!mapped.ok) return mapped;
 
   logger.success(`Container '${containerName}' started successfully`);
   return Ok(undefined);
@@ -291,15 +292,16 @@ export const stopContainer = async (
   logger.info(`Stopping container '${containerName}'...`);
   const result = await stopService(`${containerName}.service`, systemctlOpts);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.SERVICE_STOP_FAILED,
         `Failed to stop container ${containerName}`,
-        result.error
+        err
       )
-    );
-  }
+  );
+  if (!mapped.ok) return mapped;
 
   logger.success(`Container '${containerName}' stopped successfully`);
   return Ok(undefined);

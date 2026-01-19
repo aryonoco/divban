@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { Err, Ok, type Result } from "../../../lib/result";
+import { Err, Ok, type Result, mapErr } from "../../../lib/result";
 import type { UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 
@@ -70,21 +70,22 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
     }
   );
 
-  if (!reloadResult.ok) {
-    return Err(
+  const reloadMapped = mapErr(
+    reloadResult,
+    (err) =>
       new DivbanError(
         ErrorCode.SERVICE_RELOAD_FAILED,
-        `Failed to reload Caddy: ${reloadResult.error.message}`,
-        reloadResult.error
+        `Failed to reload Caddy: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!reloadMapped.ok) return reloadMapped;
 
-  if (reloadResult.value.exitCode !== 0) {
+  if (reloadMapped.value.exitCode !== 0) {
     return Err(
       new DivbanError(
         ErrorCode.SERVICE_RELOAD_FAILED,
-        `Caddy reload failed: ${reloadResult.value.stderr}`
+        `Caddy reload failed: ${reloadMapped.value.stderr}`
       )
     );
   }
@@ -113,21 +114,22 @@ export const validateCaddyfile = async (
     }
   );
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.CONFIG_VALIDATION_ERROR,
-        `Failed to validate Caddyfile: ${result.error.message}`,
-        result.error
+        `Failed to validate Caddyfile: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!mapped.ok) return mapped;
 
-  if (result.value.exitCode !== 0) {
+  if (mapped.value.exitCode !== 0) {
     return Err(
       new DivbanError(
         ErrorCode.CONFIG_VALIDATION_ERROR,
-        `Caddyfile validation failed: ${result.value.stderr}`
+        `Caddyfile validation failed: ${mapped.value.stderr}`
       )
     );
   }

@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapErr } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
@@ -24,16 +24,16 @@ import { fileExists } from "./fs";
  */
 const startUserService = async (uid: UserId): Promise<Result<void, DivbanError>> => {
   const result = await execSuccess(["systemctl", "start", `user@${uid}.service`]);
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.LINGER_ENABLE_FAILED,
-        `Failed to start user service for uid ${uid}: ${result.error.message}`,
-        result.error
+        `Failed to start user service for uid ${uid}: ${err.message}`,
+        err
       )
-    );
-  }
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -96,15 +96,16 @@ export const enableLinger = async (
 
   const result = await execSuccess(["loginctl", "enable-linger", username]);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.LINGER_ENABLE_FAILED,
-        `Failed to enable linger for ${username}: ${result.error.message}`,
-        result.error
+        `Failed to enable linger for ${username}: ${err.message}`,
+        err
       )
-    );
-  }
+  );
+  if (!mapped.ok) return mapped;
 
   // Verify it was enabled
   if (!(await isLingerEnabled(username))) {
@@ -147,17 +148,16 @@ export const disableLinger = async (username: Username): Promise<Result<void, Di
 
   const result = await execSuccess(["loginctl", "disable-linger", username]);
 
-  if (!result.ok) {
-    return Err(
+  const mapped = mapErr(
+    result,
+    (err) =>
       new DivbanError(
         ErrorCode.GENERAL_ERROR,
-        `Failed to disable linger for ${username}: ${result.error.message}`,
-        result.error
+        `Failed to disable linger for ${username}: ${err.message}`,
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
+  return mapped.ok ? Ok(undefined) : mapped;
 };
 
 /**
@@ -191,17 +191,13 @@ export const ensureLinger = async (
   uid: UserId,
   serviceName: string
 ): Promise<Result<void, DivbanError>> => {
-  const result = await enableLinger(username, uid);
-
-  if (!result.ok) {
-    return Err(
+  return mapErr(
+    await enableLinger(username, uid),
+    (err) =>
       new DivbanError(
         ErrorCode.LINGER_ENABLE_FAILED,
         `Failed to enable linger for service ${serviceName} (user: ${username})`,
-        result.error
+        err
       )
-    );
-  }
-
-  return Ok(undefined);
+  );
 };
