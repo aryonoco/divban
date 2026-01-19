@@ -13,6 +13,7 @@
 // Types - Branded types for type-safe identifiers
 export {
   AbsolutePath,
+  assertNever,
   ContainerName,
   getEnv,
   getEnvOrDefault,
@@ -122,10 +123,7 @@ export type { Logger, LoggerOptions, LogLevel } from "./logger";
 // Assert - Runtime assertions and type guards
 export {
   assert,
-  assertDefined,
-  assertNever,
   assertNonEmpty,
-  ensureDefined,
   hasKeys,
   isNonEmptyArray,
   isNonEmptyString,

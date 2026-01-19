@@ -18,6 +18,7 @@ import type { AnyService } from "../services/types";
 import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
 import { executeBackup } from "./commands/backup";
+import { executeBackupConfig } from "./commands/backup-config";
 import { executeDiff } from "./commands/diff";
 import { executeGenerate } from "./commands/generate";
 import { executeLogs } from "./commands/logs";
@@ -148,6 +149,9 @@ const executeCommand = (
     case "backup":
       return executeBackup({ service, args, logger });
 
+    case "backup-config":
+      return executeBackupConfig({ service, args, logger });
+
     case "restore":
       return executeRestore({ service, args, logger });
 
@@ -183,7 +187,15 @@ const runAllServices = async (args: ParsedArgs, logger: Logger): Promise<number>
   }
 
   // Only certain commands make sense for "all"
-  const allowedCommands = ["status", "start", "stop", "restart", "update", "backup"];
+  const allowedCommands = [
+    "status",
+    "start",
+    "stop",
+    "restart",
+    "update",
+    "backup",
+    "backup-config",
+  ];
   if (!allowedCommands.includes(args.command)) {
     console.error(
       `Error: Command '${args.command}' is not supported for 'all'. Allowed: ${allowedCommands.join(", ")}`

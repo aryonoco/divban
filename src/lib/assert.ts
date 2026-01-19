@@ -7,31 +7,22 @@
 
 /**
  * Assertion utilities for runtime type checking and exhaustive pattern matching.
+ *
+ * Preferred patterns for nullable value handling:
+ *
+ * 1. Option-based (preferred):
+ *    const opt = fromNullable(maybeNull);
+ *    const value = expect(opt, "should not be null");
+ *
+ * 2. Result-based (for error contexts):
+ *    const result = okOr(fromNullable(maybeNull), new DivbanError(...));
+ *    if (!result.ok) return result;
+ *
+ * 3. With default:
+ *    const value = getOrElse(fromNullable(maybeNull), defaultValue);
  */
 
 import { DivbanError, ErrorCode } from "./errors";
-import { Err, Ok, type Result } from "./result";
-
-/**
- * Assert that a value is never reached.
- * Used for exhaustive pattern matching in switch/if statements.
- *
- * @example
- * type Status = "running" | "stopped";
- * function handleStatus(status: Status) {
- *   switch (status) {
- *     case "running": return "Running";
- *     case "stopped": return "Stopped";
- *     default: assertNever(status);
- *   }
- * }
- */
-export const assertNever = (value: never, message?: string): never => {
-  throw new DivbanError(
-    ErrorCode.GENERAL_ERROR,
-    message ?? `Unexpected value: ${JSON.stringify(value)}`
-  );
-};
 
 /**
  * Assert that a condition is true at runtime.
@@ -45,30 +36,6 @@ export const assert = (
   if (!condition) {
     throw new DivbanError(code, message);
   }
-};
-
-/**
- * Assert that a value is not null or undefined.
- * Returns the value with null/undefined removed from the type.
- */
-export const assertDefined = <T>(value: T | null | undefined, message: string): T => {
-  if (value === null || value === undefined) {
-    throw new DivbanError(ErrorCode.GENERAL_ERROR, message);
-  }
-  return value;
-};
-
-/**
- * Safe version of assertDefined that returns a Result.
- */
-export const ensureDefined = <T>(
-  value: T | null | undefined,
-  message: string
-): Result<T, DivbanError> => {
-  if (value === null || value === undefined) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, message));
-  }
-  return Ok(value);
 };
 
 /**

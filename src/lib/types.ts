@@ -11,7 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "./errors";
-import { None, type Option, Some } from "./option";
+import { type Option, fromUndefined } from "./option";
 import { Err, Ok, type Result } from "./result";
 
 /** User ID (1000-65534 range for regular users) */
@@ -398,10 +398,7 @@ export const unsafeJoinPath = (...segments: string[]): AbsolutePath => {
 /**
  * Get an environment variable value.
  */
-export const getEnv = (key: string): Option<string> => {
-  const value = Bun.env[key];
-  return value === undefined ? None : Some(value);
-};
+export const getEnv = (key: string): Option<string> => fromUndefined(Bun.env[key]);
 
 /**
  * Get a required environment variable, throwing if not set.
@@ -440,6 +437,9 @@ export const getEnvOrDefault = (key: string, defaultValue: string): string => {
  *   }
  * };
  */
-export const assertNever = (x: never): never => {
-  throw new Error(`Unexpected value: ${JSON.stringify(x)}`);
+export const assertNever = (x: never, message?: string): never => {
+  throw new DivbanError(
+    ErrorCode.GENERAL_ERROR,
+    message ?? `Unexpected value: ${JSON.stringify(x)}`
+  );
 };

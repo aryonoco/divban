@@ -47,6 +47,7 @@ COMMANDS:
   logs                 View service logs
   update               Update container images
   backup               Create a backup
+  backup-config [path] Create backup of configuration files and secrets
   restore <backup>     Restore from a backup
   remove               Completely remove service (requires --force)
 
@@ -249,6 +250,39 @@ OPTIONS:
 EXAMPLES:
   divban immich restore /srv/divban-immich/backups/immich-db-backup-2024-01-15.sql.gz
   divban actual restore /srv/divban-actual/backups/actual-backup-2024-01-15.tar.gz
+`.trim();
+
+    case "backup-config":
+      return `
+backup-config - Create backup of configuration files and secrets
+
+USAGE:
+  divban <service> backup-config [output-path]
+
+DESCRIPTION:
+  Creates a compressed archive of configuration files including:
+  - Service TOML configuration
+  - Age encryption keys (for secret decryption)
+  - Encrypted secrets backup
+
+  This backup contains everything needed to restore a service's
+  configuration on a new system.
+
+  WARNING: The generated backup contains encryption keys and secrets.
+  Treat this file like a password - store it securely and do not share it.
+
+OPTIONS:
+  --dry-run    Show what would be backed up without creating archive
+  --format     Output format: pretty (default) or json
+
+DEFAULT OUTPUT:
+  ~/.config/divban/backups/config-backup-<service>-<timestamp>.tar.gz
+
+EXAMPLES:
+  divban immich backup-config
+  divban immich backup-config /backup/immich-config.tar.gz
+  divban all backup-config
+  divban all backup-config --dry-run
 `.trim();
 
     case "remove":

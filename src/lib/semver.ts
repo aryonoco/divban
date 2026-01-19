@@ -11,7 +11,7 @@
  */
 
 import { semver } from "bun";
-import { None, type Option, Some } from "./option";
+import { None, type Option, fromUndefined } from "./option";
 
 /**
  * Check if a version satisfies a semver range.
@@ -112,7 +112,7 @@ export const maxVersion = (versions: string[]): Option<string> => {
     return None;
   }
   const sorted = sortVersionsDesc(versions);
-  return sorted[0] !== undefined ? Some(sorted[0]) : None;
+  return fromUndefined(sorted[0]);
 };
 
 /**
@@ -127,7 +127,7 @@ export const minVersion = (versions: string[]): Option<string> => {
     return None;
   }
   const sorted = sortVersions(versions);
-  return sorted[0] !== undefined ? Some(sorted[0]) : None;
+  return fromUndefined(sorted[0]);
 };
 
 /**

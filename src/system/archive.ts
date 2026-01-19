@@ -10,7 +10,7 @@
  * MUST be used for ALL archive operations - no external tar commands.
  */
 
-import { None, type Option, Some, fromUndefined, isNone } from "../lib/option";
+import { type Option, fromUndefined, mapOption } from "../lib/option";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
@@ -121,11 +121,9 @@ export const readArchiveMetadata = async (
   options?: { decompress?: "gzip" | "zstd" }
 ): Promise<Option<ArchiveMetadata>> => {
   const files = await extractArchive(data, options);
-  const metadataBytes = fromUndefined(files.get("metadata.json"));
-  if (isNone(metadataBytes)) {
-    return None;
-  }
-  return Some(JSON.parse(new TextDecoder().decode(metadataBytes.value)));
+  return mapOption(fromUndefined(files.get("metadata.json")), (bytes) =>
+    JSON.parse(new TextDecoder().decode(bytes))
+  );
 };
 
 /**

@@ -28,6 +28,7 @@ export const COMMANDS: readonly string[] = [
   "logs",
   "update",
   "backup",
+  "backup-config",
   "restore",
   "reload",
   "remove",
@@ -221,6 +222,8 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
       if (third !== undefined) {
         if (args.command === "restore") {
           args.backupPath = third;
+        } else if (args.command === "backup-config") {
+          args.configPath = third; // Output path for backup-config
         } else if (args.command === "secret") {
           // For secret: third is subcommand (show/list)
           args.subcommand = third;
