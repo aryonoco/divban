@@ -101,7 +101,6 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
       readOnlyRootfs: config.readOnlyRootfs,
       noNewPrivileges: config.noNewPrivileges,
       seccompProfile: config.seccompProfile,
-      securityLabelDisable: config.securityLabelDisable,
     })
   );
 
@@ -274,4 +273,6 @@ export {
   CommonMounts,
   isNamedVolume,
   isBindMount,
+  withSELinuxRelabel,
+  relabelVolumes,
 } from "./volumes";

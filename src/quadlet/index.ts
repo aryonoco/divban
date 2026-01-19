@@ -100,6 +100,8 @@ export {
   formatVolumeMount,
   isBindMount,
   isNamedVolume,
+  relabelVolumes,
+  withSELinuxRelabel,
   // Environment
   addEnvironmentEntries,
   CommonEnvVars,

@@ -18,7 +18,7 @@ import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions, resolveServiceConfig } from "./utils";
+import { detectSystemCapabilities, getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface StatusOptions {
   service: AnyService;
@@ -76,6 +76,7 @@ export const executeStatus = async (options: StatusOptions): Promise<Result<void
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   const statusResult = await service.status(ctx);

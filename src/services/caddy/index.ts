@@ -18,6 +18,7 @@ import {
   createKeepIdNs,
   generateContainerQuadlet,
   generateVolumeQuadlet,
+  relabelVolumes,
 } from "../../quadlet";
 import { createSingleContainerOps, reloadAndEnableServices, writeGeneratedFiles } from "../helpers";
 import type { GeneratedFiles, Service, ServiceContext, ServiceDefinition } from "../types";
@@ -102,15 +103,18 @@ const generate = (
       { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
       { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "udp" },
     ],
-    volumes: [
-      {
-        source: `${ctx.paths.configDir}/Caddyfile`,
-        target: "/etc/caddy/Caddyfile",
-        options: "ro,Z",
-      },
-      { source: "caddy-data.volume", target: "/data" },
-      { source: "caddy-config.volume", target: "/config" },
-    ],
+    volumes: relabelVolumes(
+      [
+        {
+          source: `${ctx.paths.configDir}/Caddyfile`,
+          target: "/etc/caddy/Caddyfile",
+          options: "ro",
+        },
+        { source: "caddy-data.volume", target: "/data" },
+        { source: "caddy-config.volume", target: "/config" },
+      ],
+      ctx.system.selinuxEnforcing
+    ),
     userNs: createKeepIdNs(),
     healthCheck: createHttpHealthCheck("http://localhost:2019/reverse_proxy/upstreams", {
       interval: "30s",

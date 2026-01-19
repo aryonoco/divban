@@ -128,7 +128,6 @@ export interface ContainerQuadlet {
   apparmorProfile?: string | undefined;
   capAdd?: string[] | undefined;
   capDrop?: string[] | undefined;
-  securityLabelDisable?: boolean | undefined;
 
   /** Resource limits */
   shmSize?: string | undefined;

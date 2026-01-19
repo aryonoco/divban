@@ -14,7 +14,7 @@ import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
 import { Ok, type Result } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
-import { createHttpHealthCheck } from "../../quadlet";
+import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectories } from "../../system/directories";
 import {
@@ -102,12 +102,15 @@ const generate = (
     ],
 
     // Volumes
-    volumes: [
-      {
-        source: config.paths.dataDir,
-        target: "/data",
-      },
-    ],
+    volumes: relabelVolumes(
+      [
+        {
+          source: config.paths.dataDir,
+          target: "/data",
+        },
+      ],
+      ctx.system.selinuxEnforcing
+    ),
 
     // User namespace
     userNs: {

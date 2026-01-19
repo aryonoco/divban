@@ -18,7 +18,7 @@ import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions, resolveServiceConfig } from "./utils";
+import { detectSystemCapabilities, getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface StartOptions {
   service: AnyService;
@@ -69,6 +69,7 @@ export const executeStart = async (options: StartOptions): Promise<Result<void, 
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   return service.start(ctx);

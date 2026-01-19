@@ -117,6 +117,7 @@ userdel
 nogroup
 clonefile
 sbin
+getenforce
 
 # Linux Capabilities
 SETFCAP

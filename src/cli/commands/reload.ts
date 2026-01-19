@@ -18,7 +18,12 @@ import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions, getDataDirFromConfig, resolveServiceConfig } from "./utils";
+import {
+  detectSystemCapabilities,
+  getContextOptions,
+  getDataDirFromConfig,
+  resolveServiceConfig,
+} from "./utils";
 
 export interface ReloadOptions {
   service: AnyService;
@@ -85,6 +90,7 @@ export const executeReload = async (options: ReloadOptions): Promise<Result<void
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   if (args.dryRun) {

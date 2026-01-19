@@ -14,7 +14,8 @@ import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import { Err, Ok, type Result } from "../../lib/result";
 import { type AbsolutePath, pathJoin } from "../../lib/types";
-import type { AnyService, ServiceContext } from "../../services/types";
+import type { AnyService, ServiceContext, SystemCapabilities } from "../../services/types";
+import { isSELinuxEnforcing } from "../../system/selinux";
 import type { ParsedArgs } from "../parser";
 
 /**
@@ -170,3 +171,11 @@ export const truncateToWidth = (text: string, maxWidth: number): string => {
   }
   return `${result}…`;
 };
+
+/**
+ * Detect system capabilities at runtime.
+ * Used to determine SELinux status for volume relabeling.
+ */
+export const detectSystemCapabilities = async (): Promise<SystemCapabilities> => ({
+  selinuxEnforcing: await isSELinuxEnforcing(),
+});

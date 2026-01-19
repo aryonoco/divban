@@ -46,6 +46,14 @@ export interface ServiceDefinition {
 }
 
 /**
+ * System capabilities detected at runtime.
+ */
+export interface SystemCapabilities {
+  /** Whether SELinux is in enforcing mode */
+  selinuxEnforcing: boolean;
+}
+
+/**
  * Context provided to service operations.
  * @template C - Service-specific configuration type
  */
@@ -84,6 +92,9 @@ export interface ServiceContext<C> {
     /** Force overwrite */
     force: boolean;
   };
+
+  /** System capabilities detected at runtime */
+  system: SystemCapabilities;
 }
 
 /**

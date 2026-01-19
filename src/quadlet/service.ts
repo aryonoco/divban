@@ -39,18 +39,22 @@ export const defaultServiceConfig = (): ServiceConfig => ({
 
 /**
  * Merge service configurations with defaults.
+ * Always falls back to system defaults for undefined values.
  */
 export const mergeServiceConfig = (
   config: Partial<ServiceConfig>,
-  defaults: Partial<ServiceConfig> = defaultServiceConfig()
+  stackDefaults: Partial<ServiceConfig> = {}
 ): ServiceConfig => {
+  const systemDefaults = defaultServiceConfig();
   const result: ServiceConfig = {
-    restart: config.restart ?? defaults.restart ?? "on-failure",
+    restart: config.restart ?? stackDefaults.restart ?? systemDefaults.restart ?? "on-failure",
   };
 
-  const restartSec = config.restartSec ?? defaults.restartSec;
-  const timeoutStartSec = config.timeoutStartSec ?? defaults.timeoutStartSec;
-  const timeoutStopSec = config.timeoutStopSec ?? defaults.timeoutStopSec;
+  const restartSec = config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec;
+  const timeoutStartSec =
+    config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec;
+  const timeoutStopSec =
+    config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec;
 
   if (restartSec !== undefined) {
     result.restartSec = restartSec;

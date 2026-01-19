@@ -162,3 +162,7 @@ export {
   getUnprivilegedPortStart,
   isUnprivilegedPortEnabled,
 } from "./sysctl";
+
+// SELinux - SELinux detection for volume relabeling
+export { getSELinuxMode, isSELinuxEnforcing } from "./selinux";
+export type { SELinuxMode } from "./selinux";

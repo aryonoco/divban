@@ -26,7 +26,7 @@ import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions } from "./utils";
+import { detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface DiffOptions {
   service: AnyService;
@@ -112,6 +112,7 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
           gid: fallbackGidResult.value,
         },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   // Generate files

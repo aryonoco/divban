@@ -23,7 +23,7 @@ import { enableLinger } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { createServiceUser, getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions, getDataDirFromConfig } from "./utils";
+import { detectSystemCapabilities, getContextOptions, getDataDirFromConfig } from "./utils";
 
 export interface SetupOptions {
   service: AnyService;
@@ -164,6 +164,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   // Step: Delegate to service's setup method (handles remaining steps)

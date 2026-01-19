@@ -20,8 +20,6 @@ export interface ContainerSecurityConfig {
   seccompProfile?: string | undefined;
   /** Custom AppArmor profile */
   apparmorProfile?: string | undefined;
-  /** Disable security labels (SELinux/AppArmor) */
-  securityLabelDisable?: boolean | undefined;
   /** Run as privileged (avoid if possible) */
   privileged?: boolean | undefined;
   /** User to run as inside container */
@@ -40,7 +38,6 @@ export const addSecurityEntries = (
   addEntry(entries, "ReadOnly", config.readOnlyRootfs);
   addEntry(entries, "NoNewPrivileges", config.noNewPrivileges);
   addEntry(entries, "SeccompProfile", config.seccompProfile);
-  addEntry(entries, "SecurityLabelDisable", config.securityLabelDisable);
 
   if (config.user) {
     addEntry(entries, "User", config.user);

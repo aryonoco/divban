@@ -253,6 +253,7 @@ const generate = (
   const stackFiles = generateStackQuadlets(stack, {
     envFilePath: configFilePath(ctx.paths.configDir, "immich.env"),
     userNs: createKeepIdNs(),
+    selinuxEnforcing: ctx.system.selinuxEnforcing,
   });
 
   // Merge into files

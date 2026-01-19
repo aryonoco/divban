@@ -19,6 +19,7 @@ import type { AnyService, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import {
+  detectSystemCapabilities,
   formatBytes,
   getContextOptions,
   getDataDirFromConfig,
@@ -90,6 +91,7 @@ export const executeBackup = async (options: BackupOptions): Promise<Result<void
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   if (args.dryRun) {

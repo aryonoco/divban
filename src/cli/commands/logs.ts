@@ -18,7 +18,7 @@ import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, LogOptions, ServiceContext } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions, resolveServiceConfig } from "./utils";
+import { detectSystemCapabilities, getContextOptions, resolveServiceConfig } from "./utils";
 
 export interface LogsCommandOptions {
   service: AnyService;
@@ -71,6 +71,7 @@ export const executeLogs = async (
       gid,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   // Build log options

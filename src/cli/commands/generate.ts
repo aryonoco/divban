@@ -25,7 +25,7 @@ import type { AnyService, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory, writeFile } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
-import { getContextOptions } from "./utils";
+import { detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface GenerateOptions {
   service: AnyService;
@@ -89,6 +89,7 @@ export const executeGenerate = async (
       gid: gidResult.value,
     },
     options: getContextOptions(args),
+    system: await detectSystemCapabilities(),
   };
 
   // Generate files

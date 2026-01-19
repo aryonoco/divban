@@ -16,6 +16,7 @@ import {
   generateContainerQuadlet,
   generateNetworkQuadlet,
   generateVolumeQuadlet,
+  relabelVolumes,
 } from "../quadlet";
 import { mergeServiceConfig } from "../quadlet/service";
 import type { Stack, StackContainer, StackGeneratedFiles } from "./types";
@@ -30,6 +31,8 @@ export interface StackGeneratorContext {
   userNs?: UserNamespace;
   /** Default auto-update setting */
   defaultAutoUpdate?: "registry" | "local" | false;
+  /** Whether SELinux is in enforcing mode (for volume relabeling) */
+  selinuxEnforcing?: boolean;
 }
 
 /**
@@ -67,8 +70,8 @@ const containerToQuadlet = (
     ports: container.ports,
     hostname: container.hostname,
 
-    // Volumes
-    volumes: container.volumes,
+    // Volumes (apply SELinux relabeling if enforcing)
+    volumes: relabelVolumes(container.volumes, ctx.selinuxEnforcing ?? false),
 
     // Environment
     environmentFiles: environmentFiles.length > 0 ? environmentFiles : undefined,
