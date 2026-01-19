@@ -10,10 +10,9 @@
  * Multi-container service with hardware acceleration support.
  */
 
-import { loadServiceConfig } from "../../config/loader";
-import type { DivbanError } from "../../lib/errors";
+import { DivbanError, ErrorCode } from "../../lib/errors";
 import { configFilePath } from "../../lib/paths";
-import { Ok, type Result, asyncFlatMapResult, sequence } from "../../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, mapResult, sequence } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
   createEnvSecret,
@@ -35,8 +34,16 @@ import {
 import type { StackContainer } from "../../stack/types";
 import { ensureDirectory } from "../../system/directories";
 import { ensureServiceSecrets, getPodmanSecretName } from "../../system/secrets";
-import { daemonReload, enableService, journalctl } from "../../system/systemctl";
-import { wrapBackupResult, writeGeneratedFiles } from "../helpers";
+import { journalctl } from "../../system/systemctl";
+import {
+  type SetupStep,
+  type SetupStepResult,
+  createConfigValidator,
+  executeSetupSteps,
+  reloadAndEnableServices,
+  wrapBackupResult,
+  writeGeneratedFiles,
+} from "../helpers";
 import type {
   BackupResult,
   GeneratedFiles,
@@ -77,13 +84,7 @@ const definition: ServiceDefinition = {
 /**
  * Validate Immich configuration file.
  */
-const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanError>> => {
-  const result = await loadServiceConfig(configPath, immichConfigSchema);
-  if (!result.ok) {
-    return result;
-  }
-  return Ok(undefined);
-};
+const validate = createConfigValidator(immichConfigSchema);
 
 /**
  * Generate all files for Immich service.
@@ -275,86 +276,83 @@ const generate = (
 };
 
 /**
- * Full setup for Immich service.
+ * Setup state for Immich - tracks data passed between steps.
  */
-const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
-  const { logger, config } = ctx;
+interface ImmichSetupState {
+  files?: GeneratedFiles;
+}
 
-  // 1. Generate secrets
-  logger.step(1, 6, "Generating secrets...");
-  const homeDir = ctx.paths.configDir.replace("/.config/divban", "") as AbsolutePath;
-  const secretsResult = await ensureServiceSecrets(
-    SERVICE_NAME,
-    IMMICH_SECRETS,
-    homeDir,
-    ctx.user.name,
-    ctx.user.uid,
-    ctx.user.gid
-  );
-  if (!secretsResult.ok) {
-    return secretsResult;
-  }
-
-  // 2. Generate files (now with secrets)
-  logger.step(2, 6, "Generating configuration files...");
-  const filesResult = await generate(ctx);
-  if (!filesResult.ok) {
-    return filesResult;
-  }
-
-  // 3. Create data directories
-  logger.step(3, 6, "Creating data directories...");
+/**
+ * Full setup for Immich service.
+ * Uses executeSetupSteps for clean sequential execution with state threading.
+ */
+const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+  const { config } = ctx;
   const dataDir = config.paths.dataDir;
-  const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
-  const dirs = [
-    `${dataDir}/upload`,
-    `${dataDir}/profile`,
-    `${dataDir}/thumbs`,
-    `${dataDir}/encoded`,
-    `${dataDir}/postgres`,
-    `${dataDir}/model-cache`,
-    `${dataDir}/backups`,
+
+  const steps: SetupStep<ImmichConfig, ImmichSetupState>[] = [
+    {
+      message: "Generating secrets...",
+      execute: async (ctx): SetupStepResult<ImmichSetupState> => {
+        const homeDir = ctx.paths.configDir.replace("/.config/divban", "") as AbsolutePath;
+        return mapResult(
+          await ensureServiceSecrets(
+            SERVICE_NAME,
+            IMMICH_SECRETS,
+            homeDir,
+            ctx.user.name,
+            ctx.user.uid,
+            ctx.user.gid
+          ),
+          () => undefined
+        );
+      },
+    },
+    {
+      message: "Generating configuration files...",
+      execute: async (ctx): SetupStepResult<ImmichSetupState> =>
+        mapResult(await generate(ctx), (files) => ({ files })),
+    },
+    {
+      message: "Creating data directories...",
+      execute: async (ctx): SetupStepResult<ImmichSetupState> => {
+        const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
+        const dirs = [
+          `${dataDir}/upload`,
+          `${dataDir}/profile`,
+          `${dataDir}/thumbs`,
+          `${dataDir}/encoded`,
+          `${dataDir}/postgres`,
+          `${dataDir}/model-cache`,
+          `${dataDir}/backups`,
+        ];
+        const dirOps = dirs.map(
+          (dir): (() => Promise<Result<void, DivbanError>>) =>
+            (): Promise<Result<void, DivbanError>> =>
+              ensureDirectory(dir as AbsolutePath, owner)
+        );
+        return mapResult(await sequence(dirOps), () => undefined);
+      },
+    },
+    {
+      message: "Writing configuration files...",
+      execute: (ctx, state): SetupStepResult<ImmichSetupState> =>
+        state.files
+          ? writeGeneratedFiles(state.files, ctx)
+          : Promise.resolve(Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated"))),
+    },
+    {
+      message: "Reloading daemon and enabling services...",
+      execute: (ctx): SetupStepResult<ImmichSetupState> =>
+        reloadAndEnableServices(
+          ctx,
+          [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
+          false
+        ),
+    },
   ];
-  const dirOps = dirs.map(
-    (dir): (() => Promise<Result<void, DivbanError>>) =>
-      (): Promise<Result<void, DivbanError>> =>
-        ensureDirectory(dir as AbsolutePath, owner)
-  );
-  const dirsResult = await sequence(dirOps);
-  if (!dirsResult.ok) {
-    return dirsResult;
-  }
 
-  // 4. Write files
-  logger.step(4, 6, "Writing configuration files...");
-  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
-
-  // 5. Reload systemd daemon
-  logger.step(5, 6, "Reloading systemd daemon...");
-  const reloadResult = await daemonReload({ user: ctx.user.name, uid: ctx.user.uid });
-  if (!reloadResult.ok) {
-    return reloadResult;
-  }
-
-  // 6. Enable services
-  logger.step(6, 6, "Enabling services...");
-  const enableUnits = [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml];
-  const opts = { user: ctx.user.name, uid: ctx.user.uid };
-  const enableOps = enableUnits.map(
-    (unit): (() => Promise<Result<void, DivbanError>>) =>
-      (): Promise<Result<void, DivbanError>> =>
-        enableService(`${unit}.service`, opts)
-  );
-  const enableResult = await sequence(enableOps);
-  if (!enableResult.ok) {
-    return enableResult;
-  }
-
-  logger.success("Immich setup completed successfully");
-  return Ok(undefined);
+  return executeSetupSteps(ctx, steps);
 };
 
 /**

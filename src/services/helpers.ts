@@ -9,6 +9,8 @@
  * Service implementation helpers to reduce code duplication.
  */
 
+import type { ZodType } from "zod";
+import { loadServiceConfig } from "../config/loader";
 import type { DivbanError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
 import { Ok, type Result, asyncFlatMapResult, mapResult, sequence } from "../lib/result";
@@ -195,16 +197,132 @@ export const reloadAndEnableServices = async <C>(
 
 /**
  * Wrap a backup function to return BackupResult with file stats.
+ * Uses stat() for accurate file size instead of lazy .size property.
  */
 export const wrapBackupResult = async (
   backupFn: () => Promise<Result<AbsolutePath, DivbanError>>
-): Promise<Result<BackupResult, DivbanError>> => {
-  return mapResult(await backupFn(), (path) => {
-    const file = Bun.file(path);
-    return {
+): Promise<Result<BackupResult, DivbanError>> =>
+  asyncFlatMapResult(await backupFn(), async (path) => {
+    const stat = await Bun.file(path).stat();
+    return Ok({
       path,
-      size: file.size,
+      size: stat?.size ?? 0,
       timestamp: new Date(),
-    };
+    });
   });
+
+// ============================================================================
+// Setup Step Executor
+// ============================================================================
+
+/**
+ * Return type for setup step execute functions.
+ * Uses void to allow steps that return Result<void> from helper functions.
+ */
+// biome-ignore lint/suspicious/noConfusingVoidType: void needed for Result<void> compatibility
+export type SetupStepResult<S> = Promise<Result<Partial<S> | void, DivbanError>>;
+
+/**
+ * Setup step definition.
+ * Steps run sequentially. If a step returns data, it's stored in state.
+ */
+export interface SetupStep<C, S = object> {
+  /** Step message for logger.step() */
+  message: string;
+  /** Execute the step. Can read from state and return data to add to state. */
+  execute: (ctx: ServiceContext<C>, state: S) => SetupStepResult<S>;
+}
+
+/**
+ * Execute setup steps sequentially with logging.
+ * Each step's returned data is merged into state for subsequent steps.
+ *
+ * Uses a loop here because steps have side effects (logging)
+ * and state threading - this is intentionally imperative where FP
+ * doesn't add clarity.
+ */
+export const executeSetupSteps = async <C, S = object>(
+  ctx: ServiceContext<C>,
+  steps: SetupStep<C, S>[],
+  initialState: S = {} as S
+): Promise<Result<void, DivbanError>> => {
+  const { logger } = ctx;
+  const totalSteps = steps.length;
+
+  // Fold over steps, threading state through each one
+  let state = { ...initialState };
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (!step) {
+      continue;
+    }
+
+    logger.step(i + 1, totalSteps, step.message);
+
+    const result = await step.execute(ctx, state);
+    if (!result.ok) {
+      return result;
+    }
+
+    // Merge returned data into state (functional state update)
+    // result.value can be Partial<S> or void - only spread if it's an object
+    if (result.value && typeof result.value === "object") {
+      state = { ...state, ...result.value };
+    }
+  }
+
+  logger.success("Setup completed successfully");
+  return Ok(undefined);
+};
+
+// ============================================================================
+// Config Validator Factory
+// ============================================================================
+
+/**
+ * Create a config validator function for a service.
+ * Reduces boilerplate for the identical validate function in each service.
+ */
+export const createConfigValidator =
+  <T>(schema: ZodType<T>): ((configPath: AbsolutePath) => Promise<Result<void, DivbanError>>) =>
+  async (configPath): Promise<Result<void, DivbanError>> =>
+    mapResult(await loadServiceConfig(configPath, schema), () => undefined);
+
+// ============================================================================
+// Preview File Writing
+// ============================================================================
+
+/**
+ * Write generated files without ownership changes (for preview/generate commands).
+ *
+ * Uses sequence combinator for clean sequential execution with early termination.
+ * Uses mapResult to discard the array result (we only care about success/failure).
+ */
+export const writeGeneratedFilesPreview = async (
+  files: GeneratedFiles,
+  quadletDir: AbsolutePath,
+  configDir: AbsolutePath
+): Promise<Result<void, DivbanError>> => {
+  type WriteOp = () => Promise<Result<void, DivbanError>>;
+
+  const toQuadletOp =
+    ([filename, content]: [string, string]): WriteOp =>
+    (): Promise<Result<void, DivbanError>> =>
+      writeFile(quadletFilePath(quadletDir, filename), content);
+
+  const toConfigOp =
+    ([filename, content]: [string, string]): WriteOp =>
+    (): Promise<Result<void, DivbanError>> =>
+      writeFile(configFilePath(configDir, filename), content);
+
+  const ops: WriteOp[] = [
+    ...[...files.quadlets].map(toQuadletOp),
+    ...[...files.networks].map(toQuadletOp),
+    ...[...files.volumes].map(toQuadletOp),
+    ...[...files.environment].map(toConfigOp),
+    ...[...files.other].map(toConfigOp),
+  ];
+
+  // Use sequence for clean FP-style execution - short-circuits on first error
+  return mapResult(await sequence(ops), () => undefined);
 };

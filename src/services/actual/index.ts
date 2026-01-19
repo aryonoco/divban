@@ -10,15 +10,18 @@
  * Simple single-container personal finance application.
  */
 
-import { loadServiceConfig } from "../../config/loader";
-import type { DivbanError } from "../../lib/errors";
-import { Ok, type Result } from "../../lib/result";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Err, Ok, type Result, mapResult } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectories } from "../../system/directories";
 import {
+  type SetupStep,
+  type SetupStepResult,
+  createConfigValidator,
   createSingleContainerOps,
+  executeSetupSteps,
   reloadAndEnableServices,
   wrapBackupResult,
   writeGeneratedFiles,
@@ -65,13 +68,7 @@ const ops = createSingleContainerOps<ActualConfig>({
 /**
  * Validate Actual configuration file.
  */
-const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanError>> => {
-  const result = await loadServiceConfig(configPath, actualConfigSchema);
-  if (!result.ok) {
-    return result;
-  }
-  return Ok(undefined);
-};
+const validate = createConfigValidator(actualConfigSchema);
 
 /**
  * Generate all files for Actual service.
@@ -147,48 +144,53 @@ const generate = (
 };
 
 /**
- * Full setup for Actual service.
+ * Setup state for Actual - tracks data passed between steps.
  */
-const setup = async (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanError>> => {
-  const { logger, config } = ctx;
+interface ActualSetupState {
+  files?: GeneratedFiles;
+}
 
-  // 1. Generate files
-  logger.step(1, 4, "Generating configuration files...");
-  const filesResult = await generate(ctx);
-  if (!filesResult.ok) {
-    return filesResult;
-  }
-
-  // 2. Create data directories
-  logger.step(2, 4, "Creating data directories...");
+/**
+ * Full setup for Actual service.
+ * Uses executeSetupSteps for clean sequential execution with state threading.
+ */
+const setup = (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanError>> => {
+  const { config } = ctx;
   const dataDir = config.paths.dataDir;
-  const dirs = [
-    dataDir,
-    `${dataDir}/server-files`,
-    `${dataDir}/user-files`,
-    `${dataDir}/backups`,
-  ] as AbsolutePath[];
-  const dirsResult = await ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
-  if (!dirsResult.ok) {
-    return dirsResult;
-  }
 
-  // 3. Write quadlet files
-  logger.step(3, 4, "Writing quadlet files...");
-  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
+  const steps: SetupStep<ActualConfig, ActualSetupState>[] = [
+    {
+      message: "Generating configuration files...",
+      execute: async (ctx): SetupStepResult<ActualSetupState> =>
+        mapResult(await generate(ctx), (files) => ({ files })),
+    },
+    {
+      message: "Creating data directories...",
+      execute: (ctx): SetupStepResult<ActualSetupState> => {
+        const dirs = [
+          dataDir,
+          `${dataDir}/server-files`,
+          `${dataDir}/user-files`,
+          `${dataDir}/backups`,
+        ] as AbsolutePath[];
+        return ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
+      },
+    },
+    {
+      message: "Writing quadlet files...",
+      execute: async (ctx, state): SetupStepResult<ActualSetupState> =>
+        state.files
+          ? writeGeneratedFiles(state.files, ctx)
+          : Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated")),
+    },
+    {
+      message: "Enabling service...",
+      execute: (ctx): SetupStepResult<ActualSetupState> =>
+        reloadAndEnableServices(ctx, [CONTAINER_NAME], false),
+    },
+  ];
 
-  // 4. Enable service (don't start - user may want to configure first)
-  logger.step(4, 4, "Enabling service...");
-  const enableResult = await reloadAndEnableServices(ctx, [CONTAINER_NAME], false);
-  if (!enableResult.ok) {
-    return enableResult;
-  }
-
-  logger.success("Actual setup completed successfully");
-  return Ok(undefined);
+  return executeSetupSteps(ctx, steps);
 };
 
 /**

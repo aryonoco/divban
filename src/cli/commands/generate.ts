@@ -12,18 +12,13 @@
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import {
-  TEMP_PATHS,
-  configFilePath,
-  outputConfigDir,
-  outputQuadletDir,
-  quadletFilePath,
-} from "../../lib/paths";
+import { TEMP_PATHS, outputConfigDir, outputQuadletDir } from "../../lib/paths";
 import { Err, Ok, type Result, combine3 } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId, Username } from "../../lib/types";
+import { writeGeneratedFilesPreview } from "../../services/helpers";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
-import { ensureDirectory, writeFile } from "../../system/fs";
+import { ensureDirectory } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 import { detectSystemCapabilities, getContextOptions } from "./utils";
 
@@ -126,69 +121,18 @@ export const executeGenerate = async (
     return Ok(undefined);
   }
 
-  // Create output directories
-  const quadletDir2Result = outputQuadletDir(outputDir);
-  if (!quadletDir2Result.ok) {
-    return quadletDir2Result;
-  }
-  const configDir2Result = outputConfigDir(outputDir);
-  if (!configDir2Result.ok) {
-    return configDir2Result;
-  }
-  const quadletDir = quadletDir2Result.value;
-  const configDir = configDir2Result.value;
+  // Ensure output directories exist (paths already validated above)
+  await ensureDirectory(quadletDirResult.value);
+  await ensureDirectory(configDirResult.value);
 
-  await ensureDirectory(quadletDir);
-  await ensureDirectory(configDir);
-
-  // Write quadlet files
-  for (const [name, content] of files.quadlets) {
-    const path = quadletFilePath(quadletDir, name);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    logger.debug(`Wrote ${path}`);
-  }
-
-  // Write network files
-  for (const [name, content] of files.networks) {
-    const path = quadletFilePath(quadletDir, name);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    logger.debug(`Wrote ${path}`);
-  }
-
-  // Write volume files
-  for (const [name, content] of files.volumes) {
-    const path = quadletFilePath(quadletDir, name);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    logger.debug(`Wrote ${path}`);
-  }
-
-  // Write environment files
-  for (const [name, content] of files.environment) {
-    const path = configFilePath(configDir, name);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    logger.debug(`Wrote ${path}`);
-  }
-
-  // Write other files
-  for (const [name, content] of files.other) {
-    const path = configFilePath(configDir, name);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    logger.debug(`Wrote ${path}`);
+  // Write all generated files
+  const writeResult = await writeGeneratedFilesPreview(
+    files,
+    quadletDirResult.value,
+    configDirResult.value
+  );
+  if (!writeResult.ok) {
+    return writeResult;
   }
 
   const total = getFileCount(files);

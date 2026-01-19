@@ -9,22 +9,12 @@
  * Backup command - create a service backup.
  */
 
-import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
-import { Err, Ok, type Result, mapErr } from "../../lib/result";
-import { userIdToGroupId } from "../../lib/types";
-import type { AnyService, ServiceContext } from "../../services/types";
-import { getUserByName } from "../../system/user";
+import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
+import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import {
-  detectSystemCapabilities,
-  formatBytes,
-  getContextOptions,
-  getDataDirFromConfig,
-  resolveServiceConfig,
-} from "./utils";
+import { buildServiceContext, formatBytes } from "./utils";
 
 export interface BackupOptions {
   service: AnyService;
@@ -34,11 +24,12 @@ export interface BackupOptions {
 
 /**
  * Execute the backup command.
+ * Uses buildServiceContext with requireConfig: true.
  */
 export const executeBackup = async (options: BackupOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
 
-  // Check if service supports backup
+  // Check if service supports backup (must be done before context resolution)
   if (!(service.definition.capabilities.hasBackup && service.backup)) {
     return Err(
       new DivbanError(
@@ -48,55 +39,6 @@ export const executeBackup = async (options: BackupOptions): Promise<Result<void
     );
   }
 
-  // Get service user
-  const usernameResult = getServiceUsername(service.definition.name);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
-
-  const userResult = await getUserByName(username);
-  const userMapped = mapErr(
-    userResult,
-    () =>
-      new DivbanError(
-        ErrorCode.SERVICE_NOT_FOUND,
-        `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
-      )
-  );
-  if (!userMapped.ok) {
-    return userMapped;
-  }
-
-  const { uid, homeDir } = userMapped.value;
-  const gid = userIdToGroupId(uid);
-
-  // Resolve config
-  const configResult = await resolveServiceConfig(service, homeDir);
-  if (!configResult.ok) {
-    return configResult;
-  }
-
-  // Build service context
-  const dataDir = getDataDirFromConfig(configResult.value, userDataDir(homeDir));
-
-  const ctx: ServiceContext<unknown> = {
-    config: configResult.value,
-    logger,
-    paths: {
-      dataDir,
-      quadletDir: userQuadletDir(homeDir),
-      configDir: userConfigDir(homeDir),
-    },
-    user: {
-      name: username,
-      uid,
-      gid,
-    },
-    options: getContextOptions(args),
-    system: await detectSystemCapabilities(),
-  };
-
   if (args.dryRun) {
     logger.info("Dry run - would create backup");
     return Ok(undefined);
@@ -104,23 +46,29 @@ export const executeBackup = async (options: BackupOptions): Promise<Result<void
 
   logger.info(`Creating backup for ${service.definition.name}...`);
 
-  const backupResult = await service.backup(ctx);
+  // Chain: buildContext → backup → log success
+  return asyncFlatMapResult(
+    await buildServiceContext({ ...options, requireConfig: true }),
+    async ({ ctx }) => {
+      // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
+      const backupResult = await service.backup!(ctx);
 
-  if (!backupResult.ok) {
-    return backupResult;
-  }
+      if (!backupResult.ok) {
+        return backupResult;
+      }
 
-  const result = backupResult.value;
+      const result = backupResult.value;
 
-  if (args.format === "json") {
-    // JSON output handled by caller
-    logger.info(
-      JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
-    );
-  } else {
-    logger.success(`Backup created: ${result.path}`);
-    logger.info(`Size: ${formatBytes(result.size)}`);
-  }
+      if (args.format === "json") {
+        logger.info(
+          JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
+        );
+      } else {
+        logger.success(`Backup created: ${result.path}`);
+        logger.info(`Size: ${formatBytes(result.size)}`);
+      }
 
-  return Ok(undefined);
+      return Ok(undefined);
+    }
+  );
 };

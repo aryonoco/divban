@@ -10,9 +10,10 @@
  * Uses Bun.Archive for extraction - no external gunzip/tar commands.
  */
 
+import { detectCompressionFormat } from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { None, type Option, Some, isNone, isSome } from "../../../lib/option";
+import { isNone, isSome } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -36,19 +37,6 @@ export interface RestoreOptions {
   /** Database user */
   dbUser?: string;
 }
-
-/**
- * Detect compression type from file extension.
- */
-const detectCompression = (path: string): Option<"gzip" | "zstd"> => {
-  if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
-    return Some("gzip");
-  }
-  if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
-    return Some("zstd");
-  }
-  return None;
-};
 
 /**
  * Restore a PostgreSQL database from backup.
@@ -76,7 +64,7 @@ export const restoreDatabase = async (
   logger.warn("This will overwrite the existing database!");
 
   // Detect compression type
-  const compression = detectCompression(backupPath);
+  const compression = detectCompressionFormat(backupPath);
   if (isNone(compression)) {
     return Err(
       new DivbanError(
@@ -158,7 +146,7 @@ export const validateBackup = async (
   }
 
   // Detect compression type
-  const compression = detectCompression(backupPath);
+  const compression = detectCompressionFormat(backupPath);
   if (isNone(compression)) {
     return Err(
       new DivbanError(

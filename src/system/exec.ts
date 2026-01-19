@@ -202,6 +202,20 @@ export interface ShellOptions {
 }
 
 /**
+ * Build environment for shell commands with optional XDG_RUNTIME_DIR.
+ */
+const buildShellEnv = (options: ShellOptions): Record<string, string | undefined> => ({
+  ...Bun.env,
+  ...options.env,
+  ...(options.uid
+    ? {
+        XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+        DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
+      }
+    : {}),
+});
+
+/**
  * Execute a shell command with piping support using Bun Shell.
  * Use for commands that benefit from shell features (pipes, redirects).
  */
@@ -217,17 +231,7 @@ export const shell = async (
         cmd = cmd.cwd(options.cwd);
       }
 
-      const env = {
-        ...Bun.env,
-        ...options.env,
-        ...(options.uid
-          ? {
-              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
-            }
-          : {}),
-      };
-      cmd = cmd.env(env);
+      cmd = cmd.env(buildShellEnv(options));
 
       const result = await cmd;
       return {
@@ -256,17 +260,7 @@ export const shellText = (
         cmd = cmd.cwd(options.cwd);
       }
 
-      const env = {
-        ...Bun.env,
-        ...options.env,
-        ...(options.uid
-          ? {
-              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
-            }
-          : {}),
-      };
-      cmd = cmd.env(env);
+      cmd = cmd.env(buildShellEnv(options));
 
       return cmd.text();
     },
@@ -290,17 +284,7 @@ export const shellLines = async (
         cmd = cmd.cwd(options.cwd);
       }
 
-      const env = {
-        ...Bun.env,
-        ...options.env,
-        ...(options.uid
-          ? {
-              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
-            }
-          : {}),
-      };
-      cmd = cmd.env(env);
+      cmd = cmd.env(buildShellEnv(options));
 
       // Collect async iterable into array
       const lines: string[] = [];
@@ -371,17 +355,7 @@ export const shellJson = async <T>(
         cmd = cmd.cwd(options.cwd);
       }
 
-      const env = {
-        ...Bun.env,
-        ...options.env,
-        ...(options.uid
-          ? {
-              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
-            }
-          : {}),
-      };
-      cmd = cmd.env(env);
+      cmd = cmd.env(buildShellEnv(options));
 
       return (await cmd.json()) as T;
     },
@@ -405,17 +379,7 @@ export const shellBlob = async (
         cmd = cmd.cwd(options.cwd);
       }
 
-      const env = {
-        ...Bun.env,
-        ...options.env,
-        ...(options.uid
-          ? {
-              XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-              DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${options.uid}/bus`,
-            }
-          : {}),
-      };
-      cmd = cmd.env(env);
+      cmd = cmd.env(buildShellEnv(options));
 
       return await cmd.blob();
     },

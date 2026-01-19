@@ -10,15 +10,19 @@
  * Uses Bun.Archive for native tar operations with metadata support.
  */
 
-import { Glob } from "bun";
 import { formatBytes } from "../../../cli/commands/utils";
+import {
+  createBackupMetadata,
+  createBackupTimestamp,
+  ensureBackupDirectory,
+  listBackupFiles,
+  writeBackupArchive,
+} from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { Err, Ok, type Result, mapErr } from "../../../lib/result";
+import { Err, Ok, type Result } from "../../../lib/result";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
-import { type ArchiveMetadata, createArchive } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
-import { directoryExists, ensureDirectory } from "../../../system/fs";
 import { CONTAINERS } from "../constants";
 
 /**
@@ -71,7 +75,7 @@ export const backupDatabase = async (
     compression = "zstd",
   } = options;
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const timestamp = createBackupTimestamp();
   const ext = getCompressionExtension(compression);
   const backupFilename = `immich-db-backup-${timestamp}.tar${ext}`;
   const backupDir = pathJoin(dataDir, "backups");
@@ -79,19 +83,10 @@ export const backupDatabase = async (
 
   logger.info(`Creating database backup: ${backupFilename}`);
 
-  // Ensure backup directory exists using native fs
-  const mkdirResult = await ensureDirectory(backupDir);
-  const mkdirMapped = mapErr(
-    mkdirResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `Failed to create backup directory: ${err.message}`,
-        err
-      )
-  );
-  if (!mkdirMapped.ok) {
-    return mkdirMapped;
+  // Ensure backup directory exists
+  const mkdirResult = await ensureBackupDirectory(backupDir);
+  if (!mkdirResult.ok) {
+    return mkdirResult;
   }
 
   // Run pg_dumpall inside the postgres container
@@ -110,33 +105,23 @@ export const backupDatabase = async (
     return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Database dump failed: ${stderr}`));
   }
 
-  // Create metadata
-  const metadata: ArchiveMetadata = {
-    version: "1.0",
-    service: "immich",
-    timestamp: new Date().toISOString(),
-    files: ["database.sql"],
-  };
-
-  // Create archive with SQL dump and metadata
+  // Create metadata and archive
+  const metadata = createBackupMetadata("immich", ["database.sql"]);
   const files: Record<string, string | Uint8Array> = {
     "database.sql": dumpResult.value.stdout,
   };
 
-  try {
-    const archiveData = await createArchive(files, {
-      compress: compression,
-      metadata,
-    });
-
-    // Write archive to disk
-    await Bun.write(backupPath, archiveData);
-  } catch (e) {
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to create backup archive: ${e}`));
+  const archiveResult = await writeBackupArchive(backupPath, files, {
+    compress: compression,
+    metadata,
+  });
+  if (!archiveResult.ok) {
+    return archiveResult;
   }
 
-  const file = Bun.file(backupPath);
-  const size = file.size;
+  // Get backup size using stat for accuracy
+  const stat = await Bun.file(backupPath).stat();
+  const size = stat?.size ?? 0;
 
   logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
   return Ok(backupPath);
@@ -144,34 +129,7 @@ export const backupDatabase = async (
 
 /**
  * List available backups.
- * Uses Bun.Glob for native file discovery - no subprocess needed.
- * Finds both gzip (.tar.gz) and zstd (.tar.zst) compressed backups.
+ * Re-exported from backup-utils for service-specific usage.
  */
-export const listBackups = async (
-  dataDir: AbsolutePath
-): Promise<Result<string[], DivbanError>> => {
-  const backupDir = `${dataDir}/backups`;
-
-  if (!(await directoryExists(backupDir as AbsolutePath))) {
-    return Ok([]);
-  }
-
-  // Match both gzip and zstd compressed tar archives
-  const glob = new Glob("*.tar.{gz,zst}");
-  const files: string[] = [];
-
-  for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
-    files.push(file);
-  }
-
-  // Sort by modification time (newest first)
-  const withStats = await Promise.all(
-    files.map(async (f) => ({
-      name: f,
-      mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
-    }))
-  );
-
-  withStats.sort((a, b) => b.mtime - a.mtime);
-  return Ok(withStats.map((f) => f.name));
-};
+export const listBackups = (dataDir: AbsolutePath): Promise<Result<string[], DivbanError>> =>
+  listBackupFiles(pathJoin(dataDir, "backups"));

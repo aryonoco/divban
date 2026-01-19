@@ -9,21 +9,12 @@
  * Reload command - reload service configuration (if supported).
  */
 
-import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
-import { Err, Ok, type Result, mapErr } from "../../lib/result";
-import { userIdToGroupId } from "../../lib/types";
-import type { AnyService, ServiceContext } from "../../services/types";
-import { getUserByName } from "../../system/user";
+import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
+import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import {
-  detectSystemCapabilities,
-  getContextOptions,
-  getDataDirFromConfig,
-  resolveServiceConfig,
-} from "./utils";
+import { buildServiceContext } from "./utils";
 
 export interface ReloadOptions {
   service: AnyService;
@@ -33,6 +24,7 @@ export interface ReloadOptions {
 
 /**
  * Execute the reload command.
+ * Uses buildServiceContext with requireConfig: true.
  */
 export const executeReload = async (options: ReloadOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
@@ -47,55 +39,6 @@ export const executeReload = async (options: ReloadOptions): Promise<Result<void
     );
   }
 
-  // Get service user
-  const usernameResult = getServiceUsername(service.definition.name);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
-
-  const userResult = await getUserByName(username);
-  const userMapped = mapErr(
-    userResult,
-    () =>
-      new DivbanError(
-        ErrorCode.SERVICE_NOT_FOUND,
-        `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
-      )
-  );
-  if (!userMapped.ok) {
-    return userMapped;
-  }
-
-  const { uid, homeDir } = userMapped.value;
-  const gid = userIdToGroupId(uid);
-
-  // Resolve config
-  const configResult = await resolveServiceConfig(service, homeDir);
-  if (!configResult.ok) {
-    return configResult;
-  }
-
-  // Build service context
-  const dataDir = getDataDirFromConfig(configResult.value, userDataDir(homeDir));
-
-  const ctx: ServiceContext<unknown> = {
-    config: configResult.value,
-    logger,
-    paths: {
-      dataDir,
-      quadletDir: userQuadletDir(homeDir),
-      configDir: userConfigDir(homeDir),
-    },
-    user: {
-      name: username,
-      uid,
-      gid,
-    },
-    options: getContextOptions(args),
-    system: await detectSystemCapabilities(),
-  };
-
   if (args.dryRun) {
     logger.info("Dry run - would reload configuration");
     return Ok(undefined);
@@ -103,12 +46,19 @@ export const executeReload = async (options: ReloadOptions): Promise<Result<void
 
   logger.info(`Reloading ${service.definition.name} configuration...`);
 
-  const reloadResult = await service.reload(ctx);
+  // Chain: buildContext → reload → log success
+  return asyncFlatMapResult(
+    await buildServiceContext({ ...options, requireConfig: true }),
+    async ({ ctx }) => {
+      // biome-ignore lint/style/noNonNullAssertion: capability check above ensures reload exists
+      const reloadResult = await service.reload!(ctx);
 
-  if (!reloadResult.ok) {
-    return reloadResult;
-  }
+      if (!reloadResult.ok) {
+        return reloadResult;
+      }
 
-  logger.success("Configuration reloaded successfully");
-  return Ok(undefined);
+      logger.success("Configuration reloaded successfully");
+      return Ok(undefined);
+    }
+  );
 };

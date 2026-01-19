@@ -9,16 +9,12 @@
  * Stop command - stop a service.
  */
 
-import { getServiceUsername } from "../../config/schema";
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import type { DivbanError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { buildServicePaths, userDataDir } from "../../lib/paths";
-import { type Result, mapErr } from "../../lib/result";
-import { userIdToGroupId } from "../../lib/types";
-import type { AnyService, ServiceContext } from "../../services/types";
-import { getUserByName } from "../../system/user";
+import { type Result, asyncFlatMapResult } from "../../lib/result";
+import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, resolveServiceConfig } from "./utils";
+import { buildServiceContext } from "./utils";
 
 export interface StopOptions {
   service: AnyService;
@@ -28,52 +24,7 @@ export interface StopOptions {
 
 /**
  * Execute the stop command.
+ * Uses buildServiceContext for FP-friendly context resolution.
  */
-export const executeStop = async (options: StopOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-
-  // Get service user
-  const usernameResult = getServiceUsername(service.definition.name);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
-
-  const userResult = await getUserByName(username);
-  const userMapped = mapErr(
-    userResult,
-    () =>
-      new DivbanError(
-        ErrorCode.SERVICE_NOT_FOUND,
-        `Service user '${username}' not found. Service may not be set up.`
-      )
-  );
-  if (!userMapped.ok) {
-    return userMapped;
-  }
-
-  const { uid, homeDir } = userMapped.value;
-  const gid = userIdToGroupId(uid);
-
-  // Resolve config (may fail if not found, which is OK for stop)
-  const configResult = await resolveServiceConfig(service, homeDir);
-
-  // Build service context
-  const dataDir = userDataDir(homeDir);
-  const paths = buildServicePaths(homeDir, dataDir);
-
-  const ctx: ServiceContext<unknown> = {
-    config: configResult.ok ? configResult.value : {},
-    logger,
-    paths,
-    user: {
-      name: username,
-      uid,
-      gid,
-    },
-    options: getContextOptions(args),
-    system: await detectSystemCapabilities(),
-  };
-
-  return service.stop(ctx);
-};
+export const executeStop = async (options: StopOptions): Promise<Result<void, DivbanError>> =>
+  asyncFlatMapResult(await buildServiceContext(options), ({ ctx }) => options.service.stop(ctx));

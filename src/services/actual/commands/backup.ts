@@ -12,17 +12,19 @@
 
 import { Glob } from "bun";
 import { formatBytes } from "../../../cli/commands/utils";
+import {
+  createBackupMetadata,
+  createBackupTimestamp,
+  ensureBackupDirectory,
+  listBackupFiles,
+  writeBackupArchive,
+} from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { isSome } from "../../../lib/option";
-import { Err, Ok, type Result, mapErr } from "../../../lib/result";
+import { Err, Ok, type Result } from "../../../lib/result";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
-import {
-  type ArchiveMetadata,
-  createArchive,
-  extractArchive,
-  readArchiveMetadata,
-} from "../../../system/archive";
+import { extractArchive, readArchiveMetadata } from "../../../system/archive";
 import { directoryExists, ensureDirectory } from "../../../system/fs";
 
 export interface BackupOptions {
@@ -50,7 +52,7 @@ export const backupActual = async (
     return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Data directory not found: ${dataDir}`));
   }
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const timestamp = createBackupTimestamp();
   const backupFilename = `actual-backup-${timestamp}.tar.gz`;
   const backupsDir = pathJoin(dataDir, "backups");
   const backupPath = pathJoin(backupsDir, backupFilename);
@@ -58,18 +60,9 @@ export const backupActual = async (
   logger.info(`Creating backup: ${backupFilename}`);
 
   // Ensure backup directory exists
-  const mkdirResult = await ensureDirectory(backupsDir);
-  const mkdirMapped = mapErr(
-    mkdirResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.BACKUP_FAILED,
-        `Failed to create backup directory: ${err.message}`,
-        err
-      )
-  );
-  if (!mkdirMapped.ok) {
-    return mkdirMapped;
+  const mkdirResult = await ensureBackupDirectory(backupsDir);
+  if (!mkdirResult.ok) {
+    return mkdirResult;
   }
 
   // Collect files to archive using Bun.Glob
@@ -89,67 +82,31 @@ export const backupActual = async (
     fileList.push(path);
   }
 
-  // Create metadata
-  const metadata: ArchiveMetadata = {
-    version: "1.0",
-    service: "actual",
-    timestamp: new Date().toISOString(),
-    files: fileList,
-  };
+  // Create metadata and archive
+  const metadata = createBackupMetadata("actual", fileList);
 
-  // Create archive with gzip compression
-  try {
-    const archiveData = await createArchive(files, {
-      compress: "gzip",
-      metadata,
-    });
-
-    // Write archive to disk
-    await Bun.write(backupPath, archiveData);
-  } catch (e) {
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Failed to create backup archive: ${e}`));
+  const archiveResult = await writeBackupArchive(backupPath, files, {
+    compress: "gzip",
+    metadata,
+  });
+  if (!archiveResult.ok) {
+    return archiveResult;
   }
 
-  // Get backup size
-  const file = Bun.file(backupPath);
-  const size = file.size;
-  const sizeStr = formatBytes(size);
+  // Get backup size using stat for accuracy
+  const stat = await Bun.file(backupPath).stat();
+  const size = stat?.size ?? 0;
 
-  logger.success(`Backup created: ${backupPath} (${sizeStr})`);
+  logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
   return Ok(backupPath);
 };
 
 /**
  * List available backups.
- * Uses Bun.Glob for native file discovery - no subprocess needed.
+ * Re-exported from backup-utils for service-specific usage.
  */
-export const listBackups = async (
-  dataDir: AbsolutePath
-): Promise<Result<string[], DivbanError>> => {
-  const backupsDir = `${dataDir}/backups`;
-
-  if (!(await directoryExists(backupsDir as AbsolutePath))) {
-    return Ok([]);
-  }
-
-  const glob = new Glob("*.tar.gz");
-  const files: string[] = [];
-
-  for await (const file of glob.scan({ cwd: backupsDir, onlyFiles: true })) {
-    files.push(file);
-  }
-
-  // Sort by modification time (newest first)
-  const withStats = await Promise.all(
-    files.map(async (f) => ({
-      name: f,
-      mtime: (await Bun.file(`${backupsDir}/${f}`).stat())?.mtimeMs ?? 0,
-    }))
-  );
-
-  withStats.sort((a, b) => b.mtime - a.mtime);
-  return Ok(withStats.map((f) => f.name));
-};
+export const listBackups = (dataDir: AbsolutePath): Promise<Result<string[], DivbanError>> =>
+  listBackupFiles(pathJoin(dataDir, "backups"), "*.tar.gz");
 
 /**
  * Restore from a backup archive.

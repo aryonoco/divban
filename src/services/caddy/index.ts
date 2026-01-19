@@ -9,10 +9,9 @@
  * Caddy reverse proxy service implementation.
  */
 
-import { loadServiceConfig } from "../../config/loader";
-import type { DivbanError } from "../../lib/errors";
-import { Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, PrivateIP, ServiceName } from "../../lib/types";
+import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Err, Ok, type Result, mapResult } from "../../lib/result";
+import type { PrivateIP, ServiceName } from "../../lib/types";
 import { PrivateIP as validatePrivateIP } from "../../lib/types";
 import {
   createHttpHealthCheck,
@@ -21,7 +20,15 @@ import {
   generateVolumeQuadlet,
   processVolumes,
 } from "../../quadlet";
-import { createSingleContainerOps, reloadAndEnableServices, writeGeneratedFiles } from "../helpers";
+import {
+  type SetupStep,
+  type SetupStepResult,
+  createConfigValidator,
+  createSingleContainerOps,
+  executeSetupSteps,
+  reloadAndEnableServices,
+  writeGeneratedFiles,
+} from "../helpers";
 import type { GeneratedFiles, Service, ServiceContext, ServiceDefinition } from "../types";
 import { createGeneratedFiles } from "../types";
 import { generateCaddyfile } from "./caddyfile";
@@ -58,13 +65,7 @@ const ops = createSingleContainerOps<CaddyConfig>({
 /**
  * Validate Caddy configuration file.
  */
-const validate = async (configPath: AbsolutePath): Promise<Result<void, DivbanError>> => {
-  const result = await loadServiceConfig(configPath, caddyConfigSchema);
-  if (!result.ok) {
-    return result;
-  }
-  return Ok(undefined);
-};
+const validate = createConfigValidator(caddyConfigSchema);
 
 /**
  * Generate all files for Caddy service.
@@ -158,34 +159,37 @@ const generate = (
 };
 
 /**
- * Full setup for Caddy service.
+ * Setup state for Caddy - tracks data passed between steps.
  */
-const setup = async (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
-  const { logger } = ctx;
+interface CaddySetupState {
+  files?: GeneratedFiles;
+}
 
-  // 1. Generate files
-  logger.step(1, 3, "Generating configuration files...");
-  const filesResult = await generate(ctx);
-  if (!filesResult.ok) {
-    return filesResult;
-  }
+/**
+ * Full setup for Caddy service.
+ * Uses executeSetupSteps for clean sequential execution with state threading.
+ */
+const setup = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
+  const steps: SetupStep<CaddyConfig, CaddySetupState>[] = [
+    {
+      message: "Generating configuration files...",
+      execute: async (ctx): SetupStepResult<CaddySetupState> =>
+        mapResult(await generate(ctx), (files) => ({ files })),
+    },
+    {
+      message: "Writing configuration files...",
+      execute: (ctx, state): SetupStepResult<CaddySetupState> =>
+        state.files
+          ? writeGeneratedFiles(state.files, ctx)
+          : Promise.resolve(Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated"))),
+    },
+    {
+      message: "Enabling and starting service...",
+      execute: (ctx): SetupStepResult<CaddySetupState> => reloadAndEnableServices(ctx, ["caddy"]),
+    },
+  ];
 
-  // 2. Write files
-  logger.step(2, 3, "Writing configuration files...");
-  const writeResult = await writeGeneratedFiles(filesResult.value, ctx);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
-
-  // 3. Reload and enable
-  logger.step(3, 3, "Enabling and starting service...");
-  const enableResult = await reloadAndEnableServices(ctx, ["caddy"]);
-  if (!enableResult.ok) {
-    return enableResult;
-  }
-
-  logger.success("Caddy setup completed successfully");
-  return Ok(undefined);
+  return executeSetupSteps(ctx, steps);
 };
 
 /**

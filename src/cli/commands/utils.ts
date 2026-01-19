@@ -11,11 +11,30 @@
 
 import { normalize, resolve } from "node:path";
 import { loadServiceConfig } from "../../config/loader";
+import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
-import { type AbsolutePath, pathJoin } from "../../lib/types";
+import type { Logger } from "../../lib/logger";
+import { buildServicePaths, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
+import {
+  Err,
+  Ok,
+  type Result,
+  asyncFlatMapResult,
+  mapErr,
+  mapResult,
+  orElse,
+} from "../../lib/result";
+import {
+  type AbsolutePath,
+  type GroupId,
+  type UserId,
+  type Username,
+  pathJoin,
+  userIdToGroupId,
+} from "../../lib/types";
 import type { AnyService, ServiceContext, SystemCapabilities } from "../../services/types";
 import { isSELinuxEnforcing } from "../../system/selinux";
+import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 
 /**
@@ -175,3 +194,122 @@ export const truncateToWidth = (text: string, maxWidth: number): string => {
 export const detectSystemCapabilities = async (): Promise<SystemCapabilities> => ({
   selinuxEnforcing: await isSELinuxEnforcing(),
 });
+
+// ============================================================================
+// Service Context Builder
+// ============================================================================
+
+/**
+ * Resolved service user information.
+ */
+export interface ServiceUser {
+  name: Username;
+  uid: UserId;
+  gid: GroupId;
+  homeDir: AbsolutePath;
+}
+
+/**
+ * Options for building a service context.
+ */
+export interface BuildContextOptions {
+  service: AnyService;
+  args: ParsedArgs;
+  logger: Logger;
+  /** If true, returns error when config not found. Default: false */
+  requireConfig?: boolean;
+  /** Explicit config path (overrides search) */
+  configPath?: string;
+}
+
+/**
+ * Service context with resolved user information.
+ */
+export interface ContextWithUser<C> {
+  ctx: ServiceContext<C>;
+  user: ServiceUser;
+}
+
+/**
+ * Resolve service user from system.
+ * Returns error if user doesn't exist.
+ *
+ * Uses asyncFlatMapResult to chain: getServiceUsername → getUserByName → transform
+ */
+export const resolveServiceUser = (
+  serviceName: string
+): Promise<Result<ServiceUser, DivbanError>> =>
+  asyncFlatMapResult(getServiceUsername(serviceName), async (username) =>
+    mapResult(
+      mapErr(
+        await getUserByName(username),
+        () =>
+          new DivbanError(
+            ErrorCode.SERVICE_NOT_FOUND,
+            `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`
+          )
+      ),
+      ({ uid, homeDir }) => ({
+        name: username,
+        uid,
+        gid: userIdToGroupId(uid),
+        homeDir,
+      })
+    )
+  );
+
+/**
+ * Build ServiceContext for commands that need an existing user.
+ * Patterns A & B: User must exist, config may be optional or required.
+ *
+ * Uses asyncFlatMapResult for the main chain, orElse for config fallback.
+ */
+export const buildServiceContext = async <C = unknown>(
+  options: BuildContextOptions
+): Promise<Result<ContextWithUser<C>, DivbanError>> => {
+  const { service, args, logger, requireConfig = false, configPath } = options;
+
+  // Chain: resolveUser → resolveConfig → buildContext
+  return asyncFlatMapResult(await resolveServiceUser(service.definition.name), async (user) => {
+    const configResult = await resolveServiceConfig(service, user.homeDir, configPath);
+
+    // Use orElse for optional config fallback (Pattern A)
+    // For requireConfig (Pattern B), propagate error
+    const config = requireConfig ? configResult : orElse(configResult, () => Ok({} as C));
+
+    if (!config.ok) {
+      return config;
+    }
+
+    // Build paths - dataDir depends on config
+    const baseDataDir = userDataDir(user.homeDir);
+    const dataDir = configResult.ok
+      ? getDataDirFromConfig(configResult.value, baseDataDir)
+      : baseDataDir;
+
+    // Use buildServicePaths for simple pattern, manual for config-required pattern
+    const paths = requireConfig
+      ? {
+          dataDir,
+          quadletDir: userQuadletDir(user.homeDir),
+          configDir: userConfigDir(user.homeDir),
+        }
+      : buildServicePaths(user.homeDir, dataDir);
+
+    // Build final context
+    const ctx: ServiceContext<C> = {
+      config: config.value as C,
+      logger,
+      paths,
+      user: {
+        name: user.name,
+        uid: user.uid,
+        gid: user.gid,
+      },
+      options: getContextOptions(args),
+      system: await detectSystemCapabilities(),
+    };
+
+    return Ok({ ctx, user });
+  });
+};
