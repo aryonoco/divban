@@ -21,7 +21,7 @@ const STALE_LOCK_AGE_MS = 60000; // 1 minute
 
 /** Validate resource name doesn't contain path traversal characters */
 const isValidResourceName = (name: string): boolean =>
-  !name.includes("/") && !name.includes("\\") && !name.includes("..") && !name.includes("\x00");
+  !(name.includes("/") || name.includes("\\") || name.includes("..") || name.includes("\x00"));
 
 /** Lock file content: PID and timestamp */
 interface LockInfo {
