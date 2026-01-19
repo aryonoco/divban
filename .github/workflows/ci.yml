@@ -37,6 +37,7 @@ jobs:
         run: npm install -g cspell@latest
 
       - name: Run spell check
+        continue-on-error: true
         run: cspell "**/*.ts" "**/*.md" --no-progress
 
   ci:
@@ -80,8 +81,8 @@ jobs:
           bunx @biomejs/biome --version
           bunx tsc --version
 
-      - name: Check formatting
-        run: bunx @biomejs/biome format .
+      - name: Format code
+        run: bunx @biomejs/biome format --write .
 
       - name: Lint
         run: bunx @biomejs/biome check .

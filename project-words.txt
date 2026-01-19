@@ -51,6 +51,11 @@ zstd
 
 # Project-Specific
 divban
+diun
+دیوبان
+diːvˈbɒːn
+daēva
+Tahmuras
 
 # British English Variants
 behaviour

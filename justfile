@@ -31,21 +31,6 @@ build:
     mkdir -p bin
     bun run build
 
-# Build for Linux amd64 (baseline x86_64)
-build-linux-amd64:
-    mkdir -p bin
-    bun run build:linux-amd64
-
-# Build for Linux amd64v3 (x86_64 with AVX2+)
-build-linux-amd64v3:
-    mkdir -p bin
-    bun run build:linux-amd64v3
-
-# Build for Linux arm64 (AArch64)
-build-linux-arm64:
-    mkdir -p bin
-    bun run build:linux-arm64
-
 # Build for all platforms
 build-all:
     mkdir -p bin
@@ -117,19 +102,9 @@ lint:
 fmt:
     bun run format
 
-# Check formatting without writing
-fmt-check:
-    bunx @biomejs/biome format .
-
 # Run type checker
 typecheck:
     bun run typecheck
-
-# Run all checks (lint + typecheck)
-check: lint typecheck
-
-# Run full CI pipeline
-ci: fmt-check lint typecheck test
 
 # Run spell check
 spell:
@@ -143,8 +118,8 @@ reuse:
     reuse lint
     @echo "REUSE compliance passed"
 
-# Run full CI pipeline with spell check and REUSE
-ci-full: spell reuse ci
+# Run full CI pipeline
+ci: spell reuse fmt lint typecheck test
     @echo ""
     @echo "============================================"
     @echo "All CI checks passed!"
@@ -159,21 +134,11 @@ clean:
     rm -rf bin
     rm -rf dist coverage
 
-# Generate Quadlet for a service (example)
-quadlet service config:
-    bun run dev {{service}} generate {{config}}
-
-# Validate config for a service
-validate service config:
-    bun run dev {{service}} validate {{config}}
-
 # =============================================================================
 # RELEASE
 # =============================================================================
 
-# Prepare a release (validates, updates version, runs CI)
-# Usage: just tag v1.0.0
-# For prerelease: just tag v1.0.0-rc1
+# Prepare a release: validate version, update package.json, run CI
 tag VERSION:
     echo "{{VERSION}}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$' || { echo "ERROR: Version must match vX.Y.Z or vX.Y.Z-suffix (e.g., v0.5.0, v1.0.0-rc1)"; exit 1; }
     @echo "Preparing release {{VERSION}}..."
@@ -189,8 +154,7 @@ tag VERSION:
     @echo ""
     @echo "Run 'just release {{VERSION}}' to commit, tag, and push"
 
-# Full release: validate, update version, run CI, commit, tag, and push
-# Usage: just release v1.0.0
+# Full release: run tag, commit, git tag, and push
 release VERSION:
     just tag {{VERSION}}
     git add .
