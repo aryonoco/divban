@@ -19,6 +19,7 @@ import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../.
 import { type ArchiveMetadata, createArchive } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
 import { directoryExists, ensureDirectory } from "../../../system/fs";
+import { CONTAINERS } from "../constants";
 
 /**
  * Compression method for backups.
@@ -65,7 +66,7 @@ export const backupDatabase = async (
     user,
     uid,
     logger,
-    containerName = "immich-postgres",
+    containerName = CONTAINERS.postgres,
     dbUser = "immich",
     compression = "zstd",
   } = options;

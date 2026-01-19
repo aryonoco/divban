@@ -9,7 +9,7 @@
  * Hardware acceleration device mappings for transcoding.
  */
 
-import { None, type Option, Some } from "../../../lib/option";
+import { None, type Option, Some, fromUndefined, mapOr } from "../../../lib/option";
 import { assertNever } from "../../../lib/types";
 import type { TranscodingConfig } from "../schema";
 
@@ -29,12 +29,13 @@ export interface TranscodingDevices {
  * Get device mappings for NVIDIA NVENC transcoding.
  */
 const getNvencDevices = (gpuIndex?: number): TranscodingDevices => ({
-  devices:
-    gpuIndex !== undefined
-      ? [`/dev/nvidia${gpuIndex}`, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"]
-      : ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
+  devices: mapOr(
+    fromUndefined(gpuIndex),
+    ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
+    (idx) => [`/dev/nvidia${idx}`, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"]
+  ),
   environment: {
-    NVIDIA_VISIBLE_DEVICES: gpuIndex !== undefined ? String(gpuIndex) : "all",
+    NVIDIA_VISIBLE_DEVICES: mapOr(fromUndefined(gpuIndex), "all", String),
     NVIDIA_DRIVER_CAPABILITIES: "compute,video,utility",
   },
 });

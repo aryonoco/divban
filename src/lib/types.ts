@@ -255,7 +255,7 @@ export const isPrivateIP = (s: string): s is PrivateIP => PrivateIP(s).ok;
  * Convert UserId to GroupId.
  * POSIX convention: GID matches UID for service users.
  */
-export const userIdToGroupId = (uid: UserId): GroupId => uid as unknown as GroupId;
+export const userIdToGroupId = (uid: UserId): GroupId => uid as number as GroupId;
 
 // ============================================================================
 // Compile-Time Path Validation
@@ -294,7 +294,7 @@ type AbsolutePathLiteral = `/${string}`;
  * const hosts = path(str);  // Error: string is not assignable to `/${string}`
  */
 export const path = <const S extends AbsolutePathLiteral>(literal: S): AbsolutePath =>
-  literal as unknown as AbsolutePath;
+  literal as string as AbsolutePath;
 
 // ============================================================================
 // Type-Safe Path Concatenation

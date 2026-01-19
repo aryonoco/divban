@@ -9,6 +9,7 @@
  * Container user namespace configuration for quadlet files.
  */
 
+import { fromUndefined, mapOption, toArray } from "../../lib/option";
 import { assertNever } from "../../lib/types";
 import type { UserNamespace } from "../types";
 
@@ -24,16 +25,17 @@ export const addUserNsEntries = (
   }
 
   switch (config.mode) {
-    case "keep-id":
+    case "keep-id": {
       // keep-id maps container UID 0 to host user's UID
-      if (config.uid !== undefined || config.gid !== undefined) {
-        const uidPart = config.uid !== undefined ? `:uid=${config.uid}` : "";
-        const gidPart = config.gid !== undefined ? `,gid=${config.gid}` : "";
-        entries.push({ key: "UserNS", value: `keep-id${uidPart}${gidPart}` });
-      } else {
-        entries.push({ key: "UserNS", value: "keep-id" });
-      }
+      // Transform each optional value to Option<string>, then collect present values
+      const parts = [
+        ...toArray(mapOption(fromUndefined(config.uid), (uid) => `uid=${uid}`)),
+        ...toArray(mapOption(fromUndefined(config.gid), (gid) => `gid=${gid}`)),
+      ];
+      const suffix = parts.length > 0 ? `:${parts.join(",")}` : "";
+      entries.push({ key: "UserNS", value: `keep-id${suffix}` });
       break;
+    }
     case "auto":
       // auto creates an automatic user namespace mapping
       entries.push({ key: "UserNS", value: "auto" });

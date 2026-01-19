@@ -18,6 +18,7 @@ import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
 import { fileExists } from "../../../system/fs";
+import { CONTAINERS } from "../constants";
 
 export interface RestoreOptions {
   /** Path to backup file */
@@ -61,7 +62,7 @@ export const restoreDatabase = async (
     user,
     uid,
     logger,
-    containerName = "immich-postgres",
+    containerName = CONTAINERS.postgres,
     database = "immich",
     dbUser = "immich",
   } = options;

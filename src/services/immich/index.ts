@@ -49,13 +49,13 @@ import type {
 import { createGeneratedFiles } from "../types";
 import { backupDatabase } from "./commands/backup";
 import { restoreDatabase } from "./commands/restore";
+import { CONTAINERS, DEFAULT_IMAGES, INTERNAL_URLS, NETWORK_NAME } from "./constants";
 import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
 import { getLibraryEnvironment, librariesToVolumeMounts } from "./libraries";
 import { type ImmichConfig, immichConfigSchema } from "./schema";
 import { IMMICH_SECRETS, ImmichSecretNames } from "./secrets";
 
 const SERVICE_NAME = "immich" as ServiceName;
-const DEFAULT_ML_IMAGE = "ghcr.io/immich-app/immich-machine-learning:release";
 
 /**
  * Immich service definition.
@@ -118,7 +118,7 @@ const generate = (
       {
         name: "Database Configuration",
         vars: {
-          DB_HOSTNAME: "immich-postgres",
+          DB_HOSTNAME: CONTAINERS.postgres,
           DB_PORT: 5432,
           DB_DATABASE_NAME: config.database.database,
           DB_USERNAME: config.database.username,
@@ -127,18 +127,16 @@ const generate = (
       {
         name: "Redis Configuration",
         vars: {
-          REDIS_HOSTNAME: "immich-redis",
+          REDIS_HOSTNAME: CONTAINERS.redis,
           REDIS_PORT: 6379,
         },
       },
       {
         name: "Server Configuration",
         vars: {
-          IMMICH_SERVER_URL: "http://immich-server:2283",
+          IMMICH_SERVER_URL: INTERNAL_URLS.server,
           IMMICH_MACHINE_LEARNING_URL:
-            config.containers?.machineLearning?.enabled !== false
-              ? "http://immich-machine-learning:3003"
-              : undefined,
+            config.containers?.machineLearning?.enabled !== false ? INTERNAL_URLS.ml : undefined,
           LOG_LEVEL: config.logLevel,
           IMMICH_WEB_URL: config.publicUrl,
         },
@@ -162,9 +160,9 @@ const generate = (
 
   // Redis container
   containers.push({
-    name: "immich-redis",
+    name: CONTAINERS.redis,
     description: "Immich Redis cache",
-    image: config.containers?.redis?.image ?? "docker.io/library/redis:7-alpine",
+    image: config.containers?.redis?.image ?? DEFAULT_IMAGES.redis,
     healthCheck: createRedisHealthCheck(),
     readOnlyRootfs: true,
     noNewPrivileges: true,
@@ -174,9 +172,9 @@ const generate = (
   // PostgreSQL container
   const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
   containers.push({
-    name: "immich-postgres",
+    name: CONTAINERS.postgres,
     description: "Immich PostgreSQL database with pgvecto.rs",
-    image: config.containers?.postgres?.image ?? "docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0",
+    image: config.containers?.postgres?.image ?? DEFAULT_IMAGES.postgres,
     environment: {
       POSTGRES_PASSWORD_FILE: getSecretMountPath(dbSecretName),
       POSTGRES_USER: config.database.username,
@@ -198,14 +196,11 @@ const generate = (
   const networkPort = config.network?.port ?? 2283;
 
   containers.push({
-    name: "immich-server",
+    name: CONTAINERS.server,
     description: "Immich server",
-    image: config.containers?.server?.image ?? "ghcr.io/immich-app/immich-server:release",
-    requires: ["immich-redis", "immich-postgres"],
-    wants:
-      config.containers?.machineLearning?.enabled !== false
-        ? ["immich-machine-learning"]
-        : undefined,
+    image: config.containers?.server?.image ?? DEFAULT_IMAGES.server,
+    requires: [CONTAINERS.redis, CONTAINERS.postgres],
+    wants: config.containers?.machineLearning?.enabled !== false ? [CONTAINERS.ml] : undefined,
     ports: [{ hostIp: networkHost, host: networkPort, container: 2283 }],
     volumes: [
       { source: uploadDir, target: "/upload" },
@@ -229,13 +224,13 @@ const generate = (
 
   // Machine Learning container (optional)
   if (config.containers?.machineLearning?.enabled !== false) {
-    const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_ML_IMAGE;
+    const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_IMAGES.ml;
     const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
     const mlDevices = mergeDevices(hardware.ml);
     const mlEnv = mergeEnvironment(hardware.ml);
 
     containers.push({
-      name: "immich-machine-learning",
+      name: CONTAINERS.ml,
       description: "Immich Machine Learning",
       image: mlImage,
       volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
@@ -255,7 +250,7 @@ const generate = (
   // Create stack and generate quadlets
   const stack = createStack({
     name: "immich",
-    network: { name: "immich-net", internal: true },
+    network: { name: NETWORK_NAME, internal: true },
     containers,
   });
 
@@ -346,12 +341,7 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
 
   // 6. Enable services
   logger.step(6, 6, "Enabling services...");
-  const enableUnits = [
-    "immich-redis",
-    "immich-postgres",
-    "immich-server",
-    "immich-machine-learning",
-  ];
+  const enableUnits = [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml];
   const opts = { user: ctx.user.name, uid: ctx.user.uid };
   const enableOps = enableUnits.map(
     (unit): (() => Promise<Result<void, DivbanError>>) =>
@@ -373,13 +363,13 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
 const start = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
   const { config } = ctx;
   const containers: StackContainer[] = [
-    { name: "immich-redis", image: "", requires: [] },
-    { name: "immich-postgres", image: "", requires: ["immich-redis"] },
-    { name: "immich-server", image: "", requires: ["immich-redis", "immich-postgres"] },
+    { name: CONTAINERS.redis, image: "", requires: [] },
+    { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
+    { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
   ];
 
   if (config.containers?.machineLearning?.enabled !== false) {
-    containers.push({ name: "immich-machine-learning", image: "", requires: [] });
+    containers.push({ name: CONTAINERS.ml, image: "", requires: [] });
   }
 
   const stack = createStack({ name: "immich", containers });
@@ -392,13 +382,13 @@ const start = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
 const stop = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
   const { config } = ctx;
   const containers: StackContainer[] = [
-    { name: "immich-server", image: "", requires: ["immich-redis", "immich-postgres"] },
-    { name: "immich-postgres", image: "", requires: ["immich-redis"] },
-    { name: "immich-redis", image: "" },
+    { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
+    { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
+    { name: CONTAINERS.redis, image: "" },
   ];
 
   if (config.containers?.machineLearning?.enabled !== false) {
-    containers.unshift({ name: "immich-machine-learning", image: "" });
+    containers.unshift({ name: CONTAINERS.ml, image: "" });
   }
 
   const stack = createStack({ name: "immich", containers });
@@ -421,13 +411,13 @@ const status = async (
 ): Promise<Result<ServiceStatus, DivbanError>> => {
   const { config } = ctx;
   const containers: StackContainer[] = [
-    { name: "immich-redis", image: "" },
-    { name: "immich-postgres", image: "" },
-    { name: "immich-server", image: "" },
+    { name: CONTAINERS.redis, image: "" },
+    { name: CONTAINERS.postgres, image: "" },
+    { name: CONTAINERS.server, image: "" },
   ];
 
   if (config.containers?.machineLearning?.enabled !== false) {
-    containers.push({ name: "immich-machine-learning", image: "" });
+    containers.push({ name: CONTAINERS.ml, image: "" });
   }
 
   const stack = createStack({ name: "immich", containers });
@@ -460,7 +450,7 @@ const logs = (
   ctx: ServiceContext<ImmichConfig>,
   options: LogOptions
 ): Promise<Result<void, DivbanError>> => {
-  const unit = options.container ? `${options.container}.service` : "immich-server.service";
+  const unit = options.container ? `${options.container}.service` : `${CONTAINERS.server}.service`;
 
   return journalctl(unit, {
     user: ctx.user.name,

@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 import { absolutePathSchema } from "../../config/schema";
+import { DEFAULT_IMAGES } from "./constants";
 
 /**
  * Hardware acceleration configuration for video transcoding.
@@ -109,7 +110,7 @@ export interface ImmichContainersConfig {
 export const immichContainersSchema: z.ZodType<ImmichContainersConfig> = z.object({
   server: z
     .object({
-      image: z.string().default("ghcr.io/immich-app/immich-server:release"),
+      image: z.string().default(DEFAULT_IMAGES.server),
     })
     .optional(),
   machineLearning: z
@@ -120,12 +121,12 @@ export const immichContainersSchema: z.ZodType<ImmichContainersConfig> = z.objec
     .optional(),
   redis: z
     .object({
-      image: z.string().default("docker.io/library/redis:7-alpine"),
+      image: z.string().default(DEFAULT_IMAGES.redis),
     })
     .optional(),
   postgres: z
     .object({
-      image: z.string().default("docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0"),
+      image: z.string().default(DEFAULT_IMAGES.postgres),
     })
     .optional(),
 }) as z.ZodType<ImmichContainersConfig>;

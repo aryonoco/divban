@@ -9,6 +9,7 @@
  * Hardware acceleration for machine learning inference.
  */
 
+import { fromUndefined, mapOr } from "../../../lib/option";
 import { assertNever } from "../../../lib/types";
 import type { MlConfig } from "../schema";
 
@@ -30,12 +31,13 @@ export interface MlDevices {
  * Get configuration for NVIDIA CUDA ML acceleration.
  */
 const getCudaConfig = (gpuIndex?: number): MlDevices => ({
-  devices:
-    gpuIndex !== undefined
-      ? [`/dev/nvidia${gpuIndex}`, "/dev/nvidiactl", "/dev/nvidia-uvm"]
-      : ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
+  devices: mapOr(
+    fromUndefined(gpuIndex),
+    ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
+    (idx) => [`/dev/nvidia${idx}`, "/dev/nvidiactl", "/dev/nvidia-uvm"]
+  ),
   environment: {
-    NVIDIA_VISIBLE_DEVICES: gpuIndex !== undefined ? String(gpuIndex) : "all",
+    NVIDIA_VISIBLE_DEVICES: mapOr(fromUndefined(gpuIndex), "all", String),
     NVIDIA_DRIVER_CAPABILITIES: "compute,utility",
   },
   imageSuffix: "-cuda",
