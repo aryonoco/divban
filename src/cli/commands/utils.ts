@@ -23,9 +23,11 @@ import {
   mapErr,
   mapResult,
   orElse,
+  unwrapOr,
 } from "../../lib/result";
 import {
-  type AbsolutePath,
+  AbsolutePath,
+  type AbsolutePath as AbsolutePathType,
   type GroupId,
   type UserId,
   type Username,
@@ -50,7 +52,7 @@ export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["op
  * Resolve a path to absolute with security validation.
  * Rejects null bytes and validates normalization.
  */
-const toAbsolute = (p: string): Result<AbsolutePath, DivbanError> => {
+export const toAbsolute = (p: string): Result<AbsolutePath, DivbanError> => {
   // Reject null bytes (path injection attack)
   if (p.includes("\x00")) {
     return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid path contains null byte: ${p}`));
@@ -145,7 +147,10 @@ export const formatBytes = (bytes: number): string => {
  * Safely extract dataDir from config.
  * Service configs may have a paths.dataDir property.
  */
-export const getDataDirFromConfig = (config: unknown, fallback: AbsolutePath): AbsolutePath => {
+export const getDataDirFromConfig = (
+  config: unknown,
+  fallback: AbsolutePathType
+): AbsolutePathType => {
   if (
     config !== null &&
     typeof config === "object" &&
@@ -155,7 +160,8 @@ export const getDataDirFromConfig = (config: unknown, fallback: AbsolutePath): A
     "dataDir" in config.paths &&
     typeof config.paths.dataDir === "string"
   ) {
-    return config.paths.dataDir as AbsolutePath;
+    // Validate the path, falling back to default if invalid
+    return unwrapOr(AbsolutePath(config.paths.dataDir), fallback);
   }
   return fallback;
 };

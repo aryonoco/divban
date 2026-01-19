@@ -15,7 +15,7 @@ import { Glob } from "bun";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode, wrapError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { fromUndefined, mapOption } from "../../lib/option";
+import { fromUndefined, mapOption, transpose } from "../../lib/option";
 import { userConfigDir } from "../../lib/paths";
 import {
   Err,
@@ -34,7 +34,7 @@ import { type ArchiveMetadata, createArchive } from "../../system/archive";
 import { directoryExists, ensureDirectory, fileExists } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { formatBytes } from "./utils";
+import { formatBytes, toAbsolute } from "./utils";
 
 export interface BackupConfigOptions {
   service: AnyService;
@@ -257,11 +257,18 @@ const prepareOutputPath = async (
   serviceName: string,
   customPath: string | undefined
 ): Promise<Result<AbsolutePath, DivbanError>> => {
-  // Option pattern: if custom path provided, use it directly
+  // Option pattern: validate custom path if provided, using transpose for Option<Result> → Result<Option>
   const customOpt = fromUndefined(customPath);
-  const mapped = mapOption(customOpt, (p) => Ok(p as AbsolutePath));
-  if (mapped.isSome) {
-    return mapped.value;
+  const validatedOpt = transpose(mapOption(customOpt, toAbsolute));
+
+  // If validation failed, return the error
+  if (!validatedOpt.ok) {
+    return validatedOpt;
+  }
+
+  // If custom path was provided and valid, use it
+  if (validatedOpt.value.isSome) {
+    return Ok(validatedOpt.value.value);
   }
 
   // Generate timestamped default path

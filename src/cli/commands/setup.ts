@@ -16,8 +16,7 @@ import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { configFilePath, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
+import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { chown, ensureServiceDirectories } from "../../system/directories";
@@ -26,7 +25,12 @@ import { enableLinger } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { createServiceUser, getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, getDataDirFromConfig } from "./utils";
+import {
+  detectSystemCapabilities,
+  getContextOptions,
+  getDataDirFromConfig,
+  toAbsolute,
+} from "./utils";
 
 export interface SetupOptions {
   service: AnyService;
@@ -53,14 +57,19 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
 
   logger.info(`Setting up ${service.definition.name}...`);
 
-  // Load and validate config
-  const configResult = await loadServiceConfig(
-    configPath as AbsolutePath,
-    service.definition.configSchema
+  // Chain: validate path → load config
+  const configResult = await asyncFlatMapResult(toAbsolute(configPath), (validPath) =>
+    loadServiceConfig(validPath, service.definition.configSchema)
   );
 
   if (!configResult.ok) {
     return configResult;
+  }
+
+  // Store validated path for file copy later
+  const validConfigPath = toAbsolute(configPath);
+  if (!validConfigPath.ok) {
+    return validConfigPath; // Already validated above, but TypeScript needs this
   }
 
   // Get service username
@@ -162,7 +171,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   currentStep++;
   logger.step(currentStep, totalSteps, "Copying configuration file...");
   const configDestPath = configFilePath(userConfigDir(homeDir), `${service.definition.name}.toml`);
-  const copyResult = await copyFile(configPath as AbsolutePath, configDestPath);
+  const copyResult = await copyFile(validConfigPath.value, configDestPath);
   if (!copyResult.ok) {
     return copyResult;
   }

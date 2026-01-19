@@ -19,6 +19,10 @@ import { deleteFile, ensureDirectory, readFile, writeFileExclusive } from "./fs"
 const LOCK_DIR = "/var/lock/divban" as AbsolutePath;
 const STALE_LOCK_AGE_MS = 60000; // 1 minute
 
+/** Validate resource name doesn't contain path traversal characters */
+const isValidResourceName = (name: string): boolean =>
+  !name.includes("/") && !name.includes("\\") && !name.includes("..") && !name.includes("\x00");
+
 /** Lock file content: PID and timestamp */
 interface LockInfo {
   readonly pid: number;
@@ -128,6 +132,15 @@ export const withLock = async <T>(
   options: { maxWaitMs?: number; retryIntervalMs?: number } = {}
 ): Promise<Result<T, DivbanError>> => {
   const { maxWaitMs = 5000, retryIntervalMs = 50 } = options;
+
+  if (!isValidResourceName(resourceName)) {
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        `Invalid lock resource name: ${resourceName}. Must not contain path separators or traversal sequences.`
+      )
+    );
+  }
   const lockPath = `${LOCK_DIR}/${resourceName}.lock` as AbsolutePath;
   const maxAttempts = Math.ceil(maxWaitMs / retryIntervalMs);
 

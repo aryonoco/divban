@@ -150,6 +150,16 @@ export const restoreActual = async (
         continue;
       }
 
+      // Validate filename doesn't contain path traversal
+      if (name.includes("..") || name.startsWith("/") || name.includes("\x00")) {
+        return Err(
+          new DivbanError(
+            ErrorCode.RESTORE_FAILED,
+            `Invalid filename in backup archive: ${name}. Potential path traversal detected.`
+          )
+        );
+      }
+
       const fullPath = `${dataDir}/${name}`;
 
       // Ensure parent directory exists

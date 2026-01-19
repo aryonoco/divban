@@ -20,13 +20,13 @@ import {
   userConfigDir,
   userQuadletDir,
 } from "../../lib/paths";
-import { Err, Ok, type Result, combine2 } from "../../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, combine2 } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions } from "./utils";
+import { detectSystemCapabilities, getContextOptions, toAbsolute } from "./utils";
 
 export interface DiffOptions {
   service: AnyService;
@@ -51,13 +51,11 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
     return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for diff command"));
   }
 
-  logger.info(`Comparing configuration for ${service.definition.name}...`);
-
-  // Load and validate config
-  const configResult = await loadServiceConfig(
-    configPath as AbsolutePath,
-    service.definition.configSchema
-  );
+  // Chain: validate path → load config
+  const configResult = await asyncFlatMapResult(toAbsolute(configPath), (validPath) => {
+    logger.info(`Comparing configuration for ${service.definition.name}...`);
+    return loadServiceConfig(validPath, service.definition.configSchema);
+  });
 
   if (!configResult.ok) {
     return configResult;

@@ -11,10 +11,10 @@
 
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { Err, Ok, type Result } from "../../lib/result";
-import type { AbsolutePath } from "../../lib/types";
+import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
+import { toAbsolute } from "./utils";
 
 export interface ValidateOptions {
   service: AnyService;
@@ -25,27 +25,28 @@ export interface ValidateOptions {
 /**
  * Execute the validate command.
  */
-export const executeValidate = async (
-  options: ValidateOptions
-): Promise<Result<void, DivbanError>> => {
+export const executeValidate = (options: ValidateOptions): Promise<Result<void, DivbanError>> => {
   const { service, args, logger } = options;
   const configPath = args.configPath;
 
   if (!configPath) {
-    return Err(
-      new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for validate command")
+    return Promise.resolve(
+      Err(new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for validate command"))
     );
   }
 
-  logger.info(`Validating configuration: ${configPath}`);
+  // Chain: validate path → validate config → log result
+  return asyncFlatMapResult(toAbsolute(configPath), async (validPath) => {
+    logger.info(`Validating configuration: ${validPath}`);
 
-  const result = await service.validate(configPath as AbsolutePath);
+    const result = await service.validate(validPath);
 
-  if (!result.ok) {
-    logger.fail(`Validation failed: ${result.error.message}`);
-    return result;
-  }
+    if (!result.ok) {
+      logger.fail(`Validation failed: ${result.error.message}`);
+      return result;
+    }
 
-  logger.success("Configuration is valid");
-  return Ok(undefined);
+    logger.success("Configuration is valid");
+    return Ok(undefined);
+  });
 };

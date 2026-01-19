@@ -14,10 +14,18 @@ import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { type LogLevel, type Logger, createLogger } from "../lib/logger";
-import { None, type Option, Some, getOrElse, isNone } from "../lib/option";
+import {
+  None,
+  type Option,
+  Some,
+  fromUndefined,
+  getOrElse,
+  isNone,
+  mapOption,
+  transpose,
+} from "../lib/option";
 import type { Result } from "../lib/result";
 import { Err, Ok } from "../lib/result";
-import type { AbsolutePath } from "../lib/types";
 import { getService, initializeServices, listServices } from "../services";
 import type { AnyService, ServiceDefinition } from "../services/types";
 import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
@@ -37,6 +45,7 @@ import { executeStart } from "./commands/start";
 import { executeStatus } from "./commands/status";
 import { executeStop } from "./commands/stop";
 import { executeUpdate } from "./commands/update";
+import { toAbsolute } from "./commands/utils";
 // Import command handlers
 import { executeValidate } from "./commands/validate";
 
@@ -63,10 +72,20 @@ export const run = async (argv: string[]): Promise<number> => {
     return 0;
   }
 
+  // Validate global config path if provided using Option → Result transformation
+  const globalConfigPathOpt = fromUndefined(args.globalConfigPath);
+  const validatedPathResult = transpose(mapOption(globalConfigPathOpt, toAbsolute));
+  if (!validatedPathResult.ok) {
+    console.error(`Error: ${validatedPathResult.error.message}`);
+    return validatedPathResult.error.code;
+  }
+  // Extract Option<AbsolutePath> to AbsolutePath | undefined for loadGlobalConfig
+  const validatedPath = validatedPathResult.value.isSome
+    ? validatedPathResult.value.value
+    : undefined;
+
   // Load global configuration (always loads, returns defaults if no file)
-  const globalConfigResult = await loadGlobalConfig(
-    args.globalConfigPath as AbsolutePath | undefined
-  );
+  const globalConfigResult = await loadGlobalConfig(validatedPath);
   if (!globalConfigResult.ok) {
     console.error(`Error loading global config: ${globalConfigResult.error.message}`);
     return globalConfigResult.error.code;
