@@ -10,7 +10,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { Err, Ok, type Result, collectResults } from "../lib/result";
+import { Err, Ok, type Result, mapResult, parallel } from "../lib/result";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
 
@@ -62,14 +62,8 @@ export const ensureDirectories = async (
   owner: DirectoryOwner,
   mode = "0755"
 ): Promise<Result<void, DivbanError>> => {
-  const results = await Promise.all(paths.map((path) => ensureDirectory(path, owner, mode)));
-
-  const collected = collectResults(results);
-  if (!collected.ok) {
-    return collected;
-  }
-
-  return Ok(undefined);
+  const result = await parallel(paths.map((path) => ensureDirectory(path, owner, mode)));
+  return mapResult(result, () => undefined);
 };
 
 /**
@@ -159,15 +153,13 @@ export const ensureServiceDirectories = async (
   const quadletParent = pathJoin(homeDir, ".config", "containers");
   const configParent = pathJoin(homeDir, ".config");
 
-  // Create in order
-  const results = await Promise.all([
+  // Create in parallel
+  const result = await parallel([
     ensureDirectories(dataDirs, owner),
     ensureDirectory(configParent, owner),
   ]);
-
-  const collected = collectResults(results);
-  if (!collected.ok) {
-    return collected;
+  if (!result.ok) {
+    return result;
   }
 
   // Now create containers directory and quadlet directory

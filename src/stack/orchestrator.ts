@@ -11,7 +11,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Logger } from "../lib/logger";
-import { Err, Ok, type Result, asyncFlatMapResult, collectResults } from "../lib/result";
+import { Err, Ok, type Result, asyncFlatMapResult, parallel } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -42,7 +42,7 @@ export const startStack = async (
   stack: Stack,
   options: OrchestratorOptions
 ): Promise<Result<void, DivbanError>> => {
-  const { logger, parallel = true } = options;
+  const { logger, parallel: parallelStart = true } = options;
   const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
   // Resolve start order
@@ -69,14 +69,13 @@ export const startStack = async (
 
     logger.step(i + 1, levels.length, `Starting level ${i + 1}: ${level.join(", ")}`);
 
-    if (parallel && level.length > 1) {
+    if (parallelStart && level.length > 1) {
       // Start all containers in this level in parallel
-      const results = await Promise.all(
+      const result = await parallel(
         level.map((name) => startService(`${name}.service`, systemctlOpts))
       );
-      const collected = collectResults(results);
-      if (!collected.ok) {
-        return collected;
+      if (!result.ok) {
+        return result;
       }
     } else {
       // Start sequentially
@@ -106,7 +105,7 @@ export const stopStack = async (
   stack: Stack,
   options: OrchestratorOptions
 ): Promise<Result<void, DivbanError>> => {
-  const { logger, parallel = true } = options;
+  const { logger, parallel: parallelStop = true } = options;
   const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
   // Resolve stop order (reverse of start)
@@ -126,14 +125,13 @@ export const stopStack = async (
 
     logger.step(i + 1, levels.length, `Stopping level ${i + 1}: ${level.join(", ")}`);
 
-    if (parallel && level.length > 1) {
+    if (parallelStop && level.length > 1) {
       // Stop all containers in this level in parallel
-      const results = await Promise.all(
+      const result = await parallel(
         level.map((name) => stopService(`${name}.service`, systemctlOpts))
       );
-      const collected = collectResults(results);
-      if (!collected.ok) {
-        return collected;
+      if (!result.ok) {
+        return result;
       }
     } else {
       // Stop sequentially

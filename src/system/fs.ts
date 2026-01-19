@@ -14,7 +14,15 @@ import { watch } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, Ok, type Result, asyncFlatMapResult, mapResult, tryCatch } from "../lib/result";
+import {
+  Err,
+  Ok,
+  type Result,
+  asyncFlatMapResult,
+  mapResult,
+  parallel,
+  tryCatch,
+} from "../lib/result";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
@@ -190,16 +198,12 @@ export const filesEqual = async (
   path1: AbsolutePath,
   path2: AbsolutePath
 ): Promise<Result<boolean, DivbanError>> => {
-  const [content1, content2] = await Promise.all([readFile(path1), readFile(path2)]);
-
-  if (!content1.ok) {
-    return content1;
+  const result = await parallel([readFile(path1), readFile(path2)]);
+  if (!result.ok) {
+    return result;
   }
-  if (!content2.ok) {
-    return content2;
-  }
-
-  return Ok(content1.value === content2.value);
+  const [content1, content2] = result.value;
+  return Ok(content1 === content2);
 };
 
 /**
