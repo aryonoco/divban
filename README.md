@@ -159,7 +159,7 @@ just ci                  # Run full CI pipeline
 
 This project was developed with significant LLM involvement. I'm a systems architect by trade, not a programmer. I designed the core logic, made technical decisions and directed development, but AI/LLM tools generated most of the code.
 
-All code was reviewed, tested, and iterated on by me. The design choices (Result types over exceptions, branded types for type safety, service abstraction patterns, etc.) are mine. The TypeScript syntax is not.
+All code was reviewed, tested, and iterated on by me. The design choices (Result types over exceptions, service abstraction patterns, etc.) are mine. The TypeScript syntax is not.
 I'm publishing this because it works for me, not because of how it was written.
 
 ## Licence

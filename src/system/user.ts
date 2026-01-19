@@ -83,7 +83,7 @@ const verifyUserConfig = async (
   }
 
   // Verify shell is nologin (security requirement)
-  if (!(shell?.includes("nologin") || shell?.includes("false"))) {
+  if (!(shell?.endsWith("/nologin") || shell?.endsWith("/false"))) {
     return Err(
       new DivbanError(
         ErrorCode.USER_CREATE_FAILED,
@@ -398,8 +398,10 @@ export const getServiceUser = async (
   }
 
   const subuidResult = await getExistingSubuidStart(username);
-  // If subuid not found, user may exist but not be fully configured
-  const subuidStart = subuidResult.ok ? subuidResult.value : (SUBUID_RANGE.start as SubordinateId);
+  if (!subuidResult.ok) {
+    return subuidResult;
+  }
+  const subuidStart = subuidResult.value;
 
   return Ok(
     Some({

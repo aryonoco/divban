@@ -249,6 +249,11 @@ export const retry = async <T, E>(
   shouldRetry: (error: E, attempt: number) => boolean,
   options: { maxAttempts: number; baseDelayMs: number } = { maxAttempts: 3, baseDelayMs: 50 }
 ): Promise<Result<T, E>> => {
+  // Guard: if maxAttempts <= 0, execute operation once and return result directly
+  if (options.maxAttempts <= 0) {
+    return operation();
+  }
+
   let lastError: E | undefined;
 
   for (let attempt = 0; attempt < options.maxAttempts; attempt++) {

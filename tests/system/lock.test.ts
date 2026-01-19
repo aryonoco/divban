@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { Ok } from "../../src/lib/result.ts";
+import { Ok, asyncFlatMapResult } from "../../src/lib/result.ts";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import { ensureDirectory, writeFile } from "../../src/system/fs.ts";
 import { withLock } from "../../src/system/lock.ts";
@@ -15,14 +15,28 @@ import { withLock } from "../../src/system/lock.ts";
 const LOCK_DIR = path("/var/lock/divban");
 const TEST_RESOURCE = "test-resource";
 
-// Check if we can create the lock directory (requires root or specific permissions)
+// Check if we can create the lock directory and write to it (requires root or specific permissions)
 let canCreateLockDir = false;
 
 describe("withLock", () => {
   beforeAll(async () => {
-    // Try to create lock dir - may fail if not root
-    const result = await ensureDirectory(LOCK_DIR);
+    // Chain: ensure directory exists → write test file
+    // Only proceeds to write if directory creation succeeded
+    const testFile = pathJoin(LOCK_DIR, ".write-test");
+    const result = await asyncFlatMapResult(await ensureDirectory(LOCK_DIR), () =>
+      writeFile(testFile, "test")
+    );
+
     canCreateLockDir = result.ok;
+
+    // Cleanup test file if created (best effort)
+    if (result.ok) {
+      try {
+        await rm(testFile, { force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   });
 
   afterAll(async () => {
