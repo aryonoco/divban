@@ -29,7 +29,7 @@ divban automates these through a single declarative configuration file, hoping t
 
 *Divban* (دیوبان, IPA: /diːvˈbɒːn/) is Persian for "keeper of demons." It combines [*div*](https://en.wikipedia.org/wiki/Div_(mythology)), a demon or chaotic spirit in [Zoroastrian](https://en.wikipedia.org/wiki/Zoroastrianism) tradition (from Avestan [*daēva*](https://en.wikipedia.org/wiki/Daeva)), with *-bān*: "keeper" or "guardian".
 
-Divban reflects this tool's purpose: containers are powerful but chaotic forces that, left unmanaged, consume resources and run with excessive privileges. Inspired by the legendary [king Tahmuras](https://en.wikipedia.org/wiki/Tahmuras), the mythical demon binder, divban constrains these forces through user namespaces, resource limits, and systemd integration, harnessing their power for productive work.
+Divban reflects this tool's purpose: containers are powerful but chaotic forces that, left unmanaged, consume resources and run with excessive privileges. Inspired by the legendary [king Tahmuras](https://en.wikipedia.org/wiki/Tahmuras), the mythical demon binder, divban constrains daemons through user namespaces, resource limits, and systemd integration, harnessing their power for productive work.
 
 ## Supported Services
 
