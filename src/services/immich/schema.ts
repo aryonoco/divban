@@ -132,6 +132,21 @@ export const immichContainersSchema: z.ZodType<ImmichContainersConfig> = z.objec
 }) as z.ZodType<ImmichContainersConfig>;
 
 /**
+ * Network configuration.
+ */
+export interface ImmichNetworkConfig {
+  /** Host port to bind (default: 2283) */
+  port: number;
+  /** Host IP to bind (default: 127.0.0.1 for security) */
+  host: string;
+}
+
+export const immichNetworkSchema: z.ZodType<ImmichNetworkConfig> = z.object({
+  port: z.number().int().min(1).max(65535).default(2283),
+  host: z.string().ip().default("127.0.0.1"),
+}) as z.ZodType<ImmichNetworkConfig>;
+
+/**
  * Full Immich service configuration.
  */
 export interface ImmichConfig {
@@ -146,6 +161,7 @@ export interface ImmichConfig {
   hardware?: HardwareConfig | undefined;
   externalLibraries?: ExternalLibrary[] | undefined;
   containers?: ImmichContainersConfig | undefined;
+  network?: ImmichNetworkConfig | undefined;
   publicUrl?: string | undefined;
   logLevel: "verbose" | "debug" | "log" | "warn" | "error";
 }
@@ -162,6 +178,7 @@ export const immichConfigSchema: z.ZodType<ImmichConfig> = z.object({
   hardware: hardwareSchema.optional(),
   externalLibraries: z.array(externalLibrarySchema).optional(),
   containers: immichContainersSchema.optional(),
+  network: immichNetworkSchema.optional(),
   publicUrl: z.string().url().optional(),
   logLevel: z.enum(["verbose", "debug", "log", "warn", "error"]).default("log"),
 }) as z.ZodType<ImmichConfig>;

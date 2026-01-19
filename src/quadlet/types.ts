@@ -102,6 +102,8 @@ export interface ContainerQuadlet {
   /** Network configuration */
   network?: string | undefined;
   networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  /** Map private IP to host loopback (pasta networkMode only) */
+  mapHostLoopback?: string | undefined;
   ports?: PortMapping[] | undefined;
   exposePort?: number[] | undefined;
   hostname?: string | undefined;

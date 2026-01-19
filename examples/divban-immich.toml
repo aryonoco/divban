@@ -15,12 +15,18 @@ dataDir = "/srv/divban-immich"
 # encodedDir = "/srv/divban-immich/encoded"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Network Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[network]
+port = 2283
+host = "127.0.0.1"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Database Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
 [database]
-# PostgreSQL credentials
-# IMPORTANT: Change these in production!
 database = "immich"
 username = "immich"
 password = "change-me-in-production"

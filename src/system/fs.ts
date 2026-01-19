@@ -14,7 +14,7 @@ import { watch } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, Ok, type Result, tryCatch } from "../lib/result";
+import { Err, Ok, type Result, mapResult, tryCatch } from "../lib/result";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
@@ -37,12 +37,9 @@ export const readFile = async (path: AbsolutePath): Promise<Result<string, Divba
  * Read file contents as lines.
  */
 export const readLines = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
-  const result = await readFile(path);
-  if (!result.ok) {
-    return result;
-  }
-
-  return Ok(result.value.split("\n").map((line) => line.trimEnd()));
+  return mapResult(await readFile(path), (content) =>
+    content.split("\n").map((line) => line.trimEnd())
+  );
 };
 
 /**
@@ -345,11 +342,7 @@ export const deleteFileIfExists = async (
 export const hashFile = async (
   path: AbsolutePath
 ): Promise<Result<number | bigint, DivbanError>> => {
-  const content = await readFile(path);
-  if (!content.ok) {
-    return content;
-  }
-  return Ok(Bun.hash(content.value));
+  return mapResult(await readFile(path), Bun.hash);
 };
 
 /**

@@ -12,7 +12,7 @@
 
 import { $ } from "bun";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, Ok, type Result, tryCatch } from "../lib/result";
+import { Err, type Result, mapResult, tryCatch } from "../lib/result";
 
 export interface ExecOptions {
   /** Environment variables to set */
@@ -155,13 +155,10 @@ export const execOutput = async (
   command: readonly string[],
   options: ExecOptions = {}
 ): Promise<Result<string, DivbanError>> => {
-  const result = await execSuccess(command, { ...options, captureStdout: true });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  return Ok(result.value.stdout);
+  return mapResult(
+    await execSuccess(command, { ...options, captureStdout: true }),
+    (r) => r.stdout
+  );
 };
 
 /**

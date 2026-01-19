@@ -11,8 +11,9 @@
 
 import type { DivbanError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
-import { Ok, type Result } from "../lib/result";
+import { Ok, type Result, mapResult } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
+import { chown } from "../system/directories";
 import { writeFile } from "../system/fs";
 import {
   daemonReload,
@@ -43,6 +44,7 @@ export const writeGeneratedFiles = async <C>(
   ctx: ServiceContext<C>
 ): Promise<Result<void, DivbanError>> => {
   const { quadletDir, configDir } = ctx.paths;
+  const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
 
   // Write quadlet files
   for (const [filename, content] of files.quadlets) {
@@ -50,6 +52,10 @@ export const writeGeneratedFiles = async <C>(
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
+    }
+    const chownResult = await chown(path, owner);
+    if (!chownResult.ok) {
+      return chownResult;
     }
   }
 
@@ -60,6 +66,10 @@ export const writeGeneratedFiles = async <C>(
     if (!result.ok) {
       return result;
     }
+    const chownResult = await chown(path, owner);
+    if (!chownResult.ok) {
+      return chownResult;
+    }
   }
 
   // Write volume files
@@ -68,6 +78,10 @@ export const writeGeneratedFiles = async <C>(
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
+    }
+    const chownResult = await chown(path, owner);
+    if (!chownResult.ok) {
+      return chownResult;
     }
   }
 
@@ -78,6 +92,10 @@ export const writeGeneratedFiles = async <C>(
     if (!result.ok) {
       return result;
     }
+    const chownResult = await chown(path, owner);
+    if (!chownResult.ok) {
+      return chownResult;
+    }
   }
 
   // Write other config files
@@ -86,6 +104,10 @@ export const writeGeneratedFiles = async <C>(
     const result = await writeFile(path, content);
     if (!result.ok) {
       return result;
+    }
+    const chownResult = await chown(path, owner);
+    if (!chownResult.ok) {
+      return chownResult;
     }
   }
 
@@ -218,15 +240,12 @@ export const reloadAndEnableServices = async <C>(
 export const wrapBackupResult = async (
   backupFn: () => Promise<Result<AbsolutePath, DivbanError>>
 ): Promise<Result<BackupResult, DivbanError>> => {
-  const result = await backupFn();
-  if (!result.ok) {
-    return result;
-  }
-
-  const file = Bun.file(result.value);
-  return Ok({
-    path: result.value,
-    size: file.size,
-    timestamp: new Date(),
+  return mapResult(await backupFn(), (path) => {
+    const file = Bun.file(path);
+    return {
+      path,
+      size: file.size,
+      timestamp: new Date(),
+    };
   });
 };

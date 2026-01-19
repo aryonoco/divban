@@ -64,6 +64,7 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
     defined({
       network: config.network,
       networkMode: config.networkMode,
+      mapHostLoopback: config.mapHostLoopback,
       ports: config.ports,
       hostname: config.hostname,
       dns: config.dns,
@@ -226,6 +227,7 @@ export { addMiscEntries, LogDrivers, StopSignals, PullPolicies, CommonDevices } 
 export type { ContainerNetworkConfig } from "./network";
 export {
   formatPortMapping,
+  formatNetworkMode,
   addNetworkEntries,
   createPort,
   createLocalhostPort,
@@ -254,25 +256,29 @@ export {
 // user.ts
 export {
   addUserNsEntries,
-  createKeepIdNs,
   createAutoNs,
   createHostNs,
-  UserNsModes,
+  createKeepIdNs,
+  createRootMappedNs,
+  hasUidGidMapping,
   recommendUserNs,
+  UserNsModes,
 } from "./user";
 
 // volumes.ts
-export type { ContainerVolumeConfig } from "./volumes";
+export type { ContainerVolumeConfig, VolumeProcessingOptions } from "./volumes";
 export {
-  formatVolumeMount,
   addVolumeEntries,
-  createBindMount,
-  createReadOnlyMount,
-  createNamedVolumeMount,
-  createRelabeledMount,
   CommonMounts,
-  isNamedVolume,
+  createBindMount,
+  createNamedVolumeMount,
+  createReadOnlyMount,
+  createRelabeledMount,
+  formatVolumeMount,
   isBindMount,
-  withSELinuxRelabel,
+  isNamedVolume,
+  processVolumes,
   relabelVolumes,
+  withOwnershipFlag,
+  withSELinuxRelabel,
 } from "./volumes";

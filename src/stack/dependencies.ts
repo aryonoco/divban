@@ -12,7 +12,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { None, type Option, Some } from "../lib/option";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapResult } from "../lib/result";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
 /**
@@ -231,16 +231,10 @@ export const resolveStartOrder = (
  * Resolve stop order (reverse of start order).
  */
 export const resolveStopOrder = (containers: StackContainer[]): Result<StartOrder, DivbanError> => {
-  const startResult = resolveStartOrder(containers);
-  if (!startResult.ok) {
-    return startResult;
-  }
-
-  const start = startResult.value;
-  return Ok({
+  return mapResult(resolveStartOrder(containers), (start) => ({
     order: [...start.order].reverse(),
     levels: [...start.levels].reverse(),
-  });
+  }));
 };
 
 /**

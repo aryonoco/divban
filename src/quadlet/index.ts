@@ -89,6 +89,7 @@ export {
   CommonPorts,
   createLocalhostPort,
   createPort,
+  formatNetworkMode,
   formatPortMapping,
   // Volumes
   addVolumeEntries,
@@ -100,7 +101,9 @@ export {
   formatVolumeMount,
   isBindMount,
   isNamedVolume,
+  processVolumes,
   relabelVolumes,
+  withOwnershipFlag,
   withSELinuxRelabel,
   // Environment
   addEnvironmentEntries,
@@ -140,6 +143,8 @@ export {
   createAutoNs,
   createHostNs,
   createKeepIdNs,
+  createRootMappedNs,
+  hasUidGidMapping,
   recommendUserNs,
   UserNsModes,
   // Misc
@@ -158,4 +163,5 @@ export type {
   ContainerSecurityConfig,
   ContainerVolumeConfig,
   ImageConfig,
+  VolumeProcessingOptions,
 } from "./container";

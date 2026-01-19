@@ -73,6 +73,37 @@ export const createHostNs = (): UserNamespace => ({
 });
 
 /**
+ * Create a keep-id user namespace with root mapping.
+ * Maps the host user to UID 0 (root) inside the container.
+ *
+ * Use this when:
+ * - Service uses named volumes that need write access
+ * - Container image expects to run as root
+ * - Files in container are owned by root
+ *
+ * Security note: The container still runs isolated as the host service user
+ * on the host side. Root inside the container is NOT root on the host.
+ */
+export const createRootMappedNs = (): UserNamespace => ({
+  mode: "keep-id",
+  uid: 0,
+  gid: 0,
+});
+
+/**
+ * Check if a user namespace uses UID/GID mapping that differs from the default.
+ */
+export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean => {
+  if (!ns) {
+    return false;
+  }
+  if (ns.mode !== "keep-id") {
+    return false;
+  }
+  return ns.uid !== undefined || ns.gid !== undefined;
+};
+
+/**
  * User namespace modes.
  */
 export const UserNsModes: Record<string, string> = {

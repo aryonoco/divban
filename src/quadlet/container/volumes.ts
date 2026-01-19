@@ -138,6 +138,17 @@ const hasRelabelOption = (options: string | undefined): boolean => {
 };
 
 /**
+ * Check if volume options already include ownership flag (:U).
+ */
+const hasOwnershipFlag = (options: string | undefined): boolean => {
+  if (!options) {
+    return false;
+  }
+  const parts = options.split(",");
+  return parts.some((p) => p === "U");
+};
+
+/**
  * Add SELinux relabel option to a single volume mount if needed.
  * Only applies to bind mounts (absolute paths), not named volumes.
  * Skips if already has :z or :Z option.
@@ -168,6 +179,34 @@ export const withSELinuxRelabel = (mount: VolumeMount, selinuxEnforcing: boolean
 };
 
 /**
+ * Add ownership flag (:U) to a bind mount.
+ * The :U flag tells Podman to chown the source to the container's UID.
+ *
+ * Only applies to bind mounts (absolute paths), not named volumes.
+ * Named volumes don't need :U because Podman manages their ownership.
+ * Skips if already has :U option.
+ */
+export const withOwnershipFlag = (mount: VolumeMount): VolumeMount => {
+  // Only apply to bind mounts
+  if (!isBindMount(mount.source)) {
+    return mount;
+  }
+
+  // Skip if already has ownership flag
+  if (hasOwnershipFlag(mount.options)) {
+    return mount;
+  }
+
+  // Append U to existing options or set it
+  const newOptions = mount.options ? `${mount.options},U` : "U";
+
+  return {
+    ...mount,
+    options: newOptions,
+  };
+};
+
+/**
  * Apply SELinux relabeling to all volumes in an array.
  * Returns undefined if input is undefined (preserves optionality).
  */
@@ -179,4 +218,43 @@ export const relabelVolumes = (
     return undefined;
   }
   return volumes.map((v) => withSELinuxRelabel(v, selinuxEnforcing));
+};
+
+/**
+ * Options for processing volumes.
+ */
+export interface VolumeProcessingOptions {
+  /** Whether SELinux is in enforcing mode */
+  selinuxEnforcing: boolean;
+  /** Whether to add :U ownership flag for bind mounts */
+  applyOwnership: boolean;
+}
+
+/**
+ * Apply all volume processing options (SELinux relabeling, ownership).
+ * Combines withSELinuxRelabel and withOwnershipFlag into a single pass.
+ */
+export const processVolumes = (
+  volumes: VolumeMount[] | undefined,
+  options: VolumeProcessingOptions
+): VolumeMount[] | undefined => {
+  if (!volumes) {
+    return undefined;
+  }
+
+  return volumes.map((mount) => {
+    let result = mount;
+
+    // Apply SELinux relabeling if needed
+    if (options.selinuxEnforcing) {
+      result = withSELinuxRelabel(result, true);
+    }
+
+    // Apply ownership flag if needed
+    if (options.applyOwnership) {
+      result = withOwnershipFlag(result);
+    }
+
+    return result;
+  });
 };

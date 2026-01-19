@@ -17,6 +17,8 @@ export interface ContainerNetworkConfig {
   network?: string | undefined;
   /** Network mode */
   networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  /** Map private IP to host loopback (pasta only) */
+  mapHostLoopback?: string | undefined;
   /** Port mappings */
   ports?: PortMapping[] | undefined;
   /** Ports to expose (no host mapping) */
@@ -44,14 +46,33 @@ export const formatPortMapping = (port: PortMapping): string => {
 };
 
 /**
+ * Format network mode value with pasta options if applicable.
+ */
+export const formatNetworkMode = (
+  mode: "pasta" | "slirp4netns" | "host" | "none",
+  mapHostLoopback?: string
+): string => {
+  if (mode !== "pasta" || !mapHostLoopback) {
+    return mode;
+  }
+  return `${mode}:--map-host-loopback=${mapHostLoopback}`;
+};
+
+/**
  * Add network-related entries to a section.
  */
 export const addNetworkEntries = (
   entries: Array<{ key: string; value: string }>,
   config: ContainerNetworkConfig
 ): void => {
-  // Network name (for joining named networks)
+  // Named network (for joining named networks)
   addEntry(entries, "Network", config.network);
+
+  // Network mode (pasta, slirp4netns, host, none)
+  if (config.networkMode) {
+    const value = formatNetworkMode(config.networkMode, config.mapHostLoopback);
+    entries.push({ key: "Network", value });
+  }
 
   // Port mappings
   if (config.ports) {

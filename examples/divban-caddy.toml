@@ -2,10 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 #
 # divban-caddy.toml - Caddy reverse proxy configuration
-#
 
 [paths]
-# Directory for Caddy data (certificates, config, etc.)
 dataDir = "/srv/divban-caddy"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -13,13 +11,9 @@ dataDir = "/srv/divban-caddy"
 # ─────────────────────────────────────────────────────────────────────────────
 
 [container]
-# Container image to use
 image = "docker.io/library/caddy:2-alpine"
-
-# Auto-update policy
 autoUpdate = "registry"
 
-# Port bindings
 [[container.ports]]
 host = 80
 container = 80
@@ -36,16 +30,28 @@ container = 443
 protocol = "udp"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Network Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[network]
+# Map host loopback to this private IP inside the container.
+# Allows Caddy to reach services bound to 127.0.0.1 on the host.
+# Must be RFC 1918 IPv4 (10.x.x.x, 172.16-31.x.x, 192.168.x.x) or RFC 4193 IPv6.
+mapHostLoopback = "172.31.255.254"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Caddyfile Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
 [caddyfile.global]
 email = "admin@example.com"
-# Uncomment for staging certificates during testing:
-# acmeCA = "https://acme-staging-v02.api.letsencrypt.org/directory"
+# Staging CA (safe for testing, avoids rate limits)
+acmeCA = "https://acme-staging-v02.api.letsencrypt.org/directory"
+# Production CA (uncomment when ready):
+# acmeCA = "https://acme.letsencrypt.org/directory"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Snippets - Reusable configuration blocks
+# Snippets
 # ─────────────────────────────────────────────────────────────────────────────
 
 [[caddyfile.snippets]]
@@ -57,20 +63,12 @@ args = ["X-Frame-Options", "SAMEORIGIN"]
 name = "header"
 args = ["X-Content-Type-Options", "nosniff"]
 
-[[caddyfile.snippets]]
-name = "proxy_headers"
-[[caddyfile.snippets.directives]]
-name = "header_up"
-args = ["X-Real-IP", "{http.request.remote.host}"]
-[[caddyfile.snippets.directives]]
-name = "header_up"
-args = ["X-Forwarded-Proto", "{http.request.scheme}"]
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Sites
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Example: Reverse proxy to Immich photo management
+# Immich
+# Use mapped loopback IP to reach services bound to host's 127.0.0.1
 [[caddyfile.sites]]
 addresses = ["photos.example.com"]
 [[caddyfile.sites.directives]]
@@ -78,9 +76,10 @@ name = "import"
 args = ["common_headers"]
 [[caddyfile.sites.directives]]
 name = "reverse_proxy"
-args = ["localhost:2283"]
+args = ["172.31.255.254:2283"]
 
-# Example: Reverse proxy to Actual Budget
+# Actual Budget
+# Use mapped loopback IP to reach services bound to host's 127.0.0.1
 [[caddyfile.sites]]
 addresses = ["budget.example.com"]
 [[caddyfile.sites.directives]]
@@ -88,23 +87,4 @@ name = "import"
 args = ["common_headers"]
 [[caddyfile.sites.directives]]
 name = "reverse_proxy"
-args = ["localhost:5006"]
-
-# Example: Static file server
-[[caddyfile.sites]]
-addresses = ["static.example.com"]
-[[caddyfile.sites.directives]]
-name = "import"
-args = ["common_headers"]
-[[caddyfile.sites.directives]]
-name = "root"
-args = ["*", "/srv/static"]
-[[caddyfile.sites.directives]]
-name = "file_server"
-
-# Example: Redirect www to non-www
-[[caddyfile.sites]]
-addresses = ["www.example.com"]
-[[caddyfile.sites.directives]]
-name = "redir"
-args = ["https://example.com{uri}", "permanent"]
+args = ["172.31.255.254:5006"]

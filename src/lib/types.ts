@@ -47,6 +47,8 @@ export type VolumeName = string & { readonly __brand: "VolumeName" };
 const USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
 const SERVICE_NAME_REGEX = /^[a-z][a-z0-9-]*$/;
 const CONTAINER_NETWORK_VOLUME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const IPV4_REGEX = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+const IPV6_HEX_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
 
 /**
  * Type constructors with runtime validation.
@@ -148,6 +150,102 @@ export const VolumeName = (s: string): Result<VolumeName, DivbanError> => {
 export const isAbsolutePath = (s: string): s is AbsolutePath => s.startsWith("/");
 export const isUsername = (s: string): s is Username => USERNAME_REGEX.test(s) && s.length <= 32;
 export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX.test(s);
+
+/** Private IPv4 (RFC 1918) or IPv6 (RFC 4193 ULA) address */
+export type PrivateIP = string & { readonly __brand: "PrivateIP" };
+
+export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
+  if (typeof s !== "string" || s.length === 0) {
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Invalid PrivateIP: empty or not a string"));
+  }
+
+  const trimmed = s.trim();
+
+  // Try IPv4 first
+  const v4Match = trimmed.match(IPV4_REGEX);
+  if (v4Match) {
+    const [, ...parts] = v4Match;
+    const [a, b, c, d] = parts.map(Number) as [number, number, number, number];
+
+    if ([a, b, c, d].some((n) => n > 255)) {
+      return Err(
+        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid octet value`)
+      );
+    }
+
+    const isPrivate =
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168); // 192.168.0.0/16
+
+    if (!isPrivate) {
+      return Err(
+        new DivbanError(
+          ErrorCode.INVALID_ARGS,
+          `Invalid PrivateIP: "${s}". IPv4 must be RFC 1918 (10.x.x.x, 172.16-31.x.x, 192.168.x.x)`
+        )
+      );
+    }
+
+    return Ok(trimmed as PrivateIP);
+  }
+
+  // Try IPv6 - check for ULA prefix (fc00::/7)
+  if (trimmed.includes(":")) {
+    // Basic IPv6 structure validation
+    const groups = trimmed.split("::");
+    if (groups.length > 2) {
+      return Err(
+        new DivbanError(
+          ErrorCode.INVALID_ARGS,
+          `Invalid PrivateIP: "${s}". Invalid IPv6 format (multiple ::)`
+        )
+      );
+    }
+
+    const allGroups = groups.flatMap((g) => (g === "" ? [] : g.split(":")));
+    const isValidHex = (g: string): boolean => IPV6_HEX_GROUP_REGEX.test(g);
+
+    if (!allGroups.every(isValidHex)) {
+      return Err(
+        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid IPv6 hex group`)
+      );
+    }
+
+    const maxGroups = groups.length === 2 ? 7 : 8; // :: means at least one group elided
+    if (allGroups.length > maxGroups) {
+      return Err(
+        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Too many IPv6 groups`)
+      );
+    }
+
+    // Check for ULA prefix (fc00::/7 = fc00-fdff)
+    const firstGroup = trimmed.split(":")[0];
+    if (!firstGroup) {
+      return Err(
+        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid IPv6 format`)
+      );
+    }
+    const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
+
+    if (!Number.isNaN(firstWord) && firstWord >= 0xfc00 && firstWord <= 0xfdff) {
+      return Ok(trimmed as PrivateIP);
+    }
+
+    return Err(
+      new DivbanError(
+        ErrorCode.INVALID_ARGS,
+        `Invalid PrivateIP: "${s}". IPv6 must be RFC 4193 ULA (fc00::/7)`
+      )
+    );
+  }
+
+  return Err(
+    new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Not a valid IP format`)
+  );
+};
+
+export const isPrivateIP = (s: string): s is PrivateIP => PrivateIP(s).ok;
 
 // ============================================================================
 // UID/GID Conversion Helper

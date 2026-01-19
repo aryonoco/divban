@@ -239,6 +239,13 @@ export const caddyContainerSchema: z.ZodType<ContainerBaseConfig> =
   caddyContainerSchemaRaw as z.ZodType<ContainerBaseConfig>;
 
 /**
+ * Network configuration schema.
+ */
+const caddyNetworkSchema = z.object({
+  mapHostLoopback: z.string().optional(),
+});
+
+/**
  * Full Caddy service configuration.
  */
 export interface CaddyConfig {
@@ -246,6 +253,11 @@ export interface CaddyConfig {
     dataDir: string;
   };
   container?: ContainerBaseConfig | undefined;
+  network?:
+    | {
+        mapHostLoopback?: string | undefined;
+      }
+    | undefined;
   caddyfile: CaddyfileConfig;
 }
 
@@ -254,5 +266,6 @@ export const caddyConfigSchema: z.ZodType<CaddyConfig> = z.object({
     dataDir: absolutePathSchema,
   }),
   container: caddyContainerSchemaRaw.optional(),
+  network: caddyNetworkSchema.optional(),
   caddyfile: caddyfileSchema,
 }) as z.ZodType<CaddyConfig>;

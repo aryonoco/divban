@@ -113,6 +113,7 @@ Nologin
 seccomp
 Rootfs
 journalctl
+pkill
 userdel
 nogroup
 clonefile
@@ -150,6 +151,7 @@ colored
 mhello
 
 # Container/Podman
+myvolume
 tmpfs
 Tmpfs
 conmon

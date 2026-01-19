@@ -12,13 +12,14 @@
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
 import { Ok, type Result } from "../../lib/result";
-import type { AbsolutePath, ServiceName } from "../../lib/types";
+import type { AbsolutePath, PrivateIP, ServiceName } from "../../lib/types";
+import { PrivateIP as validatePrivateIP } from "../../lib/types";
 import {
   createHttpHealthCheck,
-  createKeepIdNs,
+  createRootMappedNs,
   generateContainerQuadlet,
   generateVolumeQuadlet,
-  relabelVolumes,
+  processVolumes,
 } from "../../quadlet";
 import { createSingleContainerOps, reloadAndEnableServices, writeGeneratedFiles } from "../helpers";
 import type { GeneratedFiles, Service, ServiceContext, ServiceDefinition } from "../types";
@@ -74,6 +75,16 @@ const generate = (
   const { config } = ctx;
   const files = createGeneratedFiles();
 
+  // Validate mapHostLoopback if provided
+  let mapHostLoopback: PrivateIP | undefined;
+  if (config.network?.mapHostLoopback) {
+    const ipResult = validatePrivateIP(config.network.mapHostLoopback);
+    if (!ipResult.ok) {
+      return Promise.resolve(ipResult);
+    }
+    mapHostLoopback = ipResult.value;
+  }
+
   // Generate Caddyfile
   const caddyfileContent = generateCaddyfile(config.caddyfile);
   files.other.set("Caddyfile", caddyfileContent);
@@ -98,12 +109,14 @@ const generate = (
     containerName: "caddy",
     description: "Caddy reverse proxy",
     image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
+    networkMode: "pasta",
+    mapHostLoopback,
     ports: config.container?.ports ?? [
       { hostIp: "0.0.0.0", host: 80, container: 80, protocol: "tcp" },
       { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
       { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "udp" },
     ],
-    volumes: relabelVolumes(
+    volumes: processVolumes(
       [
         {
           source: `${ctx.paths.configDir}/Caddyfile`,
@@ -113,9 +126,12 @@ const generate = (
         { source: "caddy-data.volume", target: "/data" },
         { source: "caddy-config.volume", target: "/config" },
       ],
-      ctx.system.selinuxEnforcing
+      {
+        selinuxEnforcing: ctx.system.selinuxEnforcing,
+        applyOwnership: true,
+      }
     ),
-    userNs: createKeepIdNs(),
+    userNs: createRootMappedNs(),
     healthCheck: createHttpHealthCheck("http://localhost:2019/reverse_proxy/upstreams", {
       interval: "30s",
       timeout: "10s",

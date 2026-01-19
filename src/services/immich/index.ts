@@ -188,6 +188,8 @@ const generate = (
   // Main server container
   const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
   const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
+  const networkHost = config.network?.host ?? "127.0.0.1";
+  const networkPort = config.network?.port ?? 2283;
 
   containers.push({
     name: "immich-server",
@@ -198,8 +200,7 @@ const generate = (
       config.containers?.machineLearning?.enabled !== false
         ? ["immich-machine-learning"]
         : undefined,
-    // Bind to localhost only - access via reverse proxy
-    ports: [{ hostIp: "127.0.0.1", host: 2283, container: 2283 }],
+    ports: [{ hostIp: networkHost, host: networkPort, container: 2283 }],
     volumes: [
       { source: uploadDir, target: "/upload" },
       { source: profileDir, target: "/profile" },
