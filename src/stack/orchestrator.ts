@@ -11,6 +11,7 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Logger } from "../lib/logger";
+import { fromUndefined } from "../lib/option";
 import {
   Err,
   Ok,
@@ -226,8 +227,9 @@ export const getStackStatus = async (
       name: container.name,
       running,
     };
-    if (container.description !== undefined) {
-      status.description = container.description;
+    const descOpt = fromUndefined(container.description);
+    if (descOpt.isSome) {
+      status.description = descOpt.value;
     }
     statuses.push(status);
   }
@@ -261,8 +263,8 @@ export const startContainer = async (
   const { logger } = options;
   const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  const container = stack.containers.find((c) => c.name === containerName);
-  if (!container) {
+  const containerOpt = fromUndefined(stack.containers.find((c) => c.name === containerName));
+  if (!containerOpt.isSome) {
     return Err(
       new DivbanError(
         ErrorCode.CONTAINER_NOT_FOUND,

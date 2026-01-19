@@ -10,6 +10,8 @@
  * Uses typed error codes that map to exit codes.
  */
 
+import { fromUndefined, mapOr } from "./option";
+
 /**
  * Error code interface for isolatedDeclarations compatibility.
  */
@@ -129,8 +131,9 @@ export class DivbanError extends Error {
     super(message);
     this.name = "DivbanError";
     this.code = code;
-    if (cause !== undefined) {
-      this.cause = cause;
+    const causeOpt = fromUndefined(cause);
+    if (causeOpt.isSome) {
+      this.cause = causeOpt.value;
     }
 
     // Capture stack trace, excluding the constructor
@@ -193,7 +196,7 @@ export const toExitCode = (code: ErrorCodeValue): number => Math.min(code, 125);
  */
 export const getErrorCodeName = (code: ErrorCodeValue): string => {
   const entry = Object.entries(ErrorCode).find(([, v]) => v === code);
-  return entry?.[0] ?? "UNKNOWN";
+  return mapOr(fromUndefined(entry), "UNKNOWN", (e) => e[0]);
 };
 
 /**

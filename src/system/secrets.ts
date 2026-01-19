@@ -12,6 +12,7 @@
 
 import { generatePassword } from "../lib/crypto";
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { fromUndefined } from "../lib/option";
 import { userConfigDir } from "../lib/paths";
 import { Err, Ok, type Result, flatMapResult, mapResult } from "../lib/result";
 import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
@@ -189,13 +190,15 @@ export const ensureServiceSecrets = async (
       return existsResult;
     }
 
-    const existingValue = existingSecrets[def.name];
-    if (existsResult.value && existingValue !== undefined) {
+    const existingValueOpt = fromUndefined(existingSecrets[def.name]);
+    if (existsResult.value && existingValueOpt.isSome) {
       // Reuse existing secret
-      secrets[def.name] = existingValue;
+      secrets[def.name] = existingValueOpt.value;
     } else {
       // Generate new secret
-      const value = existingValue ?? generatePassword(def.length ?? 32);
+      const value = existingValueOpt.isSome
+        ? existingValueOpt.value
+        : generatePassword(def.length ?? 32);
       secrets[def.name] = value;
 
       // Create podman secret if it doesn't exist

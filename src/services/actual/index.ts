@@ -11,6 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../../lib/errors";
+import { fromUndefined, isSome } from "../../lib/option";
 import { Err, Ok, type Result, mapResult } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
@@ -132,7 +133,7 @@ const generate = (
 
   // Only add autoUpdate if defined
   const autoUpdate = config.container?.autoUpdate;
-  if (autoUpdate !== undefined) {
+  if (isSome(fromUndefined(autoUpdate))) {
     quadletConfig.autoUpdate = autoUpdate;
   }
 

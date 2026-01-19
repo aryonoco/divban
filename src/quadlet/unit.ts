@@ -9,6 +9,7 @@
  * [Unit] section builder for quadlet files.
  */
 
+import { fromUndefined, mapOption } from "../lib/option";
 import type { IniSection } from "./format";
 import { addEntries, addEntry } from "./format";
 
@@ -80,17 +81,24 @@ export const buildUnitDependencies = (
 ): Pick<UnitConfig, "requires" | "wants" | "after" | "before"> => {
   const result: Pick<UnitConfig, "requires" | "wants" | "after" | "before"> = {};
 
-  if (requires !== undefined) {
-    result.requires = requires.map(toUnitName);
+  const reqOpt = mapOption(fromUndefined(requires), (r) => r.map(toUnitName));
+  if (reqOpt.isSome) {
+    result.requires = reqOpt.value;
   }
-  if (wants !== undefined) {
-    result.wants = wants.map(toUnitName);
+
+  const wantsOpt = mapOption(fromUndefined(wants), (w) => w.map(toUnitName));
+  if (wantsOpt.isSome) {
+    result.wants = wantsOpt.value;
   }
-  if (after !== undefined) {
-    result.after = after.map(toUnitName);
+
+  const afterOpt = mapOption(fromUndefined(after), (a) => a.map(toUnitName));
+  if (afterOpt.isSome) {
+    result.after = afterOpt.value;
   }
-  if (before !== undefined) {
-    result.before = before.map(toUnitName);
+
+  const beforeOpt = mapOption(fromUndefined(before), (b) => b.map(toUnitName));
+  if (beforeOpt.isSome) {
+    result.before = beforeOpt.value;
   }
 
   return result;

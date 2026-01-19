@@ -10,7 +10,8 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { Err, Ok, type Result } from "../lib/result";
+import { fromUndefined, okOr } from "../lib/option";
+import type { Result } from "../lib/result";
 import type { AnyService, ServiceDefinition } from "./types";
 
 // Service registry
@@ -27,19 +28,14 @@ export const registerService = (service: AnyService): void => {
  * Get a service by name.
  */
 export const getService = (name: string): Result<AnyService, DivbanError> => {
-  const service = services.get(name);
-
-  if (!service) {
-    const available = [...services.keys()].join(", ");
-    return Err(
-      new DivbanError(
-        ErrorCode.SERVICE_NOT_FOUND,
-        `Unknown service: '${name}'. Available services: ${available || "none"}`
-      )
-    );
-  }
-
-  return Ok(service);
+  const available = [...services.keys()].join(", ");
+  return okOr(
+    fromUndefined(services.get(name)),
+    new DivbanError(
+      ErrorCode.SERVICE_NOT_FOUND,
+      `Unknown service: '${name}'. Available services: ${available || "none"}`
+    )
+  );
 };
 
 /**

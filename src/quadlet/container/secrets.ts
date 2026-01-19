@@ -9,6 +9,7 @@
  * Container secrets configuration for quadlet files.
  */
 
+import { fromUndefined, mapOption, toArray } from "../../lib/option";
 import type { SecretMount } from "../types";
 
 export interface ContainerSecretsConfig {
@@ -20,17 +21,13 @@ export interface ContainerSecretsConfig {
  * Format: name[,type=mount|env][,target=path|envvar][,mode=0XXX]
  */
 export const formatSecretMount = (secret: SecretMount): string => {
-  const parts = [secret.name];
-  if (secret.type !== undefined) {
-    parts.push(`type=${secret.type}`);
-  }
-  if (secret.target !== undefined) {
-    parts.push(`target=${secret.target}`);
-  }
-  if (secret.mode !== undefined) {
-    parts.push(`mode=${secret.mode}`);
-  }
-  return parts.join(",");
+  const optionalParts = [
+    mapOption(fromUndefined(secret.type), (t) => `type=${t}`),
+    mapOption(fromUndefined(secret.target), (t) => `target=${t}`),
+    mapOption(fromUndefined(secret.mode), (m) => `mode=${m}`),
+  ].flatMap(toArray);
+
+  return [secret.name, ...optionalParts].join(",");
 };
 
 /**

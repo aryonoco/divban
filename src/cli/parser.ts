@@ -168,17 +168,20 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     }
 
     // Apply parsed options with values
-    if (values.lines !== undefined) {
-      const n = Number.parseInt(values.lines, 10);
+    const linesOpt = fromUndefined(values.lines);
+    if (linesOpt.isSome) {
+      const n = Number.parseInt(linesOpt.value, 10);
       if (!Number.isNaN(n) && n > 0) {
         args.lines = n;
       }
     }
-    if (values.output !== undefined) {
-      args.outputDir = values.output;
+    const outputOpt = fromUndefined(values.output);
+    if (outputOpt.isSome) {
+      args.outputDir = outputOpt.value;
     }
-    if (values.container !== undefined) {
-      args.container = values.container;
+    const containerOpt = fromUndefined(values.container);
+    if (containerOpt.isSome) {
+      args.container = containerOpt.value;
     }
     const logLevelOpt = filter(fromUndefined(values["log-level"]), (val) =>
       ["debug", "info", "warn", "error"].includes(val)
@@ -208,13 +211,16 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
       const cmdOpt = filter(fromUndefined(cmd), isCommand);
       if (cmdOpt.isSome) {
         args.command = cmdOpt.value;
-      } else if (cmd !== undefined) {
-        return Err(
-          new DivbanError(
-            ErrorCode.INVALID_ARGS,
-            `Unknown command: ${cmd}. Available commands: ${COMMANDS.join(", ")}`
-          )
-        );
+      } else {
+        const rawCmdOpt = fromUndefined(cmd);
+        if (rawCmdOpt.isSome) {
+          return Err(
+            new DivbanError(
+              ErrorCode.INVALID_ARGS,
+              `Unknown command: ${rawCmdOpt.value}. Available commands: ${COMMANDS.join(", ")}`
+            )
+          );
+        }
       }
     } else {
       // Default to status if only service provided
@@ -223,26 +229,26 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
 
     // Third positional: depends on command
     if (positionals.length >= 3) {
-      const third = positionals[2];
-      if (third !== undefined) {
+      const thirdOpt = fromUndefined(positionals[2]);
+      if (thirdOpt.isSome) {
         if (args.command === "restore") {
-          args.backupPath = third;
+          args.backupPath = thirdOpt.value;
         } else if (args.command === "backup-config") {
-          args.configPath = third; // Output path for backup-config
+          args.configPath = thirdOpt.value; // Output path for backup-config
         } else if (args.command === "secret") {
           // For secret: third is subcommand (show/list)
-          args.subcommand = third;
+          args.subcommand = thirdOpt.value;
         } else {
-          args.configPath = third;
+          args.configPath = thirdOpt.value;
         }
       }
     }
 
     // Fourth positional: for secret show, the secret name
     if (positionals.length >= 4 && args.command === "secret") {
-      const fourth = positionals[3];
-      if (fourth !== undefined) {
-        args.secretName = fourth;
+      const fourthOpt = fromUndefined(positionals[3]);
+      if (fourthOpt.isSome) {
+        args.secretName = fourthOpt.value;
       }
     }
 

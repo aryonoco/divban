@@ -10,6 +10,7 @@
  * Combines all container configuration modules into a single builder.
  */
 
+import { fromUndefined, isSome } from "../../lib/option";
 import type { IniSection } from "../format";
 import { createQuadletFile } from "../format";
 import { buildInstallSection } from "../install";
@@ -36,7 +37,7 @@ import { addVolumeEntries } from "./volumes";
 const defined = <T extends Record<string, unknown>>(obj: T): T => {
   const result = {} as T;
   for (const key of Object.keys(obj) as (keyof T)[]) {
-    if (obj[key] !== undefined) {
+    if (isSome(fromUndefined(obj[key]))) {
       result[key] = obj[key];
     }
   }

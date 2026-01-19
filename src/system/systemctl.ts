@@ -10,6 +10,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { fromUndefined } from "../lib/option";
 import { Err, Ok, type Result, mapErr } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
@@ -248,8 +249,9 @@ export const journalctl = async (
 ): Promise<Result<void, DivbanError>> => {
   const args = ["journalctl", "--user", "-u", unit];
 
-  if (options.lines !== undefined) {
-    args.push("-n", String(options.lines));
+  const linesOpt = fromUndefined(options.lines);
+  if (linesOpt.isSome) {
+    args.push("-n", String(linesOpt.value));
   }
 
   if (options.follow) {

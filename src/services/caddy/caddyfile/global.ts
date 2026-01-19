@@ -9,6 +9,7 @@
  * Global options block generation for Caddyfile.
  */
 
+import { fromUndefined, isSome } from "../../../lib/option";
 import type { GlobalOptions } from "../schema";
 import { createBuilder } from "./format";
 
@@ -127,20 +128,22 @@ export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean =>
     return false;
   }
 
+  const defined = <T>(v: T | undefined): boolean => isSome(fromUndefined(v));
+
   return (
-    options.debug !== undefined ||
-    options.email !== undefined ||
-    options.acmeCA !== undefined ||
-    options.acmeCaRoot !== undefined ||
-    options.localCerts !== undefined ||
-    options.skipInstallTrust !== undefined ||
-    options.adminOff !== undefined ||
-    options.adminEnforceOrigin !== undefined ||
-    options.httpPort !== undefined ||
-    options.httpsPort !== undefined ||
-    options.autoHttps !== undefined ||
-    options.servers !== undefined ||
-    options.logFormat !== undefined ||
-    options.logLevel !== undefined
+    defined(options.debug) ||
+    defined(options.email) ||
+    defined(options.acmeCA) ||
+    defined(options.acmeCaRoot) ||
+    defined(options.localCerts) ||
+    defined(options.skipInstallTrust) ||
+    defined(options.adminOff) ||
+    defined(options.adminEnforceOrigin) ||
+    defined(options.httpPort) ||
+    defined(options.httpsPort) ||
+    defined(options.autoHttps) ||
+    defined(options.servers) ||
+    defined(options.logFormat) ||
+    defined(options.logLevel)
   );
 };

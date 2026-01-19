@@ -9,6 +9,7 @@
  * Network quadlet file generation.
  */
 
+import { fromUndefined } from "../lib/option";
 import type { IniSection } from "./format";
 import { addEntries, addEntry, createQuadletFile } from "./format";
 import type { GeneratedQuadlet, NetworkQuadlet } from "./types";
@@ -92,14 +93,17 @@ export const createExternalNetwork = (
     driver: "bridge",
   };
 
-  if (options?.subnet !== undefined) {
-    result.subnet = options.subnet;
+  const subnetOpt = fromUndefined(options?.subnet);
+  if (subnetOpt.isSome) {
+    result.subnet = subnetOpt.value;
   }
-  if (options?.gateway !== undefined) {
-    result.gateway = options.gateway;
+  const gatewayOpt = fromUndefined(options?.gateway);
+  if (gatewayOpt.isSome) {
+    result.gateway = gatewayOpt.value;
   }
-  if (options?.ipv6 !== undefined) {
-    result.ipv6 = options.ipv6;
+  const ipv6Opt = fromUndefined(options?.ipv6);
+  if (ipv6Opt.isSome) {
+    result.ipv6 = ipv6Opt.value;
   }
 
   return result;

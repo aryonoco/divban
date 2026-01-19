@@ -13,7 +13,7 @@
 import { detectCompressionFormat } from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { isNone, isSome } from "../../../lib/option";
+import { fromUndefined, isNone, isSome, okOr } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -88,13 +88,14 @@ export const restoreDatabase = async (
   let sqlData: string;
   try {
     const files = await extractArchive(compressedData, { decompress: compression.value });
-    const sqlBytes = files.get("database.sql");
-
-    if (!sqlBytes) {
-      return Err(
-        new DivbanError(ErrorCode.RESTORE_FAILED, "Backup archive does not contain database.sql")
-      );
+    const sqlBytesResult = okOr(
+      fromUndefined(files.get("database.sql")),
+      new DivbanError(ErrorCode.RESTORE_FAILED, "Backup archive does not contain database.sql")
+    );
+    if (!sqlBytesResult.ok) {
+      return sqlBytesResult;
     }
+    const sqlBytes = sqlBytesResult.value;
 
     sqlData = new TextDecoder().decode(sqlBytes);
   } catch (e) {

@@ -11,7 +11,7 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { None, type Option, Some } from "../lib/option";
+import { None, type Option, Some, fromUndefined, getOrElse, isNone } from "../lib/option";
 import { Err, Ok, type Result, mapResult } from "../lib/result";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
@@ -67,9 +67,9 @@ export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError>
     visited.add(name);
     recursionStack.add(name);
 
-    const node = nodeMap.get(name);
-    if (node) {
-      for (const dep of [...node.requires, ...node.wants]) {
+    const nodeOpt = fromUndefined(nodeMap.get(name));
+    if (nodeOpt.isSome) {
+      for (const dep of [...nodeOpt.value.requires, ...nodeOpt.value.wants]) {
         const cycle = hasCycle(dep, [...path, name]);
         if (cycle.isSome) {
           return cycle;
@@ -140,14 +140,15 @@ export const topologicalSort = (nodes: DependencyNode[]): Result<string[], Divba
   // Process queue
   const sorted: string[] = [];
   while (queue.length > 0) {
-    const name = queue.shift();
-    if (name === undefined) {
+    const nameOpt = fromUndefined(queue.shift());
+    if (isNone(nameOpt)) {
       break;
     }
+    const name = nameOpt.value;
     sorted.push(name);
 
-    for (const dependent of adjacency.get(name) ?? []) {
-      const newDegree = (inDegree.get(dependent) ?? 1) - 1;
+    for (const dependent of getOrElse(fromUndefined(adjacency.get(name)), [])) {
+      const newDegree = getOrElse(fromUndefined(inDegree.get(dependent)), 1) - 1;
       inDegree.set(dependent, newDegree);
       if (newDegree === 0) {
         queue.push(dependent);
@@ -197,10 +198,11 @@ export const resolveStartOrder = (
         continue;
       }
 
-      const node = nodeMap.get(name);
-      if (!node) {
+      const nodeOpt = fromUndefined(nodeMap.get(name));
+      if (isNone(nodeOpt)) {
         continue;
       }
+      const node = nodeOpt.value;
 
       // Check if all dependencies are placed
       const allDepsPlaced = [...node.requires, ...node.wants].every((dep) => placed.has(dep));
@@ -258,14 +260,16 @@ export const getAllDependencies = (
   const queue = [containerName];
 
   while (queue.length > 0) {
-    const name = queue.shift();
-    if (name === undefined) {
+    const nameOpt = fromUndefined(queue.shift());
+    if (isNone(nameOpt)) {
       break;
     }
-    const container = containerMap.get(name);
-    if (!container) {
+    const name = nameOpt.value;
+    const containerOpt = fromUndefined(containerMap.get(name));
+    if (isNone(containerOpt)) {
       continue;
     }
+    const container = containerOpt.value;
 
     for (const dep of [...(container.requires ?? []), ...(container.wants ?? [])]) {
       if (!deps.has(dep)) {

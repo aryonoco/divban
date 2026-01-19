@@ -10,6 +10,7 @@
  * Merges global defaults with service-specific configuration.
  */
 
+import { fromUndefined, isNone } from "../lib/option";
 import type { ContainerBaseConfig, GlobalConfig } from "./schema";
 
 /**
@@ -26,7 +27,7 @@ export const deepMerge = <T extends Record<string, unknown>>(
     const sourceValue = source[key];
     const targetValue = target[key];
 
-    if (sourceValue === undefined) {
+    if (isNone(fromUndefined(sourceValue))) {
       continue;
     }
 

@@ -9,6 +9,7 @@
  * CLI help text generation.
  */
 
+import { fromUndefined, isNone } from "../lib/option";
 import { listServices } from "../services";
 import { COMMANDS } from "./parser";
 
@@ -90,11 +91,12 @@ For service-specific help:
  */
 export const getServiceHelp = (serviceName: string): string => {
   const services = listServices();
-  const service = services.find((s) => s.name === serviceName);
+  const serviceOpt = fromUndefined(services.find((s) => s.name === serviceName));
 
-  if (!service) {
+  if (isNone(serviceOpt)) {
     return `Unknown service: ${serviceName}\n\nAvailable services: ${services.map((s) => s.name).join(", ")}`;
   }
+  const service = serviceOpt.value;
 
   const capabilities: string[] = [];
   if (service.capabilities.multiContainer) {

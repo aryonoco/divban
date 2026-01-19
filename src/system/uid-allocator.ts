@@ -11,8 +11,9 @@
  */
 
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { fromUndefined, okOr } from "../lib/option";
 import { SYSTEM_PATHS } from "../lib/paths";
-import { Err, Ok, type Result } from "../lib/result";
+import { Err, Ok, type Result, mapResult } from "../lib/result";
 import type { SubordinateId, UserId } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
@@ -208,12 +209,14 @@ export const getExistingSubuidStart = async (
     return rangesResult;
   }
 
-  const userRange = rangesResult.value.find((r) => r.user === username);
-  if (!userRange) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `No subuid range found for ${username}`));
-  }
-
-  return Ok(userRange.start as SubordinateId);
+  const rangeOpt = fromUndefined(rangesResult.value.find((r) => r.user === username));
+  return mapResult(
+    okOr(
+      rangeOpt,
+      new DivbanError(ErrorCode.GENERAL_ERROR, `No subuid range found for ${username}`)
+    ),
+    (range) => range.start as SubordinateId
+  );
 };
 
 /**

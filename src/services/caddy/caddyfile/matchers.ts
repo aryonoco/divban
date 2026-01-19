@@ -9,7 +9,7 @@
  * Named matcher generation for Caddyfile.
  */
 
-import { nonEmpty } from "../../../lib/option";
+import { fromUndefined, isSome, nonEmpty } from "../../../lib/option";
 import type { NamedMatcher } from "../schema";
 import { createBuilder, escapeValue } from "./format";
 
@@ -125,17 +125,19 @@ export const matcherRef = (name: string): string => {
  * Check if a matcher is empty (has no conditions).
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
+  const defined = <T>(v: T | undefined): boolean => isSome(fromUndefined(v));
+
   return !(
     nonEmpty(matcher.path).isSome ||
-    matcher.pathRegexp !== undefined ||
+    defined(matcher.pathRegexp) ||
     nonEmpty(matcher.host).isSome ||
     nonEmpty(matcher.method).isSome ||
-    matcher.header !== undefined ||
-    matcher.headerRegexp !== undefined ||
-    matcher.query !== undefined ||
+    defined(matcher.header) ||
+    defined(matcher.headerRegexp) ||
+    defined(matcher.query) ||
     nonEmpty(matcher.remoteIp).isSome ||
-    matcher.protocol !== undefined ||
-    matcher.not !== undefined ||
-    matcher.expression !== undefined
+    defined(matcher.protocol) ||
+    defined(matcher.not) ||
+    defined(matcher.expression)
   );
 };

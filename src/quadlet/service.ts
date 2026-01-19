@@ -9,6 +9,7 @@
  * [Service] section builder for quadlet files.
  */
 
+import { fromUndefined } from "../lib/option";
 import type { IniSection } from "./format";
 import { addEntry } from "./format";
 import type { ServiceConfig } from "./types";
@@ -50,20 +51,24 @@ export const mergeServiceConfig = (
     restart: config.restart ?? stackDefaults.restart ?? systemDefaults.restart ?? "on-failure",
   };
 
-  const restartSec = config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec;
-  const timeoutStartSec =
-    config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec;
-  const timeoutStopSec =
-    config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec;
+  const restartSecOpt = fromUndefined(
+    config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec
+  );
+  const timeoutStartSecOpt = fromUndefined(
+    config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec
+  );
+  const timeoutStopSecOpt = fromUndefined(
+    config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec
+  );
 
-  if (restartSec !== undefined) {
-    result.restartSec = restartSec;
+  if (restartSecOpt.isSome) {
+    result.restartSec = restartSecOpt.value;
   }
-  if (timeoutStartSec !== undefined) {
-    result.timeoutStartSec = timeoutStartSec;
+  if (timeoutStartSecOpt.isSome) {
+    result.timeoutStartSec = timeoutStartSecOpt.value;
   }
-  if (timeoutStopSec !== undefined) {
-    result.timeoutStopSec = timeoutStopSec;
+  if (timeoutStopSecOpt.isSome) {
+    result.timeoutStopSec = timeoutStopSecOpt.value;
   }
 
   return result;

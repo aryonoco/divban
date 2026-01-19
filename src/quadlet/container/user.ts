@@ -9,7 +9,7 @@
  * Container user namespace configuration for quadlet files.
  */
 
-import { fromUndefined, mapOption, toArray } from "../../lib/option";
+import { fromUndefined, isSome, mapOption, toArray } from "../../lib/option";
 import { assertNever } from "../../lib/types";
 import type { UserNamespace } from "../types";
 
@@ -102,7 +102,7 @@ export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean => {
   if (ns.mode !== "keep-id") {
     return false;
   }
-  return ns.uid !== undefined || ns.gid !== undefined;
+  return isSome(fromUndefined(ns.uid)) || isSome(fromUndefined(ns.gid));
 };
 
 /**
