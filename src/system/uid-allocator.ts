@@ -17,9 +17,10 @@ import { Err, Ok, type Result, mapResult } from "../lib/result";
 import type { SubordinateId, UserId } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
+import { withLock } from "./lock";
 
 /**
- * UID Allocation Range: 10000-59999
+ * Default UID Allocation Range: 10000-59999
  * - Below 1000: Reserved for system users (all distros)
  * - 1000-9999: Regular users (varies by distro)
  * - 10000-59999: divban service users (safe range)
@@ -27,16 +28,30 @@ import { readFileOrEmpty } from "./fs";
  * - 65534: nobody (universal)
  * - 65535+: May cause issues on some systems
  */
-export const UID_RANGE = {
+export const DEFAULT_UID_RANGE = {
   start: 10000,
   end: 59999,
 } as const;
 
-export const SUBUID_RANGE = {
+export const DEFAULT_SUBUID_RANGE = {
   start: 100000,
   size: 65536,
   maxEnd: 4294967294,
 } as const;
+
+// Keep old names as aliases for backwards compatibility in tests
+export const UID_RANGE: typeof DEFAULT_UID_RANGE = DEFAULT_UID_RANGE;
+export const SUBUID_RANGE: typeof DEFAULT_SUBUID_RANGE = DEFAULT_SUBUID_RANGE;
+
+/**
+ * UID allocation settings from global config.
+ */
+export interface UidAllocationSettings {
+  uidRangeStart: number;
+  uidRangeEnd: number;
+  subuidRangeStart: number;
+  subuidRangeSize: number;
+}
 
 /**
  * Parse /etc/passwd file and extract UIDs.
@@ -110,66 +125,82 @@ export const getUsedSubuidRanges = async (): Promise<
 
 /**
  * Allocate the next available UID in the range.
+ * Uses file locking to prevent concurrent allocation conflicts.
  */
-export const allocateUid = async (): Promise<Result<UserId, DivbanError>> => {
-  const usedResult = await getUsedUids();
-  if (!usedResult.ok) {
-    return usedResult;
-  }
+export const allocateUid = (
+  settings?: UidAllocationSettings
+): Promise<Result<UserId, DivbanError>> => {
+  return withLock("uid-allocation", async () => {
+    const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
+    const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
 
-  const usedUids = usedResult.value;
-
-  for (let uid = UID_RANGE.start; uid <= UID_RANGE.end; uid++) {
-    if (!usedUids.has(uid)) {
-      return Ok(uid as UserId);
+    // Re-read after acquiring lock to get fresh state
+    const usedResult = await getUsedUids();
+    if (!usedResult.ok) {
+      return usedResult;
     }
-  }
 
-  return Err(
-    new DivbanError(
-      ErrorCode.UID_RANGE_EXHAUSTED,
-      `No available UIDs in range ${UID_RANGE.start}-${UID_RANGE.end}. ` +
-        `All ${UID_RANGE.end - UID_RANGE.start + 1} UIDs are in use.`
-    )
-  );
+    const usedUids = usedResult.value;
+
+    for (let uid = start; uid <= end; uid++) {
+      if (!usedUids.has(uid)) {
+        return Ok(uid as UserId);
+      }
+    }
+
+    return Err(
+      new DivbanError(
+        ErrorCode.UID_RANGE_EXHAUSTED,
+        `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`
+      )
+    );
+  });
 };
 
 /**
  * Allocate the next available subuid range that doesn't overlap
  * with existing allocations.
+ * Uses file locking to prevent concurrent allocation conflicts.
  */
-export const allocateSubuidRange = async (
-  size: number = SUBUID_RANGE.size
+export const allocateSubuidRange = (
+  size?: number,
+  settings?: UidAllocationSettings
 ): Promise<Result<{ start: SubordinateId; size: number }, DivbanError>> => {
-  const rangesResult = await getUsedSubuidRanges();
-  if (!rangesResult.ok) {
-    return rangesResult;
-  }
+  return withLock("subuid-allocation", async () => {
+    const rangeStart = settings?.subuidRangeStart ?? DEFAULT_SUBUID_RANGE.start;
+    const rangeSize = size ?? settings?.subuidRangeSize ?? DEFAULT_SUBUID_RANGE.size;
 
-  const usedRanges = rangesResult.value.sort((a, b) => a.start - b.start);
-
-  let candidate = SUBUID_RANGE.start;
-
-  for (const range of usedRanges) {
-    // Check if candidate range fits before this used range
-    if (candidate + size - 1 < range.start) {
-      return Ok({ start: candidate as SubordinateId, size });
+    // Re-read after acquiring lock to get fresh state
+    const rangesResult = await getUsedSubuidRanges();
+    if (!rangesResult.ok) {
+      return rangesResult;
     }
-    // Move candidate past this used range
-    candidate = Math.max(candidate, range.end + 1) as typeof SUBUID_RANGE.start;
-  }
 
-  // Check if candidate fits after all used ranges
-  if (candidate + size - 1 <= SUBUID_RANGE.maxEnd) {
-    return Ok({ start: candidate as SubordinateId, size });
-  }
+    const usedRanges = rangesResult.value.sort((a, b) => a.start - b.start);
 
-  return Err(
-    new DivbanError(
-      ErrorCode.SUBUID_RANGE_EXHAUSTED,
-      `No available subuid range of size ${size} starting from ${SUBUID_RANGE.start}`
-    )
-  );
+    let candidate = rangeStart;
+
+    for (const range of usedRanges) {
+      // Check if candidate range fits before this used range
+      if (candidate + rangeSize - 1 < range.start) {
+        return Ok({ start: candidate as SubordinateId, size: rangeSize });
+      }
+      // Move candidate past this used range
+      candidate = Math.max(candidate, range.end + 1);
+    }
+
+    // Check if candidate fits after all used ranges
+    if (candidate + rangeSize - 1 <= DEFAULT_SUBUID_RANGE.maxEnd) {
+      return Ok({ start: candidate as SubordinateId, size: rangeSize });
+    }
+
+    return Err(
+      new DivbanError(
+        ErrorCode.SUBUID_RANGE_EXHAUSTED,
+        `No available subuid range of size ${rangeSize} starting from ${rangeStart}`
+      )
+    );
+  });
 };
 
 /**

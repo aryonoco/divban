@@ -19,8 +19,10 @@ import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../
 import { userIdToGroupId } from "../lib/types";
 import { exec, execSuccess } from "./exec";
 import { atomicWrite, readFileOrEmpty } from "./fs";
+import { withLock } from "./lock";
 import {
   SUBUID_RANGE,
+  type UidAllocationSettings,
   allocateSubuidRange,
   allocateUid,
   getExistingSubuidStart,
@@ -111,13 +113,50 @@ const isUidConflictError = (error: DivbanError): boolean =>
     error.message.toLowerCase().includes("already in use"));
 
 /**
+ * Execute an operation with automatic rollback on failure.
+ * Returns the original error (rollback failures are logged but don't mask it).
+ */
+const withRollback = async <T>(
+  operation: () => Promise<Result<T, DivbanError>>,
+  rollback: () => Promise<Result<void, DivbanError>>,
+  rollbackContext: string
+): Promise<Result<T, DivbanError>> => {
+  const result = await operation();
+  if (result.ok) {
+    return result;
+  }
+
+  // Attempt rollback, log failures but preserve original error
+  const rollbackResult = await rollback();
+  if (!rollbackResult.ok) {
+    console.error(`Rollback warning (${rollbackContext}): ${rollbackResult.error.message}`);
+  }
+  return result;
+};
+
+/**
+ * Attempt cleanup, logging failures but not propagating errors.
+ * Used for secondary cleanup that shouldn't fail the main operation.
+ */
+const cleanupWithWarning = async (
+  cleanup: () => Promise<Result<void, DivbanError>>,
+  context: string
+): Promise<void> => {
+  const result = await cleanup();
+  if (!result.ok) {
+    console.warn(`Warning: ${context}: ${result.error.message}`);
+  }
+};
+
+/**
  * Create a service user with dynamically allocated UID.
  * Username is derived from service name: divban-<service>
  * UID is allocated from range 10000-59999
  * Subuid range is allocated to avoid conflicts
  */
 export const createServiceUser = async (
-  serviceName: string
+  serviceName: string,
+  settings?: UidAllocationSettings
 ): Promise<Result<ServiceUser, DivbanError>> => {
   // Derive username from service name
   const usernameResult = getServiceUsername(serviceName);
@@ -162,7 +201,7 @@ export const createServiceUser = async (
   // 3. Allocate UID and create user with retry on UID conflict
   const userResult = await retry(
     async () => {
-      const uidResult = await allocateUid();
+      const uidResult = await allocateUid(settings);
       if (!uidResult.ok) {
         return uidResult;
       }
@@ -204,18 +243,25 @@ export const createServiceUser = async (
   }
   const uid = userResult.value;
 
-  // 4. Dynamically allocate next available subuid range
-  const subuidResult = await allocateSubuidRange(SUBUID_RANGE.size);
+  // === POINT OF NO RETURN: User created, rollback on subsequent failure ===
+  const rollbackUser = (): Promise<Result<void, DivbanError>> => deleteServiceUser(serviceName);
+
+  // 4. Dynamically allocate next available subuid range (with rollback)
+  const subuidResult = await withRollback(
+    () => allocateSubuidRange(settings?.subuidRangeSize ?? SUBUID_RANGE.size, settings),
+    rollbackUser,
+    `deleting user ${username} after subuid allocation failure`
+  );
   if (!subuidResult.ok) {
     return subuidResult;
   }
   const subuidAlloc = subuidResult.value;
 
-  // 5. Configure subuid/subgid
-  const subuidConfigResult = await configureSubordinateIds(
-    username,
-    subuidAlloc.start,
-    subuidAlloc.size
+  // 5. Configure subuid/subgid (with rollback)
+  const subuidConfigResult = await withRollback(
+    () => configureSubordinateIds(username, subuidAlloc.start, subuidAlloc.size),
+    rollbackUser,
+    `deleting user ${username} after subuid config failure`
   );
   if (!subuidConfigResult.ok) {
     return subuidConfigResult;
@@ -255,22 +301,79 @@ const appendSubidEntry = async (
 
 /**
  * Configure subordinate UIDs and GIDs for a user.
- * Uses atomic writes to prevent race conditions.
+ * Uses atomic writes and locking to prevent race conditions.
  */
-export const configureSubordinateIds = async (
+export const configureSubordinateIds = (
   username: Username,
   start: SubordinateId,
   range: number
 ): Promise<Result<void, DivbanError>> => {
-  const entry = `${username}:${start}:${range}\n`;
+  return withLock("subid-config", async () => {
+    const entry = `${username}:${start}:${range}\n`;
 
-  // Configure subuid first, then subgid (sequential to avoid partial configuration)
-  const subuidResult = await appendSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username, entry);
-  if (!subuidResult.ok) {
-    return subuidResult;
+    // Re-read files after acquiring lock to ensure consistency
+    const subuidResult = await appendSubidEntry(
+      SYSTEM_PATHS.subuid as AbsolutePath,
+      username,
+      entry
+    );
+    if (!subuidResult.ok) {
+      return subuidResult;
+    }
+
+    return appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
+  });
+};
+
+/**
+ * Remove a single user entry from a subid file.
+ * Idempotent - returns Ok if entry doesn't exist.
+ */
+const removeSubidEntry = async (
+  file: AbsolutePath,
+  username: Username
+): Promise<Result<void, DivbanError>> => {
+  const content = await readFileOrEmpty(file);
+
+  // If no entry exists, success (idempotent)
+  if (!content.includes(`${username}:`)) {
+    return Ok(undefined);
   }
 
-  return appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
+  // Filter out the user's line(s)
+  const filtered = content
+    .split("\n")
+    .filter((line) => !line.startsWith(`${username}:`))
+    .join("\n");
+
+  // Preserve trailing newline if content remains
+  const newContent = filtered.trim() ? `${filtered.trimEnd()}\n` : "";
+
+  return mapErr(
+    await atomicWrite(file, newContent),
+    (e) =>
+      new DivbanError(
+        ErrorCode.SUBUID_CONFIG_FAILED,
+        `Failed to remove ${username} from ${file}`,
+        e
+      )
+  );
+};
+
+/**
+ * Remove a user's entries from /etc/subuid and /etc/subgid.
+ * Used for rollback on partial failure and user deletion cleanup.
+ * Idempotent - returns Ok if entries don't exist.
+ */
+const removeSubordinateIds = (username: Username): Promise<Result<void, DivbanError>> => {
+  return withLock("subid-config", async () => {
+    const subuidResult = await removeSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username);
+    if (!subuidResult.ok) {
+      return subuidResult;
+    }
+
+    return removeSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username);
+  });
 };
 
 /**
@@ -312,7 +415,8 @@ export const getServiceUser = async (
 
 /**
  * Delete a service user and their home directory.
- * Use with caution!
+ * Also cleans up /etc/subuid and /etc/subgid entries.
+ * Idempotent - returns Ok if user doesn't exist.
  */
 export const deleteServiceUser = async (
   serviceName: string
@@ -324,9 +428,15 @@ export const deleteServiceUser = async (
   const username = usernameResult.value;
 
   if (!(await userExists(username))) {
-    return Ok(undefined); // Already doesn't exist
+    // User doesn't exist, but still clean up any orphaned subuid/subgid entries
+    await cleanupWithWarning(
+      () => removeSubordinateIds(username),
+      `Failed to clean orphaned subuid/subgid for ${username}`
+    );
+    return Ok(undefined);
   }
 
+  // Delete the user account and home directory
   const deleteResult = await execSuccess(["userdel", "--remove", username]);
   const deleteMapped = mapErr(
     deleteResult,
@@ -341,8 +451,12 @@ export const deleteServiceUser = async (
     return deleteMapped;
   }
 
-  // Remove from subuid/subgid
-  // Note: userdel should handle this, but we verify
+  // Remove from subuid/subgid (userdel does NOT do this on all distros)
+  await cleanupWithWarning(
+    () => removeSubordinateIds(username),
+    `User ${username} deleted, but failed to clean subuid/subgid`
+  );
+
   return Ok(undefined);
 };
 

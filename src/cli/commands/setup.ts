@@ -10,6 +10,8 @@
  */
 
 import { loadServiceConfig } from "../../config/loader";
+import { getUserAllocationSettings } from "../../config/merge";
+import type { GlobalConfig } from "../../config/schema";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -30,14 +32,18 @@ export interface SetupOptions {
   service: AnyService;
   args: ParsedArgs;
   logger: Logger;
+  globalConfig: GlobalConfig;
 }
 
 /**
  * Execute the setup command.
  */
 export const executeSetup = async (options: SetupOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
+  const { service, args, logger, globalConfig } = options;
   const configPath = args.configPath;
+
+  // Get UID allocation settings from global config
+  const uidSettings = getUserAllocationSettings(globalConfig);
 
   if (!configPath) {
     return Err(
@@ -128,7 +134,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   // Step: Create service user (or get existing)
   currentStep++;
   logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
-  const userResult = await createServiceUser(service.definition.name);
+  const userResult = await createServiceUser(service.definition.name, uidSettings);
   if (!userResult.ok) {
     return userResult;
   }

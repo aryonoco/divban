@@ -59,6 +59,8 @@ export interface ParsedArgs {
   subcommand?: string;
   /** Secret name (for secret show) */
   secretName?: string;
+  /** Path to global configuration file (divban.toml) */
+  globalConfigPath?: string;
 
   // Flags
   /** Show help */
@@ -135,6 +137,7 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
         "log-level": { type: "string" },
         format: { type: "string" },
         json: { type: "boolean" },
+        "global-config": { type: "string", short: "g" },
       },
       allowPositionals: true,
       strict: true,
@@ -194,6 +197,10 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     );
     if (formatOpt.isSome) {
       args.format = formatOpt.value as ParsedArgs["format"];
+    }
+    const globalConfigOpt = fromUndefined(values["global-config"]);
+    if (globalConfigOpt.isSome) {
+      args.globalConfigPath = globalConfigOpt.value;
     }
 
     // Parse positional arguments: <service> <command> [config|backup-path]

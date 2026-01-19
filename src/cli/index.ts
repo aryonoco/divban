@@ -9,12 +9,17 @@
  * CLI command router and main entry point.
  */
 
+import { loadGlobalConfig } from "../config/loader";
+import { getLoggingSettings } from "../config/merge";
+import type { GlobalConfig } from "../config/schema";
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { type Logger, createLogger } from "../lib/logger";
+import { type LogLevel, type Logger, createLogger } from "../lib/logger";
+import { None, type Option, Some, getOrElse, isNone } from "../lib/option";
 import type { Result } from "../lib/result";
 import { Err, Ok } from "../lib/result";
+import type { AbsolutePath } from "../lib/types";
 import { getService, initializeServices, listServices } from "../services";
-import type { AnyService } from "../services/types";
+import type { AnyService, ServiceDefinition } from "../services/types";
 import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
 import { executeBackup } from "./commands/backup";
@@ -58,10 +63,32 @@ export const run = async (argv: string[]): Promise<number> => {
     return 0;
   }
 
-  // Create logger
+  // Load global configuration (always loads, returns defaults if no file)
+  const globalConfigResult = await loadGlobalConfig(
+    args.globalConfigPath as AbsolutePath | undefined
+  );
+  if (!globalConfigResult.ok) {
+    console.error(`Error loading global config: ${globalConfigResult.error.message}`);
+    return globalConfigResult.error.code;
+  }
+  const globalConfig = globalConfigResult.value;
+
+  // Apply logging settings: CLI args override global config
+  const loggingSettings = getLoggingSettings(globalConfig);
+  let effectiveLogLevel: LogLevel;
+  if (args.verbose) {
+    effectiveLogLevel = "debug";
+  } else if (args.logLevel !== "info") {
+    effectiveLogLevel = args.logLevel;
+  } else {
+    effectiveLogLevel = loggingSettings.level;
+  }
+  const effectiveFormat = args.format !== "pretty" ? args.format : loggingSettings.format;
+
+  // Create logger with effective settings
   const logger = createLogger({
-    level: args.logLevel,
-    format: args.format,
+    level: effectiveLogLevel,
+    format: effectiveFormat,
   });
 
   // Handle help
@@ -73,7 +100,7 @@ export const run = async (argv: string[]): Promise<number> => {
 
   // Handle "all" service (run command on all services)
   if (args.service === "all") {
-    return runAllServices(args, logger);
+    return runAllServices(args, logger, globalConfig);
   }
 
   // Get the service
@@ -93,7 +120,7 @@ export const run = async (argv: string[]): Promise<number> => {
   }
 
   // Execute command
-  const result = await executeCommand(service, args, logger);
+  const result = await executeCommand(service, args, logger, globalConfig);
 
   if (!result.ok) {
     if (args.format === "json") {
@@ -113,7 +140,8 @@ export const run = async (argv: string[]): Promise<number> => {
 const executeCommand = (
   service: AnyService,
   args: ParsedArgs,
-  logger: Logger
+  logger: Logger,
+  globalConfig: GlobalConfig
 ): Promise<Result<void, DivbanError>> => {
   switch (args.command) {
     case "validate":
@@ -126,7 +154,7 @@ const executeCommand = (
       return executeDiff({ service, args, logger });
 
     case "setup":
-      return executeSetup({ service, args, logger });
+      return executeSetup({ service, args, logger, globalConfig });
 
     case "start":
       return executeStart({ service, args, logger });
@@ -176,9 +204,40 @@ const executeCommand = (
 };
 
 /**
- * Run a command on all services.
+ * Run command on single service, returning Option<errorCode> for first-error tracking.
  */
-const runAllServices = async (args: ParsedArgs, logger: Logger): Promise<number> => {
+const runServiceCommand = async (
+  serviceDef: ServiceDefinition,
+  args: ParsedArgs,
+  logger: Logger,
+  globalConfig: GlobalConfig
+): Promise<Option<number>> => {
+  const serviceResult = getService(serviceDef.name);
+  if (!serviceResult.ok) {
+    logger.warn(`Skipping ${serviceDef.name}: ${serviceResult.error.message}`);
+    return None; // Skip doesn't count as error
+  }
+
+  logger.info(`\n=== ${serviceDef.name} ===`);
+  const result = await executeCommand(serviceResult.value, args, logger, globalConfig);
+
+  if (!result.ok) {
+    logger.fail(`${serviceDef.name}: ${result.error.message}`);
+    return Some(result.error.code);
+  }
+
+  return None;
+};
+
+/**
+ * Run a command on all services, preserving first error code.
+ * Uses sequential reduce to maintain order while tracking first error via Option.
+ */
+const runAllServices = async (
+  args: ParsedArgs,
+  logger: Logger,
+  globalConfig: GlobalConfig
+): Promise<number> => {
   const services = listServices();
 
   if (services.length === 0) {
@@ -203,27 +262,18 @@ const runAllServices = async (args: ParsedArgs, logger: Logger): Promise<number>
     return ErrorCode.INVALID_ARGS;
   }
 
-  let hasError = false;
+  // Sequential reduce: run all services, track first error via Option
+  const firstError = await services.reduce(
+    async (accPromise, serviceDef) => {
+      const acc = await accPromise;
+      const errorOpt = await runServiceCommand(serviceDef, args, logger, globalConfig);
+      // Keep first error (acc), ignore subsequent errors
+      return isNone(acc) ? errorOpt : acc;
+    },
+    Promise.resolve(None as Option<number>)
+  );
 
-  for (const serviceDef of services) {
-    const serviceResult = getService(serviceDef.name);
-    if (!serviceResult.ok) {
-      logger.warn(`Skipping ${serviceDef.name}: ${serviceResult.error.message}`);
-      continue;
-    }
-
-    const service = serviceResult.value;
-    logger.info(`\n=== ${serviceDef.name} ===`);
-
-    const result = await executeCommand(service, args, logger);
-
-    if (!result.ok) {
-      logger.fail(`${serviceDef.name}: ${result.error.message}`);
-      hasError = true;
-    }
-  }
-
-  return hasError ? 1 : 0;
+  return getOrElse(firstError, 0);
 };
 
 // Re-export for testing
