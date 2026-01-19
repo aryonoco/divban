@@ -13,7 +13,7 @@
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanError } from "../../lib/errors";
 import { configFilePath } from "../../lib/paths";
-import { Ok, type Result, asyncFlatMapResult } from "../../lib/result";
+import { Ok, type Result, asyncFlatMapResult, sequence } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
   createHttpHealthCheck,
@@ -297,11 +297,14 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
     `${dataDir}/model-cache`,
     `${dataDir}/backups`,
   ];
-  for (const dir of dirs) {
-    const result = await ensureDirectory(dir as AbsolutePath, owner);
-    if (!result.ok) {
-      return result;
-    }
+  const dirOps = dirs.map(
+    (dir): (() => Promise<Result<void, DivbanError>>) =>
+      (): Promise<Result<void, DivbanError>> =>
+        ensureDirectory(dir as AbsolutePath, owner)
+  );
+  const dirsResult = await sequence(dirOps);
+  if (!dirsResult.ok) {
+    return dirsResult;
   }
 
   // 3. Write files

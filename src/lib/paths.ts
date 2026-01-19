@@ -10,6 +10,7 @@
  * Eliminates scattered `as AbsolutePath` casts throughout the codebase.
  */
 
+import { readFileSync } from "node:fs";
 import type { AbsolutePath } from "./types";
 import { unsafeJoinPath, unsafePath } from "./types";
 
@@ -41,7 +42,31 @@ export const SYSTEM_PATHS: {
 // User Directory Paths
 // ============================================================================
 
-export const userHomeDir = (username: string): AbsolutePath => unsafeJoinPath("/home", username);
+/**
+ * Get user's home directory from /etc/passwd.
+ * Falls back to /home/<username> if user not found.
+ *
+ * Reads /etc/passwd directly to handle non-standard home directories
+ * (e.g., /var/home on Fedora Silverblue/Atomic).
+ */
+export const userHomeDir = (username: string): AbsolutePath => {
+  try {
+    const content = readFileSync("/etc/passwd", "utf-8");
+
+    for (const line of content.split("\n")) {
+      const fields = line.split(":");
+      // passwd format: username:x:uid:gid:gecos:home:shell
+      if (fields[0] === username && fields[5]) {
+        return unsafePath(fields[5]);
+      }
+    }
+  } catch {
+    // Fall through to default
+  }
+
+  // Fallback to /home/<username> if user not found or error reading passwd
+  return unsafeJoinPath("/home", username);
+};
 
 export const userQuadletDir = (homeDir: AbsolutePath): AbsolutePath =>
   unsafeJoinPath(homeDir, ".config/containers/systemd");

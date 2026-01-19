@@ -11,7 +11,7 @@
 
 import type { DivbanError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
-import { Ok, type Result, mapResult } from "../lib/result";
+import { Ok, type Result, asyncFlatMapResult, mapResult, sequence } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
 import { chown } from "../system/directories";
 import { writeFile } from "../system/fs";
@@ -36,6 +36,20 @@ import type {
 // File Writing Helpers
 // ============================================================================
 
+import type { GroupId, UserId } from "../lib/types";
+
+/**
+ * Write a file and set ownership.
+ */
+const writeAndOwn = async (
+  path: AbsolutePath,
+  content: string,
+  owner: { uid: UserId; gid: GroupId }
+): Promise<Result<void, DivbanError>> =>
+  asyncFlatMapResult(await writeFile(path, content), () => chown(path, owner));
+
+type WriteOp = () => Promise<Result<void, DivbanError>>;
+
 /**
  * Write all generated files to their destinations.
  */
@@ -46,72 +60,25 @@ export const writeGeneratedFiles = async <C>(
   const { quadletDir, configDir } = ctx.paths;
   const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
 
-  // Write quadlet files
-  for (const [filename, content] of files.quadlets) {
-    const path = quadletFilePath(quadletDir, filename);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    const chownResult = await chown(path, owner);
-    if (!chownResult.ok) {
-      return chownResult;
-    }
-  }
+  const toQuadletOp =
+    ([filename, content]: [string, string]): WriteOp =>
+    (): Promise<Result<void, DivbanError>> =>
+      writeAndOwn(quadletFilePath(quadletDir, filename), content, owner);
 
-  // Write network files
-  for (const [filename, content] of files.networks) {
-    const path = quadletFilePath(quadletDir, filename);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    const chownResult = await chown(path, owner);
-    if (!chownResult.ok) {
-      return chownResult;
-    }
-  }
+  const toConfigOp =
+    ([filename, content]: [string, string]): WriteOp =>
+    (): Promise<Result<void, DivbanError>> =>
+      writeAndOwn(configFilePath(configDir, filename), content, owner);
 
-  // Write volume files
-  for (const [filename, content] of files.volumes) {
-    const path = quadletFilePath(quadletDir, filename);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    const chownResult = await chown(path, owner);
-    if (!chownResult.ok) {
-      return chownResult;
-    }
-  }
+  const ops: WriteOp[] = [
+    ...[...files.quadlets].map(toQuadletOp),
+    ...[...files.networks].map(toQuadletOp),
+    ...[...files.volumes].map(toQuadletOp),
+    ...[...files.environment].map(toConfigOp),
+    ...[...files.other].map(toConfigOp),
+  ];
 
-  // Write environment files
-  for (const [filename, content] of files.environment) {
-    const path = configFilePath(configDir, filename);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    const chownResult = await chown(path, owner);
-    if (!chownResult.ok) {
-      return chownResult;
-    }
-  }
-
-  // Write other config files
-  for (const [filename, content] of files.other) {
-    const path = configFilePath(configDir, filename);
-    const result = await writeFile(path, content);
-    if (!result.ok) {
-      return result;
-    }
-    const chownResult = await chown(path, owner);
-    if (!chownResult.ok) {
-      return chownResult;
-    }
-  }
-
-  return Ok(undefined);
+  return mapResult(await sequence(ops), () => undefined);
 };
 
 // ============================================================================
@@ -213,21 +180,13 @@ export const reloadAndEnableServices = async <C>(
     return reloadResult;
   }
 
-  for (const svc of services) {
-    const enableResult = await enableService(`${svc}.service`, opts);
-    if (!enableResult.ok) {
-      return enableResult;
-    }
+  const ops = services.flatMap((svc) =>
+    startAfterEnable
+      ? [() => enableService(`${svc}.service`, opts), () => startService(`${svc}.service`, opts)]
+      : [() => enableService(`${svc}.service`, opts)]
+  );
 
-    if (startAfterEnable) {
-      const startResult = await startService(`${svc}.service`, opts);
-      if (!startResult.ok) {
-        return startResult;
-      }
-    }
-  }
-
-  return Ok(undefined);
+  return mapResult(await sequence(ops), () => undefined);
 };
 
 // ============================================================================
