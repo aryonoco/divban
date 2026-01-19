@@ -79,6 +79,12 @@ export PATH="$HOME/.local/bin:$PATH"
 fish_add_path ~/.local/bin
 ```
 
+To allow running divban with sudo (required for setup commands):
+
+```bash
+sudo ln -s "$HOME/.local/bin/divban" /usr/local/bin/divban
+```
+
 ### Building from Source
 
 If you want to modify the code. Requires [Bun](https://bun.sh) 1.3+:
