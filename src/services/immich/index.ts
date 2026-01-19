@@ -323,13 +323,21 @@ const setup = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, Di
 
   // 5. Enable services
   logger.step(5, 5, "Enabling services...");
-  for (const unit of [
+  const enableUnits = [
     "immich-redis",
     "immich-postgres",
     "immich-server",
     "immich-machine-learning",
-  ]) {
-    await enableService(`${unit}.service`, { user: ctx.user.name, uid: ctx.user.uid });
+  ];
+  const opts = { user: ctx.user.name, uid: ctx.user.uid };
+  const enableOps = enableUnits.map(
+    (unit): (() => Promise<Result<void, DivbanError>>) =>
+      (): Promise<Result<void, DivbanError>> =>
+        enableService(`${unit}.service`, opts)
+  );
+  const enableResult = await sequence(enableOps);
+  if (!enableResult.ok) {
+    return enableResult;
   }
 
   logger.success("Immich setup completed successfully");

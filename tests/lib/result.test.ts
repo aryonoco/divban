@@ -11,6 +11,8 @@ import {
   Err,
   Ok,
   collectResults,
+  combine2,
+  combine3,
   flatMapResult,
   isErr,
   isOk,
@@ -120,6 +122,38 @@ describe("Result", () => {
       if (collected.ok) {
         expect(collected.value).toEqual([]);
       }
+    });
+  });
+
+  describe("combine2", () => {
+    test("returns Ok with tuple when both are Ok", () => {
+      const result = combine2(Ok(1), Ok("a"));
+      expect(result).toEqual(Ok([1, "a"]));
+    });
+
+    test("returns first error when first fails", () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "first");
+      const result = combine2(Err(error), Ok("a"));
+      expect(result).toEqual(Err(error));
+    });
+
+    test("returns second error when second fails", () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "second");
+      const result = combine2(Ok(1), Err(error));
+      expect(result).toEqual(Err(error));
+    });
+  });
+
+  describe("combine3", () => {
+    test("returns Ok with tuple when all are Ok", () => {
+      const result = combine3(Ok(1), Ok("a"), Ok(true));
+      expect(result).toEqual(Ok([1, "a", true]));
+    });
+
+    test("returns first error encountered", () => {
+      const error = new DivbanError(ErrorCode.GENERAL_ERROR, "middle");
+      const result = combine3(Ok(1), Err(error), Ok(true));
+      expect(result).toEqual(Err(error));
     });
   });
 

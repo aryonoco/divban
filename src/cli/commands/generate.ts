@@ -19,7 +19,7 @@ import {
   outputQuadletDir,
   quadletFilePath,
 } from "../../lib/paths";
-import { Err, Ok, type Result } from "../../lib/result";
+import { Err, Ok, type Result, combine3 } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId, Username } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
@@ -62,18 +62,11 @@ export const executeGenerate = async (
   }
 
   // Create mock service context for generation
-  const usernameResult = Username("divban-preview");
-  if (!usernameResult.ok) {
-    return usernameResult;
+  const userResult = combine3(Username("divban-preview"), UserId(1000), GroupId(1000));
+  if (!userResult.ok) {
+    return userResult;
   }
-  const uidResult = UserId(1000);
-  if (!uidResult.ok) {
-    return uidResult;
-  }
-  const gidResult = GroupId(1000);
-  if (!gidResult.ok) {
-    return gidResult;
-  }
+  const [username, uid, gid] = userResult.value;
 
   const ctx: ServiceContext<unknown> = {
     config: configResult.value,
@@ -84,9 +77,9 @@ export const executeGenerate = async (
       configDir: outputConfigDir(outputDir),
     },
     user: {
-      name: usernameResult.value,
-      uid: uidResult.value,
-      gid: gidResult.value,
+      name: username,
+      uid: uid,
+      gid: gid,
     },
     options: getContextOptions(args),
     system: await detectSystemCapabilities(),

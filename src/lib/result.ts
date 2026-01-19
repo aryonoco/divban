@@ -79,6 +79,41 @@ export const collectResults = <T, E>(results: readonly Result<T, E>[]): Result<T
 };
 
 /**
+ * Combine two Results of different types into a Result of tuple.
+ * Returns the first error encountered, or Ok with both values.
+ */
+export const combine2 = <A, B, E>(a: Result<A, E>, b: Result<B, E>): Result<[A, B], E> => {
+  if (!a.ok) {
+    return a;
+  }
+  if (!b.ok) {
+    return b;
+  }
+  return Ok([a.value, b.value]);
+};
+
+/**
+ * Combine three Results of different types into a Result of tuple.
+ * Returns the first error encountered, or Ok with all values.
+ */
+export const combine3 = <A, B, C, E>(
+  a: Result<A, E>,
+  b: Result<B, E>,
+  c: Result<C, E>
+): Result<[A, B, C], E> => {
+  if (!a.ok) {
+    return a;
+  }
+  if (!b.ok) {
+    return b;
+  }
+  if (!c.ok) {
+    return c;
+  }
+  return Ok([a.value, b.value, c.value]);
+};
+
+/**
  * Map over the error of a failed result.
  */
 export const mapErr = <T, E, F>(result: Result<T, E>, fn: (error: E) => F): Result<T, F> =>

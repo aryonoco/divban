@@ -11,7 +11,15 @@
 
 import { DivbanError, ErrorCode } from "../lib/errors";
 import type { Logger } from "../lib/logger";
-import { Err, Ok, type Result, asyncFlatMapResult, mapErr, parallel } from "../lib/result";
+import {
+  Err,
+  Ok,
+  type Result,
+  asyncFlatMapResult,
+  mapErr,
+  parallel,
+  sequence,
+} from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -176,17 +184,24 @@ export const enableStack = async (
 
   logger.info(`Enabling stack '${stack.name}'...`);
 
-  for (const container of stack.containers) {
-    const result = await enableService(`${container.name}.service`, systemctlOpts);
-    if (!result.ok) {
-      return Err(
-        new DivbanError(
-          ErrorCode.GENERAL_ERROR,
-          `Failed to enable container ${container.name}`,
-          result.error
-        )
-      );
-    }
+  const enableOps = stack.containers.map(
+    (container): (() => Promise<Result<void, DivbanError>>) =>
+      async (): Promise<Result<void, DivbanError>> => {
+        const result = await enableService(`${container.name}.service`, systemctlOpts);
+        return mapErr(
+          result,
+          (err) =>
+            new DivbanError(
+              ErrorCode.GENERAL_ERROR,
+              `Failed to enable container ${container.name}`,
+              err
+            )
+        );
+      }
+  );
+  const enableResult = await sequence(enableOps);
+  if (!enableResult.ok) {
+    return enableResult;
   }
 
   logger.success(`Stack '${stack.name}' enabled successfully`);

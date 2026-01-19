@@ -20,7 +20,7 @@ import {
   userConfigDir,
   userQuadletDir,
 } from "../../lib/paths";
-import { Err, Ok, type Result } from "../../lib/result";
+import { Err, Ok, type Result, combine2 } from "../../lib/result";
 import { type AbsolutePath, GroupId, UserId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
@@ -85,11 +85,11 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
   }
 
   // Create fallback user IDs for when user doesn't exist
-  const fallbackUidResult = UserId(0);
-  const fallbackGidResult = GroupId(0);
-  if (!(fallbackUidResult.ok && fallbackGidResult.ok)) {
+  const fallbackIdsResult = combine2(UserId(0), GroupId(0));
+  if (!fallbackIdsResult.ok) {
     return Err(new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to create fallback user IDs"));
   }
+  const [fallbackUid, fallbackGid] = fallbackIdsResult.value;
 
   // Create service context for generation
   const ctx: ServiceContext<unknown> = {
@@ -108,8 +108,8 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
         }
       : {
           name: username,
-          uid: fallbackUidResult.value,
-          gid: fallbackGidResult.value,
+          uid: fallbackUid,
+          gid: fallbackGid,
         },
     options: getContextOptions(args),
     system: await detectSystemCapabilities(),
