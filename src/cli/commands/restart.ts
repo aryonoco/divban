@@ -50,7 +50,9 @@ export const executeRestart = async (
         `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
       )
   );
-  if (!userMapped.ok) return userMapped;
+  if (!userMapped.ok) {
+    return userMapped;
+  }
 
   const { uid, homeDir } = userMapped.value;
   const gid = userIdToGroupId(uid);

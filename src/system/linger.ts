@@ -105,7 +105,9 @@ export const enableLinger = async (
         err
       )
   );
-  if (!mapped.ok) return mapped;
+  if (!mapped.ok) {
+    return mapped;
+  }
 
   // Verify it was enabled
   if (!(await isLingerEnabled(username))) {

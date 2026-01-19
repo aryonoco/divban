@@ -189,7 +189,9 @@ export const createServiceUser = async (
         err
       )
   );
-  if (!createMapped.ok) return createMapped;
+  if (!createMapped.ok) {
+    return createMapped;
+  }
 
   // 6. Configure subuid/subgid
   const subuidConfigResult = await configureSubordinateIds(
@@ -308,7 +310,9 @@ export const deleteServiceUser = async (
         err
       )
   );
-  if (!deleteMapped.ok) return deleteMapped;
+  if (!deleteMapped.ok) {
+    return deleteMapped;
+  }
 
   // Remove from subuid/subgid
   // Note: userdel should handle this, but we verify

@@ -89,7 +89,9 @@ export const backupDatabase = async (
         err
       )
   );
-  if (!mkdirMapped.ok) return mkdirMapped;
+  if (!mkdirMapped.ok) {
+    return mkdirMapped;
+  }
 
   // Run pg_dumpall inside the postgres container
   const dumpResult = await execAsUser(

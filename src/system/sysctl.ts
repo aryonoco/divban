@@ -89,7 +89,9 @@ ${SYSCTL_KEY} = ${threshold}
         err
       )
   );
-  if (!writeMapped.ok) return writeMapped;
+  if (!writeMapped.ok) {
+    return writeMapped;
+  }
 
   // Apply immediately
   const applyResult = await execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]);

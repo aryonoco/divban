@@ -48,7 +48,9 @@ export const executeStop = async (options: StopOptions): Promise<Result<void, Di
         `Service user '${username}' not found. Service may not be set up.`
       )
   );
-  if (!userMapped.ok) return userMapped;
+  if (!userMapped.ok) {
+    return userMapped;
+  }
 
   const { uid, homeDir } = userMapped.value;
   const gid = userIdToGroupId(uid);

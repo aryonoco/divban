@@ -47,7 +47,9 @@ export const executeUpdate = async (options: UpdateOptions): Promise<Result<void
         `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`
       )
   );
-  if (!userMapped.ok) return userMapped;
+  if (!userMapped.ok) {
+    return userMapped;
+  }
 
   const { uid, homeDir } = userMapped.value;
 
@@ -83,7 +85,9 @@ export const executeUpdate = async (options: UpdateOptions): Promise<Result<void
     updateResult,
     (err) => new DivbanError(ErrorCode.GENERAL_ERROR, "Failed to check for updates", err)
   );
-  if (!updateMapped.ok) return updateMapped;
+  if (!updateMapped.ok) {
+    return updateMapped;
+  }
 
   const output = updateMapped.value.stdout;
 

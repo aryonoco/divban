@@ -272,7 +272,9 @@ export const startContainer = async (
         err
       )
   );
-  if (!mapped.ok) return mapped;
+  if (!mapped.ok) {
+    return mapped;
+  }
 
   logger.success(`Container '${containerName}' started successfully`);
   return Ok(undefined);
@@ -301,7 +303,9 @@ export const stopContainer = async (
         err
       )
   );
-  if (!mapped.ok) return mapped;
+  if (!mapped.ok) {
+    return mapped;
+  }
 
   logger.success(`Container '${containerName}' stopped successfully`);
   return Ok(undefined);

@@ -79,7 +79,9 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
         err
       )
   );
-  if (!reloadMapped.ok) return reloadMapped;
+  if (!reloadMapped.ok) {
+    return reloadMapped;
+  }
 
   if (reloadMapped.value.exitCode !== 0) {
     return Err(
@@ -123,7 +125,9 @@ export const validateCaddyfile = async (
         err
       )
   );
-  if (!mapped.ok) return mapped;
+  if (!mapped.ok) {
+    return mapped;
+  }
 
   if (mapped.value.exitCode !== 0) {
     return Err(

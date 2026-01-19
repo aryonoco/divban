@@ -67,7 +67,9 @@ export const backupActual = async (
         err
       )
   );
-  if (!mkdirMapped.ok) return mkdirMapped;
+  if (!mkdirMapped.ok) {
+    return mkdirMapped;
+  }
 
   // Collect files to archive using Bun.Glob
   const glob = new Glob("**/*");
