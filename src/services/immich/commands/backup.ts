@@ -11,6 +11,7 @@
  */
 
 import { formatBytes } from "../../../cli/commands/utils";
+import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import {
   createBackupMetadata,
   createBackupTimestamp,
@@ -95,6 +96,7 @@ export const backupDatabase = async (
     uid,
     ["podman", "exec", containerName, "pg_dumpall", "-U", dbUser, "--clean", "--if-exists"],
     {
+      timeout: DEFAULT_TIMEOUTS.backup,
       captureStdout: true,
       captureStderr: true,
     }

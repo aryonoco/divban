@@ -231,15 +231,14 @@ export interface SetupStep<C, S = object> {
   message: string;
   /** Execute the step. Can read from state and return data to add to state. */
   execute: (ctx: ServiceContext<C>, state: S) => SetupStepResult<S>;
+  /** Optional rollback function called on subsequent step failure. */
+  rollback?: (ctx: ServiceContext<C>, state: S) => Promise<Result<void, DivbanError>>;
 }
 
 /**
- * Execute setup steps sequentially with logging.
+ * Execute setup steps sequentially with logging and rollback on failure.
  * Each step's returned data is merged into state for subsequent steps.
- *
- * Uses a loop here because steps have side effects (logging)
- * and state threading - this is intentionally imperative where FP
- * doesn't add clarity.
+ * On failure, completed steps with rollback functions are rolled back in reverse order.
  */
 export const executeSetupSteps = async <C, S = object>(
   ctx: ServiceContext<C>,
@@ -249,7 +248,9 @@ export const executeSetupSteps = async <C, S = object>(
   const { logger } = ctx;
   const totalSteps = steps.length;
 
-  // Fold over steps, threading state through each one
+  // Track completed steps for rollback
+  const completedSteps: Array<{ step: SetupStep<C, S>; state: S }> = [];
+
   let state = { ...initialState };
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
@@ -261,11 +262,24 @@ export const executeSetupSteps = async <C, S = object>(
 
     const result = await step.execute(ctx, state);
     if (!result.ok) {
+      // Rollback completed steps in reverse order
+      for (const completed of completedSteps.reverse()) {
+        if (completed.step.rollback) {
+          const rollbackResult = await completed.step.rollback(ctx, completed.state);
+          if (!rollbackResult.ok) {
+            logger.warn(
+              `Rollback failed for "${completed.step.message}": ${rollbackResult.error.message}`
+            );
+          }
+        }
+      }
       return result;
     }
 
-    // Merge returned data into state (functional state update)
-    // result.value can be Partial<S> or void - only spread if it's an object
+    // Track this step as completed (capture state at completion time)
+    completedSteps.push({ step, state: { ...state } });
+
+    // Merge returned data into state
     if (result.value && typeof result.value === "object") {
       state = { ...state, ...result.value };
     }

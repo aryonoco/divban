@@ -24,7 +24,7 @@ import {
   SUBUID_RANGE,
   type UidAllocationSettings,
   allocateSubuidRange,
-  allocateUid,
+  allocateUidInternal,
   getExistingSubuidStart,
   getNologinShell,
   getUidByUsername,
@@ -198,41 +198,44 @@ export const createServiceUser = async (
   // 2. Get nologin shell (auto-detected per distro)
   const shell = await getNologinShell();
 
-  // 3. Allocate UID and create user with retry on UID conflict
+  // 3. Allocate UID and create user atomically with retry on conflict
   const userResult = await retry(
     async () => {
-      const uidResult = await allocateUid(settings);
-      if (!uidResult.ok) {
-        return uidResult;
-      }
-      const uid = uidResult.value;
+      // Hold lock during entire UID allocation + user creation
+      return withLock("uid-allocation", async () => {
+        const uidResult = await allocateUidInternal(settings);
+        if (!uidResult.ok) {
+          return uidResult;
+        }
+        const uid = uidResult.value;
 
-      const createResult = await execSuccess([
-        "useradd",
-        "--uid",
-        String(uid),
-        "--home-dir",
-        homeDir,
-        "--create-home",
-        "--shell",
-        shell,
-        "--comment",
-        `divban service - ${serviceName}`,
-        username,
-      ]);
+        const createResult = await execSuccess([
+          "useradd",
+          "--uid",
+          String(uid),
+          "--home-dir",
+          homeDir,
+          "--create-home",
+          "--shell",
+          shell,
+          "--comment",
+          `divban service - ${serviceName}`,
+          username,
+        ]);
 
-      return mapResult(
-        mapErr(
-          createResult,
-          (err) =>
-            new DivbanError(
-              ErrorCode.USER_CREATE_FAILED,
-              `Failed to create user ${username}: ${err.message}`,
-              err
-            )
-        ),
-        () => uid
-      );
+        return mapResult(
+          mapErr(
+            createResult,
+            (err) =>
+              new DivbanError(
+                ErrorCode.USER_CREATE_FAILED,
+                `Failed to create user ${username}: ${err.message}`,
+                err
+              )
+          ),
+          () => uid
+        );
+      });
     },
     isUidConflictError,
     { maxAttempts: 3, baseDelayMs: 50 }

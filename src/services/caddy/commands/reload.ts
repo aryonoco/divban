@@ -10,6 +10,7 @@
  * Uses the Caddy admin API for graceful configuration reload.
  */
 
+import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { Err, Ok, type Result, mapErr } from "../../../lib/result";
@@ -45,6 +46,7 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
     uid,
     ["podman", "exec", containerName, "caddy", "validate", "--config", containerCaddyfile],
     {
+      timeout: DEFAULT_TIMEOUTS.validation,
       captureStdout: true,
       captureStderr: true,
     }
@@ -65,6 +67,7 @@ export const reloadCaddy = async (options: ReloadOptions): Promise<Result<void, 
     uid,
     ["podman", "exec", containerName, "caddy", "reload", "--config", containerCaddyfile],
     {
+      timeout: DEFAULT_TIMEOUTS.validation,
       captureStdout: true,
       captureStderr: true,
     }
@@ -111,6 +114,7 @@ export const validateCaddyfile = async (
     uid,
     ["podman", "exec", containerName, "caddy", "validate", "--config", containerCaddyfile],
     {
+      timeout: DEFAULT_TIMEOUTS.validation,
       captureStdout: true,
       captureStderr: true,
     }
@@ -156,6 +160,7 @@ export const formatCaddyfile = async (
     uid,
     ["podman", "exec", "-i", containerName, "caddy", "fmt", "-"],
     {
+      timeout: DEFAULT_TIMEOUTS.validation,
       captureStdout: true,
       captureStderr: true,
       stdin: content,

@@ -6,12 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * CLI argument parsing using Node.js util.parseArgs.
+ * CLI argument parsing using Node.js parseArgs.
+ * Bun provides full compatibility with node:util.
  */
 
 import { parseArgs as nodeParseArgs } from "node:util";
 import { DivbanError, ErrorCode } from "../lib/errors";
-import { filter, fromUndefined } from "../lib/option";
+import { filter, fromUndefined, nonEmpty } from "../lib/option";
 import { Err, Ok, type Result } from "../lib/result";
 
 /**
@@ -115,7 +116,47 @@ export const isCommand = (s: string): s is Command => {
 };
 
 /**
- * Parse command line arguments using Node.js util.parseArgs.
+ * Get the maximum expected positional arguments for a command.
+ */
+const getMaxPositionals = (command: Command): number => {
+  switch (command) {
+    case "secret":
+      return 4; // service command subcommand [name]
+    case "restore":
+    case "validate":
+    case "generate":
+    case "diff":
+    case "setup":
+    case "backup-config":
+      return 3; // service command path
+    default:
+      return 2; // service command
+  }
+};
+
+/**
+ * Validate no extra positional arguments.
+ * Uses nonEmpty pattern: extra args → Some → Err, no extra → None → Ok.
+ */
+const validateNoExtraPositionals = (
+  positionals: string[],
+  command: Command
+): Result<void, DivbanError> => {
+  const maxPositionals = getMaxPositionals(command);
+  const extra = positionals.slice(maxPositionals);
+
+  return nonEmpty(extra).isSome
+    ? Err(
+        new DivbanError(
+          ErrorCode.INVALID_ARGS,
+          `Unexpected arguments: ${extra.join(", ")}. The '${command}' command accepts at most ${maxPositionals} positional arguments.`
+        )
+      )
+    : Ok(undefined);
+};
+
+/**
+ * Parse command line arguments.
  */
 export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
   const args: ParsedArgs = { ...defaultArgs };
@@ -131,12 +172,12 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
         force: { type: "boolean", short: "f" },
         "preserve-data": { type: "boolean" },
         follow: { type: "boolean" },
+        json: { type: "boolean" },
         lines: { type: "string", short: "n" },
         output: { type: "string", short: "o" },
         container: { type: "string", short: "c" },
         "log-level": { type: "string" },
         format: { type: "string" },
-        json: { type: "boolean" },
         "global-config": { type: "string", short: "g" },
       },
       allowPositionals: true,
@@ -259,13 +300,16 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
       }
     }
 
+    // Validate no extra positional arguments
+    const extraArgsResult = validateNoExtraPositionals(positionals, args.command);
+    if (!extraArgsResult.ok) {
+      return extraArgsResult;
+    }
+
     return Ok(args);
   } catch (e) {
-    // Handle unknown options from strict mode
-    if (e instanceof Error && e.message.includes("Unknown option")) {
-      return Err(new DivbanError(ErrorCode.INVALID_ARGS, e.message));
-    }
-    throw e;
+    const message = e instanceof Error ? e.message : String(e);
+    return Err(new DivbanError(ErrorCode.INVALID_ARGS, message));
   }
 };
 

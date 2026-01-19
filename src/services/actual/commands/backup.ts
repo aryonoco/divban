@@ -17,6 +17,7 @@ import {
   createBackupTimestamp,
   ensureBackupDirectory,
   listBackupFiles,
+  validateBackupService,
   writeBackupArchive,
 } from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
@@ -132,12 +133,15 @@ export const restoreActual = async (
     // Read and decompress archive
     const compressedData = await file.bytes();
 
-    // Read metadata first to validate
+    // Read and validate metadata
     const metadata = await readArchiveMetadata(compressedData, { decompress: "gzip" });
+    const validationResult = validateBackupService(metadata, "actual", logger);
+    if (!validationResult.ok) {
+      return validationResult;
+    }
+
     if (isSome(metadata)) {
-      logger.info(
-        `Backup from: ${metadata.value.timestamp}, files: ${metadata.value.files.length}`
-      );
+      logger.info(`Files in backup: ${metadata.value.files.length}`);
     }
 
     // Extract archive

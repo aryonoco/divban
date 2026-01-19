@@ -150,6 +150,19 @@ export const containerBaseSchema: z.ZodType<ContainerBaseConfig> = z.object({
 }) as z.ZodType<ContainerBaseConfig>;
 
 /**
+ * Default timeout values in milliseconds.
+ * Used when no global config is available or as fallback values.
+ */
+export const DEFAULT_TIMEOUTS = {
+  /** Timeout for validation/reload operations (60 seconds) */
+  validation: 60_000,
+  /** Timeout for backup operations (10 minutes) */
+  backup: 600_000,
+  /** Timeout for restore operations (30 minutes) */
+  restore: 1_800_000,
+} as const;
+
+/**
  * Global configuration for divban.toml
  */
 export interface GlobalConfig {
@@ -170,6 +183,14 @@ export interface GlobalConfig {
   };
   paths: {
     baseDataDir: string;
+  };
+  timeouts: {
+    /** Timeout for validation/reload operations in ms (default: 60000 = 60s) */
+    validation: number;
+    /** Timeout for backup operations in ms (default: 600000 = 10min) */
+    backup: number;
+    /** Timeout for restore operations in ms (default: 1800000 = 30min) */
+    restore: number;
   };
 }
 
@@ -198,6 +219,13 @@ export const globalConfigSchema: z.ZodType<GlobalConfig> = z.object({
   paths: z
     .object({
       baseDataDir: absolutePathSchema.default("/srv"),
+    })
+    .default({}),
+  timeouts: z
+    .object({
+      validation: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.validation),
+      backup: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.backup),
+      restore: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.restore),
     })
     .default({}),
 }) as z.ZodType<GlobalConfig>;

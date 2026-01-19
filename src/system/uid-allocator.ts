@@ -158,6 +158,37 @@ export const allocateUid = (
 };
 
 /**
+ * Internal UID allocation without lock - for use within larger locked operations.
+ * MUST only be called while holding the "uid-allocation" lock.
+ */
+export const allocateUidInternal = async (
+  settings?: UidAllocationSettings
+): Promise<Result<UserId, DivbanError>> => {
+  const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
+  const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
+
+  const usedResult = await getUsedUids();
+  if (!usedResult.ok) {
+    return usedResult;
+  }
+
+  const usedUids = usedResult.value;
+
+  for (let uid = start; uid <= end; uid++) {
+    if (!usedUids.has(uid)) {
+      return Ok(uid as UserId);
+    }
+  }
+
+  return Err(
+    new DivbanError(
+      ErrorCode.UID_RANGE_EXHAUSTED,
+      `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`
+    )
+  );
+};
+
+/**
  * Allocate the next available subuid range that doesn't overlap
  * with existing allocations.
  * Uses file locking to prevent concurrent allocation conflicts.

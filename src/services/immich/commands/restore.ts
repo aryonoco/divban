@@ -10,10 +10,11 @@
  * Uses Bun.Archive for extraction - no external gunzip/tar commands.
  */
 
-import { detectCompressionFormat } from "../../../lib/backup-utils";
+import { DEFAULT_TIMEOUTS } from "../../../config/schema";
+import { detectCompressionFormat, validateBackupService } from "../../../lib/backup-utils";
 import { DivbanError, ErrorCode } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { fromUndefined, isNone, isSome, okOr } from "../../../lib/option";
+import { fromUndefined, isNone, okOr } from "../../../lib/option";
 import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
@@ -80,8 +81,9 @@ export const restoreDatabase = async (
 
   // Read and validate metadata
   const metadata = await readArchiveMetadata(compressedData, { decompress: compression.value });
-  if (isSome(metadata)) {
-    logger.info(`Backup from: ${metadata.value.timestamp}, service: ${metadata.value.service}`);
+  const validationResult = validateBackupService(metadata, "immich", logger);
+  if (!validationResult.ok) {
+    return validationResult;
   }
 
   // Extract archive
@@ -108,6 +110,7 @@ export const restoreDatabase = async (
     uid,
     ["podman", "exec", "-i", containerName, "psql", "-U", dbUser, "-d", database],
     {
+      timeout: DEFAULT_TIMEOUTS.restore,
       stdin: sqlData,
       captureStdout: true,
       captureStderr: true,

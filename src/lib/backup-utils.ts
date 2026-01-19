@@ -15,7 +15,8 @@ import type { ArchiveMetadata } from "../system/archive";
 import { createArchive } from "../system/archive";
 import { directoryExists, ensureDirectory } from "../system/fs";
 import { DivbanError, ErrorCode } from "./errors";
-import { None, type Option, Some } from "./option";
+import type { Logger } from "./logger";
+import { None, type Option, Some, isNone } from "./option";
 import { Err, Ok, type Result, mapErr, tryCatch } from "./result";
 import type { AbsolutePath } from "./types";
 
@@ -137,4 +138,33 @@ export const validateBackupExists = async (
 export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<number> => {
   const stat = await Bun.file(backupPath).stat();
   return stat?.size ?? 0;
+};
+
+/**
+ * Validate backup metadata matches expected service.
+ * Returns Ok if metadata is missing (backwards compat) or service matches.
+ * Uses Option → Result pattern: None → Ok, Some with mismatch → Err.
+ */
+export const validateBackupService = (
+  metadata: Option<ArchiveMetadata>,
+  expectedService: string,
+  logger: Logger
+): Result<void, DivbanError> => {
+  if (isNone(metadata)) {
+    return Ok(undefined); // No metadata = legacy backup, allow
+  }
+
+  const { service, timestamp } = metadata.value;
+
+  if (service !== expectedService) {
+    return Err(
+      new DivbanError(
+        ErrorCode.RESTORE_FAILED,
+        `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`
+      )
+    );
+  }
+
+  logger.info(`Backup from: ${timestamp}, service: ${service}`);
+  return Ok(undefined);
 };
