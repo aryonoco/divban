@@ -9,6 +9,7 @@
  * Named matcher generation for Caddyfile.
  */
 
+import { nonEmpty } from "../../../lib/option";
 import type { NamedMatcher } from "../schema";
 import { createBuilder, escapeValue } from "./format";
 
@@ -21,8 +22,9 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
   builder.open(`@${matcher.name}`);
 
   // Path matching
-  if (matcher.path && matcher.path.length > 0) {
-    builder.directive("path", matcher.path);
+  const pathOpt = nonEmpty(matcher.path);
+  if (pathOpt.isSome) {
+    builder.directive("path", pathOpt.value);
   }
 
   // Path regexp
@@ -31,13 +33,15 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
   }
 
   // Host matching
-  if (matcher.host && matcher.host.length > 0) {
-    builder.directive("host", matcher.host);
+  const hostOpt = nonEmpty(matcher.host);
+  if (hostOpt.isSome) {
+    builder.directive("host", hostOpt.value);
   }
 
   // Method matching
-  if (matcher.method && matcher.method.length > 0) {
-    builder.directive("method", matcher.method);
+  const methodOpt = nonEmpty(matcher.method);
+  if (methodOpt.isSome) {
+    builder.directive("method", methodOpt.value);
   }
 
   // Header matching
@@ -62,8 +66,9 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
   }
 
   // Remote IP matching
-  if (matcher.remoteIp && matcher.remoteIp.length > 0) {
-    builder.directive("remote_ip", matcher.remoteIp);
+  const remoteIpOpt = nonEmpty(matcher.remoteIp);
+  if (remoteIpOpt.isSome) {
+    builder.directive("remote_ip", remoteIpOpt.value);
   }
 
   // Protocol matching
@@ -121,16 +126,16 @@ export const matcherRef = (name: string): string => {
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
   return !(
-    (matcher.path && matcher.path.length > 0) ||
-    matcher.pathRegexp ||
-    (matcher.host && matcher.host.length > 0) ||
-    (matcher.method && matcher.method.length > 0) ||
-    matcher.header ||
-    matcher.headerRegexp ||
-    matcher.query ||
-    (matcher.remoteIp && matcher.remoteIp.length > 0) ||
-    matcher.protocol ||
-    matcher.not ||
-    matcher.expression
+    nonEmpty(matcher.path).isSome ||
+    matcher.pathRegexp !== undefined ||
+    nonEmpty(matcher.host).isSome ||
+    nonEmpty(matcher.method).isSome ||
+    matcher.header !== undefined ||
+    matcher.headerRegexp !== undefined ||
+    matcher.query !== undefined ||
+    nonEmpty(matcher.remoteIp).isSome ||
+    matcher.protocol !== undefined ||
+    matcher.not !== undefined ||
+    matcher.expression !== undefined
   );
 };

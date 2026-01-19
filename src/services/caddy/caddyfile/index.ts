@@ -9,6 +9,7 @@
  * Complete Caddyfile generation.
  */
 
+import { filter, fromUndefined, nonEmpty } from "../../../lib/option";
 import type { CaddyfileConfig } from "../schema";
 import { createBuilder } from "./format";
 import { generateGlobalOptions, hasGlobalOptions } from "./global";
@@ -28,16 +29,18 @@ export const generateCaddyfile = (config: CaddyfileConfig): string => {
   builder.blank();
 
   // Global options (if any)
-  if (config.global && hasGlobalOptions(config.global)) {
+  const globalOpt = filter(fromUndefined(config.global), hasGlobalOptions);
+  if (globalOpt.isSome) {
     builder.comment("Global options");
-    builder.raw(generateGlobalOptions(config.global).trim());
+    builder.raw(generateGlobalOptions(globalOpt.value).trim());
     builder.blank();
   }
 
   // Snippets (if any)
-  if (config.snippets && config.snippets.length > 0) {
+  const snippetsOpt = nonEmpty(config.snippets);
+  if (snippetsOpt.isSome) {
     builder.comment("Snippets");
-    builder.raw(generateSnippets(config.snippets).trim());
+    builder.raw(generateSnippets(snippetsOpt.value).trim());
     builder.blank();
   }
 

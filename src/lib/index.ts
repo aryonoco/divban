@@ -102,6 +102,7 @@ export {
   // Construction
   fromUndefined,
   fromNullable,
+  nonEmpty,
 } from "./option";
 export type { Option } from "./option";
 

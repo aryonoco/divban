@@ -9,6 +9,7 @@
  * Site block generation for Caddyfile.
  */
 
+import { nonEmpty } from "../../../lib/option";
 import type { Directive, Route, Site } from "../schema";
 import { renderDirectives } from "./directives";
 import { createBuilder } from "./format";
@@ -25,12 +26,13 @@ export const generateRoute = (route: Route): string => {
   // - Matched route: route /path { ... } or handle /path { ... }
   // - Anonymous route: route { ... }
 
+  const matchOpt = nonEmpty(route.match);
   if (route.name) {
     // Named route
     builder.open(`@${route.name}`);
-  } else if (route.match && route.match.length > 0) {
+  } else if (matchOpt.isSome) {
     // Matched route (using handle_path for path-based matching)
-    const matchStr = route.match.join(" ");
+    const matchStr = matchOpt.value.join(" ");
     builder.open(`handle_path ${matchStr}`);
   } else {
     // Anonymous route using handle
@@ -58,27 +60,30 @@ export const generateSite = (site: Site): string => {
   builder.open(addresses);
 
   // Named matchers (if any)
-  if (site.matchers && site.matchers.length > 0) {
-    const matchersContent = generateNamedMatchers(site.matchers);
+  const matchersOpt = nonEmpty(site.matchers);
+  if (matchersOpt.isSome) {
+    const matchersContent = generateNamedMatchers(matchersOpt.value);
     builder.blank();
     builder.comment("Named matchers");
     builder.raw(matchersContent.trim());
   }
 
   // Routes (if any)
-  if (site.routes && site.routes.length > 0) {
+  const routesOpt = nonEmpty(site.routes);
+  if (routesOpt.isSome) {
     builder.blank();
     builder.comment("Routes");
-    for (const route of site.routes) {
+    for (const route of routesOpt.value) {
       builder.raw(generateRoute(route).trim());
       builder.blank();
     }
   }
 
   // Direct directives (if any)
-  if (site.directives && site.directives.length > 0) {
+  const directivesOpt = nonEmpty(site.directives);
+  if (directivesOpt.isSome) {
     builder.blank();
-    const directivesContent = renderDirectives(site.directives, 1);
+    const directivesContent = renderDirectives(directivesOpt.value, 1);
     builder.raw(directivesContent.trim());
   }
 

@@ -11,6 +11,7 @@
 
 import { parseArgs as nodeParseArgs } from "node:util";
 import { DivbanError, ErrorCode } from "../lib/errors";
+import { filter, fromUndefined } from "../lib/option";
 import { Err, Ok, type Result } from "../lib/result";
 
 /**
@@ -179,14 +180,17 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     if (values.container !== undefined) {
       args.container = values.container;
     }
-    if (
-      values["log-level"] !== undefined &&
-      ["debug", "info", "warn", "error"].includes(values["log-level"])
-    ) {
-      args.logLevel = values["log-level"] as ParsedArgs["logLevel"];
+    const logLevelOpt = filter(fromUndefined(values["log-level"]), (val) =>
+      ["debug", "info", "warn", "error"].includes(val)
+    );
+    if (logLevelOpt.isSome) {
+      args.logLevel = logLevelOpt.value as ParsedArgs["logLevel"];
     }
-    if (values.format !== undefined && ["pretty", "json"].includes(values.format)) {
-      args.format = values.format as ParsedArgs["format"];
+    const formatOpt = filter(fromUndefined(values.format), (val) =>
+      ["pretty", "json"].includes(val)
+    );
+    if (formatOpt.isSome) {
+      args.format = formatOpt.value as ParsedArgs["format"];
     }
 
     // Parse positional arguments: <service> <command> [config|backup-path]
@@ -201,8 +205,9 @@ export const parseArgs = (argv: string[]): Result<ParsedArgs, DivbanError> => {
     // Second positional: command
     if (positionals.length >= 2) {
       const cmd = positionals[1];
-      if (cmd !== undefined && isCommand(cmd)) {
-        args.command = cmd;
+      const cmdOpt = filter(fromUndefined(cmd), isCommand);
+      if (cmdOpt.isSome) {
+        args.command = cmdOpt.value;
       } else if (cmd !== undefined) {
         return Err(
           new DivbanError(

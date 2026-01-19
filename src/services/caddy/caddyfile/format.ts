@@ -5,6 +5,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { mapOr, nonEmpty } from "../../../lib/option";
+
 /**
  * Caddyfile formatting utilities.
  */
@@ -46,7 +48,7 @@ export const joinArgs = (args: string[]): string => {
  * Format a block opening.
  */
 export const openBlock = (name: string, args?: string[]): string => {
-  const argsStr = args && args.length > 0 ? ` ${joinArgs(args)}` : "";
+  const argsStr = mapOr(nonEmpty(args), "", (a) => ` ${joinArgs(a)}`);
   return `${name}${argsStr} {`;
 };
 

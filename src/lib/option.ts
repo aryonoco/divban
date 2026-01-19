@@ -144,3 +144,10 @@ export const fromUndefined = <T>(value: T | undefined): Option<T> =>
 
 export const fromNullable = <T>(value: T | null | undefined): Option<T> =>
   value == null ? None : Some(value);
+
+/**
+ * Filter to non-empty arrays.
+ * Returns Some(array) if array exists and has elements, None otherwise.
+ */
+export const nonEmpty = <T>(arr: T[] | undefined | null): Option<T[]> =>
+  filter(fromNullable(arr), (a) => a.length > 0);

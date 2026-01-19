@@ -9,6 +9,7 @@
  * Snippet generation for Caddyfile.
  */
 
+import { nonEmpty } from "../../../lib/option";
 import type { Snippet } from "../schema";
 import { renderDirectives } from "./directives";
 import { createBuilder } from "./format";
@@ -20,10 +21,10 @@ export const generateSnippet = (snippet: Snippet): string => {
   const builder = createBuilder();
 
   // Snippet name with optional args
-  const name =
-    snippet.args && snippet.args.length > 0
-      ? `(${snippet.name} ${snippet.args.join(" ")})`
-      : `(${snippet.name})`;
+  const argsOpt = nonEmpty(snippet.args);
+  const name = argsOpt.isSome
+    ? `(${snippet.name} ${argsOpt.value.join(" ")})`
+    : `(${snippet.name})`;
 
   builder.open(name);
 
@@ -53,8 +54,9 @@ export const generateSnippets = (snippets: Snippet[]): string => {
  * Generate a snippet import directive.
  */
 export const importSnippet = (name: string, args?: string[]): string => {
-  if (args && args.length > 0) {
-    return `import ${name} ${args.join(" ")}`;
+  const argsOpt = nonEmpty(args);
+  if (argsOpt.isSome) {
+    return `import ${name} ${argsOpt.value.join(" ")}`;
   }
   return `import ${name}`;
 };
