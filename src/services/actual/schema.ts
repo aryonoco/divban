@@ -9,59 +9,94 @@
  * Actual Budget service configuration schema.
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+import { isValidIP } from "../../lib/schema-utils";
 
 /**
- * Actual Budget configuration.
+ * Actual Budget configuration (output after decoding).
  * Simple single-container service for personal finance management.
  */
 export interface ActualConfig {
   /** Path configuration */
-  paths: {
+  readonly paths: {
     /** Directory for Actual data (database, user files) */
-    dataDir: string;
+    readonly dataDir: string;
   };
   /** Container configuration */
-  container?:
+  readonly container?:
     | {
         /** Container image */
-        image: string;
+        readonly image: string;
         /** Auto-update policy */
-        autoUpdate?: "registry" | "local" | undefined;
+        readonly autoUpdate?: "registry" | "local" | undefined;
       }
     | undefined;
   /** Network configuration */
-  network?:
+  readonly network?:
     | {
         /** Host port to bind (default: 5006) */
-        port: number;
+        readonly port: number;
         /** Host IP to bind (default: 127.0.0.1 for security) */
-        host: string;
+        readonly host: string;
       }
     | undefined;
   /** Logging level */
-  logLevel: "debug" | "info" | "warn" | "error";
+  readonly logLevel: "debug" | "info" | "warn" | "error";
 }
 
-export const actualConfigSchema: z.ZodType<ActualConfig> = z.object({
-  paths: z.object({
+/**
+ * Actual Budget configuration (input before decoding).
+ * Fields with defaults are optional in input.
+ */
+export interface ActualConfigInput {
+  readonly paths: {
+    readonly dataDir: string;
+  };
+  readonly container?:
+    | {
+        readonly image?: string | undefined;
+        readonly autoUpdate?: "registry" | "local" | undefined;
+      }
+    | undefined;
+  readonly network?:
+    | {
+        readonly port?: number | undefined;
+        readonly host?: string | undefined;
+      }
+    | undefined;
+  readonly logLevel?: "debug" | "info" | "warn" | "error" | undefined;
+}
+
+export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> = Schema.Struct({
+  paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),
-  container: z
-    .object({
-      image: containerImageSchema.default("docker.io/actualbudget/actual-server:latest"),
-      autoUpdate: z.enum(["registry", "local"]).optional(),
+  container: Schema.optional(
+    Schema.Struct({
+      image: Schema.optionalWith(containerImageSchema, {
+        default: (): string => "docker.io/actualbudget/actual-server:latest",
+      }),
+      autoUpdate: Schema.optional(Schema.Literal("registry", "local")),
     })
-    .optional(),
-  network: z
-    .object({
-      port: z.number().int().min(1).max(65535).default(5006),
-      host: z.string().ip().default("127.0.0.1"),
+  ),
+  network: Schema.optional(
+    Schema.Struct({
+      port: Schema.optionalWith(Schema.Number.pipe(Schema.int(), Schema.between(1, 65535)), {
+        default: (): number => 5006,
+      }),
+      host: Schema.optionalWith(
+        Schema.String.pipe(
+          Schema.filter(isValidIP, { message: (): string => "Invalid IP address" })
+        ),
+        { default: (): string => "127.0.0.1" }
+      ),
     })
-    .optional(),
-  logLevel: z.enum(["debug", "info", "warn", "error"]).default("info"),
-}) as z.ZodType<ActualConfig>;
+  ),
+  logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
+    default: (): "info" => "info",
+  }),
+});
 
 /**
  * Default configuration values.

@@ -6,13 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Zod schemas for divban configuration files.
+ * Effect Schema definitions for divban configuration files.
  * Single source of truth for configuration structure and validation.
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 import { DivbanError, ErrorCode } from "../lib/errors";
 import { Err, Ok, type Result } from "../lib/result";
+import { isValidIP } from "../lib/schema-utils";
 import { type AbsolutePath, type Username, AbsolutePath as makeAbsolutePath } from "../lib/types";
 
 /**
@@ -23,68 +24,99 @@ const POSIX_USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
 /**
  * Reusable schema components
  */
-export const absolutePathSchema: z.ZodEffects<z.ZodString, string, string> = z
-  .string()
-  .refine((s) => s.startsWith("/"), {
-    message: "Path must be absolute (start with /)",
-  });
+export const absolutePathSchema: Schema.Schema<string> = Schema.String.pipe(
+  Schema.filter((s): s is string => s.startsWith("/"), {
+    message: (): string => "Path must be absolute (start with /)",
+  })
+);
 
-export const usernameSchema: z.ZodString = z.string().regex(/^[a-z_][a-z0-9_-]*$/, {
-  message: "Username must match [a-z_][a-z0-9_-]*",
-});
+export const usernameSchema: Schema.Schema<string> = Schema.String.pipe(
+  Schema.pattern(/^[a-z_][a-z0-9_-]*$/, {
+    message: (): string => "Username must match [a-z_][a-z0-9_-]*",
+  })
+);
 
-export const containerImageSchema: z.ZodString = z
-  .string()
-  .regex(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
-    message: "Invalid container image format",
-  });
+export const containerImageSchema: Schema.Schema<string> = Schema.String.pipe(
+  Schema.pattern(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
+    message: (): string => "Invalid container image format",
+  })
+);
 
-/** Port mapping configuration */
+/** Port mapping configuration (output after decoding) */
 export interface PortConfig {
-  host: number;
-  container: number;
-  hostIp?: string | undefined;
-  protocol: "tcp" | "udp";
+  readonly host: number;
+  readonly container: number;
+  readonly hostIp?: string | undefined;
+  readonly protocol: "tcp" | "udp";
 }
 
-export const portSchema: z.ZodType<PortConfig> = z.object({
-  host: z.number().int().min(1).max(65535),
-  container: z.number().int().min(1).max(65535),
-  hostIp: z.string().ip().optional(),
-  protocol: z.enum(["tcp", "udp"]).default("tcp"),
-}) as z.ZodType<PortConfig>;
+/** Port mapping configuration (input before decoding) */
+export interface PortConfigInput {
+  readonly host: number;
+  readonly container: number;
+  readonly hostIp?: string | undefined;
+  readonly protocol?: "tcp" | "udp" | undefined;
+}
+
+export const portSchema: Schema.Schema<PortConfig, PortConfigInput> = Schema.Struct({
+  host: Schema.Number.pipe(Schema.int(), Schema.between(1, 65535)),
+  container: Schema.Number.pipe(Schema.int(), Schema.between(1, 65535)),
+  hostIp: Schema.optional(
+    Schema.String.pipe(
+      Schema.filter((s): s is string => isValidIP(s), {
+        message: (): string => "Invalid IP address",
+      })
+    )
+  ),
+  protocol: Schema.optionalWith(Schema.Literal("tcp", "udp"), { default: (): "tcp" => "tcp" }),
+});
 
 /** Volume mount configuration */
 export interface VolumeMountConfig {
-  source: string;
-  target: string;
-  options?: string | undefined;
+  readonly source: string;
+  readonly target: string;
+  readonly options?: string | undefined;
 }
 
-export const volumeMountSchema: z.ZodType<VolumeMountConfig> = z.object({
-  source: z.string(),
+export const volumeMountSchema: Schema.Schema<VolumeMountConfig> = Schema.Struct({
+  source: Schema.String,
   target: absolutePathSchema,
-  options: z.string().optional(),
+  options: Schema.optional(Schema.String),
 });
 
-/** Health check configuration */
+/** Health check configuration (output after decoding) */
 export interface HealthCheckConfig {
-  cmd: string;
-  interval: string;
-  timeout: string;
-  retries: number;
-  startPeriod: string;
-  onFailure: "none" | "kill" | "restart" | "stop";
+  readonly cmd: string;
+  readonly interval: string;
+  readonly timeout: string;
+  readonly retries: number;
+  readonly startPeriod: string;
+  readonly onFailure: "none" | "kill" | "restart" | "stop";
 }
 
-export const healthCheckSchema: z.ZodType<HealthCheckConfig> = z.object({
-  cmd: z.string(),
-  interval: z.string().default("30s"),
-  timeout: z.string().default("30s"),
-  retries: z.number().int().min(1).default(3),
-  startPeriod: z.string().default("0s"),
-  onFailure: z.enum(["none", "kill", "restart", "stop"]).default("none"),
-}) as z.ZodType<HealthCheckConfig>;
+/** Health check configuration (input before decoding) */
+export interface HealthCheckConfigInput {
+  readonly cmd: string;
+  readonly interval?: string | undefined;
+  readonly timeout?: string | undefined;
+  readonly retries?: number | undefined;
+  readonly startPeriod?: string | undefined;
+  readonly onFailure?: "none" | "kill" | "restart" | "stop" | undefined;
+}
+
+export const healthCheckSchema: Schema.Schema<HealthCheckConfig, HealthCheckConfigInput> =
+  Schema.Struct({
+    cmd: Schema.String,
+    interval: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+    timeout: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+    retries: Schema.optionalWith(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)), {
+      default: (): number => 3,
+    }),
+    startPeriod: Schema.optionalWith(Schema.String, { default: (): string => "0s" }),
+    onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
+      default: (): "none" => "none",
+    }),
+  });
 
 /** Service restart policy */
 export type ServiceRestartPolicy =
@@ -95,59 +127,106 @@ export type ServiceRestartPolicy =
   | "on-abort"
   | "always";
 
-export const serviceRestartSchema: z.ZodEnum<
-  ["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"]
-> = z.enum(["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"]);
+export const serviceRestartSchema: Schema.Schema<ServiceRestartPolicy> = Schema.Literal(
+  "no",
+  "on-success",
+  "on-failure",
+  "on-abnormal",
+  "on-abort",
+  "always"
+);
 
 /**
- * Base container configuration.
+ * Base container configuration (output after decoding).
  * Used by all services as the foundation for container definitions.
+ * Uses readonly to match Effect Schema's default output.
  */
 export interface ContainerBaseConfig {
-  image: string;
-  imageDigest?: string | undefined;
-  networkMode: "pasta" | "slirp4netns" | "host" | "none";
-  ports?: PortConfig[] | undefined;
-  volumes?: VolumeMountConfig[] | undefined;
-  environment?: Record<string, string> | undefined;
-  environmentFiles?: string[] | undefined;
-  healthCheck?: HealthCheckConfig | undefined;
-  readOnlyRootfs: boolean;
-  noNewPrivileges: boolean;
-  capAdd?: string[] | undefined;
-  capDrop?: string[] | undefined;
-  seccompProfile?: string | undefined;
-  shmSize?: string | undefined;
-  devices?: string[] | undefined;
-  autoUpdate: "registry" | "local" | false;
-  restart: ServiceRestartPolicy;
-  restartSec?: number | undefined;
-  timeoutStartSec?: number | undefined;
-  timeoutStopSec?: number | undefined;
+  readonly image: string;
+  readonly imageDigest?: string | undefined;
+  readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
+  readonly ports?: readonly PortConfig[] | undefined;
+  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
+  readonly environmentFiles?: readonly string[] | undefined;
+  readonly healthCheck?: HealthCheckConfig | undefined;
+  readonly readOnlyRootfs: boolean;
+  readonly noNewPrivileges: boolean;
+  readonly capAdd?: readonly string[] | undefined;
+  readonly capDrop?: readonly string[] | undefined;
+  readonly seccompProfile?: string | undefined;
+  readonly shmSize?: string | undefined;
+  readonly devices?: readonly string[] | undefined;
+  readonly autoUpdate: "registry" | "local" | false;
+  readonly restart: ServiceRestartPolicy;
+  readonly restartSec?: number | undefined;
+  readonly timeoutStartSec?: number | undefined;
+  readonly timeoutStopSec?: number | undefined;
 }
 
-export const containerBaseSchema: z.ZodType<ContainerBaseConfig> = z.object({
-  image: containerImageSchema,
-  imageDigest: z.string().optional(),
-  networkMode: z.enum(["pasta", "slirp4netns", "host", "none"]).default("pasta"),
-  ports: z.array(portSchema).optional(),
-  volumes: z.array(volumeMountSchema).optional(),
-  environment: z.record(z.string()).optional(),
-  environmentFiles: z.array(absolutePathSchema).optional(),
-  healthCheck: healthCheckSchema.optional(),
-  readOnlyRootfs: z.boolean().default(false),
-  noNewPrivileges: z.boolean().default(true),
-  capAdd: z.array(z.string()).optional(),
-  capDrop: z.array(z.string()).optional(),
-  seccompProfile: absolutePathSchema.optional(),
-  shmSize: z.string().optional(),
-  devices: z.array(z.string()).optional(),
-  autoUpdate: z.enum(["registry", "local"]).or(z.literal(false)).default("registry"),
-  restart: serviceRestartSchema.default("on-failure"),
-  restartSec: z.number().int().min(0).optional(),
-  timeoutStartSec: z.number().int().min(0).optional(),
-  timeoutStopSec: z.number().int().min(0).optional(),
-}) as z.ZodType<ContainerBaseConfig>;
+/**
+ * Base container configuration (input before decoding).
+ * Fields with defaults are optional in input.
+ */
+export interface ContainerBaseConfigInput {
+  readonly image: string;
+  readonly imageDigest?: string | undefined;
+  readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  readonly ports?: readonly PortConfigInput[] | undefined;
+  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
+  readonly environmentFiles?: readonly string[] | undefined;
+  readonly healthCheck?: HealthCheckConfigInput | undefined;
+  readonly readOnlyRootfs?: boolean | undefined;
+  readonly noNewPrivileges?: boolean | undefined;
+  readonly capAdd?: readonly string[] | undefined;
+  readonly capDrop?: readonly string[] | undefined;
+  readonly seccompProfile?: string | undefined;
+  readonly shmSize?: string | undefined;
+  readonly devices?: readonly string[] | undefined;
+  readonly autoUpdate?: "registry" | "local" | false | undefined;
+  readonly restart?: ServiceRestartPolicy | undefined;
+  readonly restartSec?: number | undefined;
+  readonly timeoutStartSec?: number | undefined;
+  readonly timeoutStopSec?: number | undefined;
+}
+
+export const containerBaseSchema: Schema.Schema<ContainerBaseConfig, ContainerBaseConfigInput> =
+  Schema.Struct({
+    image: containerImageSchema,
+    imageDigest: Schema.optional(Schema.String),
+    networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns", "host", "none"), {
+      default: (): "pasta" => "pasta",
+    }),
+    ports: Schema.optional(Schema.Array(portSchema)),
+    volumes: Schema.optional(Schema.Array(volumeMountSchema)),
+    environment: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+    environmentFiles: Schema.optional(Schema.Array(absolutePathSchema)),
+    healthCheck: Schema.optional(healthCheckSchema),
+    readOnlyRootfs: Schema.optionalWith(Schema.Boolean, { default: (): boolean => false }),
+    noNewPrivileges: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
+    capAdd: Schema.optional(Schema.Array(Schema.String)),
+    capDrop: Schema.optional(Schema.Array(Schema.String)),
+    seccompProfile: Schema.optional(absolutePathSchema),
+    shmSize: Schema.optional(Schema.String),
+    devices: Schema.optional(Schema.Array(Schema.String)),
+    autoUpdate: Schema.optionalWith(
+      Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+      {
+        default: (): "registry" => "registry",
+      }
+    ),
+    restart: Schema.optionalWith(serviceRestartSchema, {
+      default: (): "on-failure" => "on-failure",
+    }),
+    restartSec: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+    timeoutStartSec: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))
+    ),
+    timeoutStopSec: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))
+    ),
+  });
 
 /**
  * Default timeout values in milliseconds.
@@ -163,72 +242,175 @@ export const DEFAULT_TIMEOUTS = {
 } as const;
 
 /**
- * Global configuration for divban.toml
+ * Global configuration for divban.toml (output after decoding)
  */
 export interface GlobalConfig {
-  defaults: {
-    networkMode: "pasta" | "slirp4netns";
-    autoUpdate: "registry" | "local" | false;
-    timezone: string;
+  readonly defaults: {
+    readonly networkMode: "pasta" | "slirp4netns";
+    readonly autoUpdate: "registry" | "local" | false;
+    readonly timezone: string;
   };
-  users: {
-    uidRangeStart: number;
-    uidRangeEnd: number;
-    subuidRangeStart: number;
-    subuidRangeSize: number;
+  readonly users: {
+    readonly uidRangeStart: number;
+    readonly uidRangeEnd: number;
+    readonly subuidRangeStart: number;
+    readonly subuidRangeSize: number;
   };
-  logging: {
-    level: "debug" | "info" | "warn" | "error";
-    format: "pretty" | "json";
+  readonly logging: {
+    readonly level: "debug" | "info" | "warn" | "error";
+    readonly format: "pretty" | "json";
   };
-  paths: {
-    baseDataDir: string;
+  readonly paths: {
+    readonly baseDataDir: string;
   };
-  timeouts: {
+  readonly timeouts: {
     /** Timeout for validation/reload operations in ms (default: 60000 = 60s) */
-    validation: number;
+    readonly validation: number;
     /** Timeout for backup operations in ms (default: 600000 = 10min) */
-    backup: number;
+    readonly backup: number;
     /** Timeout for restore operations in ms (default: 1800000 = 30min) */
-    restore: number;
+    readonly restore: number;
   };
 }
 
-export const globalConfigSchema: z.ZodType<GlobalConfig> = z.object({
-  defaults: z
-    .object({
-      networkMode: z.enum(["pasta", "slirp4netns"]).default("pasta"),
-      autoUpdate: z.enum(["registry", "local"]).or(z.literal(false)).default("registry"),
-      timezone: z.string().default("UTC"),
-    })
-    .default({}),
-  users: z
-    .object({
-      uidRangeStart: z.number().int().min(10000).max(59999).default(10000),
-      uidRangeEnd: z.number().int().min(10000).max(59999).default(59999),
-      subuidRangeStart: z.number().int().min(100000).default(100000),
-      subuidRangeSize: z.number().int().min(65536).default(65536),
-    })
-    .default({}),
-  logging: z
-    .object({
-      level: z.enum(["debug", "info", "warn", "error"]).default("info"),
-      format: z.enum(["pretty", "json"]).default("pretty"),
-    })
-    .default({}),
-  paths: z
-    .object({
-      baseDataDir: absolutePathSchema.default("/srv"),
-    })
-    .default({}),
-  timeouts: z
-    .object({
-      validation: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.validation),
-      backup: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.backup),
-      restore: z.number().int().min(1000).default(DEFAULT_TIMEOUTS.restore),
-    })
-    .default({}),
-}) as z.ZodType<GlobalConfig>;
+/**
+ * Global configuration for divban.toml (input before decoding)
+ * All nested objects and their fields are optional.
+ */
+export interface GlobalConfigInput {
+  readonly defaults?:
+    | {
+        readonly networkMode?: "pasta" | "slirp4netns" | undefined;
+        readonly autoUpdate?: "registry" | "local" | false | undefined;
+        readonly timezone?: string | undefined;
+      }
+    | undefined;
+  readonly users?:
+    | {
+        readonly uidRangeStart?: number | undefined;
+        readonly uidRangeEnd?: number | undefined;
+        readonly subuidRangeStart?: number | undefined;
+        readonly subuidRangeSize?: number | undefined;
+      }
+    | undefined;
+  readonly logging?:
+    | {
+        readonly level?: "debug" | "info" | "warn" | "error" | undefined;
+        readonly format?: "pretty" | "json" | undefined;
+      }
+    | undefined;
+  readonly paths?:
+    | {
+        readonly baseDataDir?: string | undefined;
+      }
+    | undefined;
+  readonly timeouts?:
+    | {
+        readonly validation?: number | undefined;
+        readonly backup?: number | undefined;
+        readonly restore?: number | undefined;
+      }
+    | undefined;
+}
+
+export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> = Schema.Struct({
+  defaults: Schema.optionalWith(
+    Schema.Struct({
+      networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns"), {
+        default: (): "pasta" => "pasta",
+      }),
+      autoUpdate: Schema.optionalWith(
+        Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+        { default: (): "registry" => "registry" }
+      ),
+      timezone: Schema.optionalWith(Schema.String, { default: (): string => "UTC" }),
+    }),
+    {
+      default: (): GlobalConfig["defaults"] => ({
+        networkMode: "pasta",
+        autoUpdate: "registry",
+        timezone: "UTC",
+      }),
+    }
+  ),
+  users: Schema.optionalWith(
+    Schema.Struct({
+      uidRangeStart: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.between(10000, 59999)),
+        { default: (): number => 10000 }
+      ),
+      uidRangeEnd: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.between(10000, 59999)),
+        { default: (): number => 59999 }
+      ),
+      subuidRangeStart: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(100000)),
+        { default: (): number => 100000 }
+      ),
+      subuidRangeSize: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(65536)),
+        { default: (): number => 65536 }
+      ),
+    }),
+    {
+      default: (): GlobalConfig["users"] => ({
+        uidRangeStart: 10000,
+        uidRangeEnd: 59999,
+        subuidRangeStart: 100000,
+        subuidRangeSize: 65536,
+      }),
+    }
+  ),
+  logging: Schema.optionalWith(
+    Schema.Struct({
+      level: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
+        default: (): "info" => "info",
+      }),
+      format: Schema.optionalWith(Schema.Literal("pretty", "json"), {
+        default: (): "pretty" => "pretty",
+      }),
+    }),
+    {
+      default: (): GlobalConfig["logging"] => ({
+        level: "info",
+        format: "pretty",
+      }),
+    }
+  ),
+  paths: Schema.optionalWith(
+    Schema.Struct({
+      baseDataDir: Schema.optionalWith(absolutePathSchema, { default: (): string => "/srv" }),
+    }),
+    {
+      default: (): GlobalConfig["paths"] => ({
+        baseDataDir: "/srv",
+      }),
+    }
+  ),
+  timeouts: Schema.optionalWith(
+    Schema.Struct({
+      validation: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1000)),
+        { default: (): number => DEFAULT_TIMEOUTS.validation }
+      ),
+      backup: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1000)),
+        { default: (): number => DEFAULT_TIMEOUTS.backup }
+      ),
+      restore: Schema.optionalWith(
+        Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1000)),
+        { default: (): number => DEFAULT_TIMEOUTS.restore }
+      ),
+    }),
+    {
+      default: (): GlobalConfig["timeouts"] => ({
+        validation: DEFAULT_TIMEOUTS.validation,
+        backup: DEFAULT_TIMEOUTS.backup,
+        restore: DEFAULT_TIMEOUTS.restore,
+      }),
+    }
+  ),
+});
 
 /**
  * Service base configuration - common to all services.
@@ -241,8 +423,8 @@ export interface ServiceBaseConfig {
   };
 }
 
-export const serviceBaseSchema: z.ZodType<ServiceBaseConfig> = z.object({
-  paths: z.object({
+export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig> = Schema.Struct({
+  paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),
 });

@@ -7,14 +7,15 @@
 
 /**
  * Configuration file loading and parsing.
- * Supports TOML format with Zod validation.
+ * Supports TOML format with Effect Schema validation.
  * Uses Bun's native TOML parser for optimal performance.
  */
 
 import { resolve } from "node:path";
-import type { ZodType } from "zod";
+import type { Schema } from "effect";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
+import { decodeOrThrow, decodeToResult } from "../lib/schema-utils";
 import type { AbsolutePath } from "../lib/types";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
 
@@ -32,10 +33,10 @@ const toAbsolute = (p: string): AbsolutePath => {
 /**
  * Load and parse a TOML file.
  */
-export const loadTomlFile = async <T>(
+export const loadTomlFile = async <A, I = A>(
   filePath: AbsolutePath,
-  schema: ZodType<T>
-): Promise<Result<T, DivbanError>> => {
+  schema: Schema.Schema<A, I, never>
+): Promise<Result<A, DivbanError>> => {
   // Check if file exists
   const file = Bun.file(filePath);
   const exists = await file.exists();
@@ -64,22 +65,8 @@ export const loadTomlFile = async <T>(
     return Err(wrapError(e, ErrorCode.CONFIG_PARSE_ERROR, `Failed to parse TOML in ${filePath}`));
   }
 
-  // Validate with Zod schema
-  const parseResult = schema.safeParse(parsed);
-
-  if (!parseResult.success) {
-    const issues = parseResult.error.issues
-      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
-    return Err(
-      new DivbanError(
-        ErrorCode.CONFIG_VALIDATION_ERROR,
-        `Configuration validation failed for ${filePath}:\n${issues}`
-      )
-    );
-  }
-
-  return Ok(parseResult.data);
+  // Validate with Effect Schema
+  return decodeToResult(schema, parsed, filePath);
 };
 
 /**
@@ -102,8 +89,8 @@ export const loadGlobalConfig = async (
   for (const p of paths) {
     const file = Bun.file(p);
     if (await file.exists()) {
-      // Use explicit type assertion due to Zod's input/output type inference
-      // with exactOptionalPropertyTypes. The schema has .default() on all
+      // Use explicit type assertion due to Effect Schema's input/output type inference
+      // with exactOptionalPropertyTypes. The schema has defaults on all
       // nested objects, so the output type always has defined properties.
       const result = await loadTomlFile(toAbsolute(p), globalConfigSchema);
       return result as Result<GlobalConfig, DivbanError>;
@@ -111,16 +98,16 @@ export const loadGlobalConfig = async (
   }
 
   // Return defaults if no config file found
-  return Ok(globalConfigSchema.parse({}) as GlobalConfig);
+  return Ok(decodeOrThrow(globalConfigSchema, {}) as GlobalConfig);
 };
 
 /**
  * Load service-specific configuration.
  */
-export const loadServiceConfig = <T>(
+export const loadServiceConfig = <A, I = A>(
   filePath: AbsolutePath,
-  schema: ZodType<T>
-): Promise<Result<T, DivbanError>> => {
+  schema: Schema.Schema<A, I, never>
+): Promise<Result<A, DivbanError>> => {
   return loadTomlFile(filePath, schema);
 };
 

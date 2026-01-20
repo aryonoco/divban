@@ -40,14 +40,14 @@ export const indent = (level: number): string => {
 /**
  * Join arguments with proper escaping.
  */
-export const joinArgs = (args: string[]): string => {
+export const joinArgs = (args: readonly string[]): string => {
   return args.map(escapeValue).join(" ");
 };
 
 /**
  * Format a block opening.
  */
-export const openBlock = (name: string, args?: string[]): string => {
+export const openBlock = (name: string, args?: readonly string[]): string => {
   const argsStr = mapOr(nonEmpty(args), "", (a) => ` ${joinArgs(a)}`);
   return `${name}${argsStr} {`;
 };
@@ -55,7 +55,7 @@ export const openBlock = (name: string, args?: string[]): string => {
 /**
  * Format a simple line (name + args).
  */
-export const formatLine = (name: string, args?: string[]): string => {
+export const formatLine = (name: string, args?: readonly string[]): string => {
   if (!args || args.length === 0) {
     return name;
   }
@@ -96,7 +96,7 @@ export class CaddyfileBuilder {
   /**
    * Open a block (increases indent).
    */
-  open(name: string, args?: string[]): this {
+  open(name: string, args?: readonly string[]): this {
     this.line(openBlock(name, args));
     this.indentLevel++;
     return this;
@@ -114,7 +114,7 @@ export class CaddyfileBuilder {
   /**
    * Add a simple directive (name + args).
    */
-  directive(name: string, args?: string[]): this {
+  directive(name: string, args?: readonly string[]): this {
     this.line(formatLine(name, args));
     return this;
   }

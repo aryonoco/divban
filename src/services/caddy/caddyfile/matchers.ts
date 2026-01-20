@@ -106,7 +106,7 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
 /**
  * Generate all named matchers.
  */
-export const generateNamedMatchers = (matchers: NamedMatcher[]): string => {
+export const generateNamedMatchers = (matchers: readonly NamedMatcher[]): string => {
   if (matchers.length === 0) {
     return "";
   }

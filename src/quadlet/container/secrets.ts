@@ -13,7 +13,7 @@ import { fromUndefined, mapOption, toArray } from "../../lib/option";
 import type { SecretMount } from "../types";
 
 export interface ContainerSecretsConfig {
-  secrets?: SecretMount[] | undefined;
+  secrets?: readonly SecretMount[] | undefined;
 }
 
 /**

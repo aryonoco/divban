@@ -29,7 +29,8 @@
     "divban-linux-*",
     "LICENSE*",
     "LICENSES/**",
-    ".devcontainer/p10k.zsh"
+    ".devcontainer/p10k.zsh",
+    "llms/**"
   ],
   "ignoreRegExpList": ["/[a-f0-9]{32,}/gi", "/ghcr\\.io\\/[\\w\\-\\/]+/gi"]
 }

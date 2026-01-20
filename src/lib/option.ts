@@ -150,5 +150,5 @@ export const fromNullable = <T>(value: T | null | undefined): Option<T> =>
  * Filter to non-empty arrays.
  * Returns Some(array) if array exists and has elements, None otherwise.
  */
-export const nonEmpty = <T>(arr: T[] | undefined | null): Option<T[]> =>
+export const nonEmpty = <T>(arr: readonly T[] | undefined | null): Option<readonly T[]> =>
   filter(fromNullable(arr), (a) => a.length > 0);

@@ -9,73 +9,73 @@
  * External library mount handling for Immich.
  */
 
+import { type Option, mapOr, nonEmpty } from "../../lib/option";
 import type { VolumeMount } from "../../quadlet/types";
 import type { ExternalLibrary } from "./schema";
+
+/**
+ * Generate library name from index if not provided.
+ */
+const getLibraryName = (lib: ExternalLibrary, index: number): string =>
+  lib.name ?? `external-library-${index + 1}`;
+
+/**
+ * Generate mount path for a library.
+ */
+const getLibraryMountPath = (lib: ExternalLibrary, index: number): string =>
+  `/mnt/external/${getLibraryName(lib, index)}`;
+
+/**
+ * Convert a single external library to a volume mount.
+ */
+const libraryToVolumeMount = (lib: ExternalLibrary, index: number): VolumeMount => ({
+  source: lib.path,
+  target: getLibraryMountPath(lib, index),
+  options: lib.readOnly ? "ro" : undefined,
+});
 
 /**
  * Convert external libraries to volume mounts.
  */
 export const librariesToVolumeMounts = (
-  libraries: ExternalLibrary[] | undefined
-): VolumeMount[] => {
-  if (!libraries || libraries.length === 0) {
-    return [];
-  }
-
-  return libraries.map((lib, index) => {
-    // Use library name or generate one
-    const name = lib.name ?? `external-library-${index + 1}`;
-    const targetPath = `/mnt/external/${name}`;
-
-    return {
-      source: lib.path,
-      target: targetPath,
-      options: lib.readOnly ? "ro" : undefined,
-    };
-  });
-};
+  libraries: readonly ExternalLibrary[] | undefined
+): VolumeMount[] => mapOr(nonEmpty(libraries), [], (libs) => libs.map(libraryToVolumeMount));
 
 /**
  * Get environment variables for external libraries.
  * Immich uses IMMICH_EXTERNAL_LIBRARY_PATH for library paths.
  */
 export const getLibraryEnvironment = (
-  libraries: ExternalLibrary[] | undefined
+  libraries: readonly ExternalLibrary[] | undefined
 ): Record<string, string> => {
-  if (!libraries || libraries.length === 0) {
+  const libs = nonEmpty(libraries);
+  if (!libs.isSome) {
     return {};
   }
-
-  // Create comma-separated list of mount points
-  const paths = libraries.map((lib, index) => {
-    const name = lib.name ?? `external-library-${index + 1}`;
-    return `/mnt/external/${name}`;
-  });
-
   return {
-    IMMICH_EXTERNAL_LIBRARY_PATHS: paths.join(","),
+    IMMICH_EXTERNAL_LIBRARY_PATHS: libs.value.map(getLibraryMountPath).join(","),
   };
 };
 
 /**
  * Validate external library paths exist.
- * Returns list of missing paths.
+ * Returns Option of missing paths (None if all exist or empty input).
  */
 export const validateLibraryPaths = async (
-  libraries: ExternalLibrary[] | undefined
-): Promise<string[]> => {
-  if (!libraries || libraries.length === 0) {
-    return [];
+  libraries: readonly ExternalLibrary[] | undefined
+): Promise<Option<readonly string[]>> => {
+  const libs = nonEmpty(libraries);
+  if (!libs.isSome) {
+    return { isSome: false };
   }
 
-  const missing: string[] = [];
+  const checks = await Promise.all(
+    libs.value.map(async (lib) => {
+      const exists = await Bun.file(lib.path).exists();
+      return exists ? null : lib.path;
+    })
+  );
 
-  for (const lib of libraries) {
-    const file = Bun.file(lib.path);
-    if (!(await file.exists())) {
-      missing.push(lib.path);
-    }
-  }
-
-  return missing;
+  const missing = checks.filter((path): path is string => path !== null);
+  return nonEmpty(missing);
 };

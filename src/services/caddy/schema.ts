@@ -9,263 +9,382 @@
  * Caddy service configuration schema.
  */
 
-import { z } from "zod";
-import { type ContainerBaseConfig, absolutePathSchema, portSchema } from "../../config/schema";
+import { Schema } from "effect";
+import {
+  type HealthCheckConfig,
+  type HealthCheckConfigInput,
+  type PortConfig,
+  type PortConfigInput,
+  type ServiceRestartPolicy,
+  type VolumeMountConfig,
+  absolutePathSchema,
+  portSchema,
+} from "../../config/schema";
+import { isValidEmail, isValidUrl } from "../../lib/schema-utils";
+
+// The interface must explicitly include undefined for exactOptionalPropertyTypes
+// Use readonly arrays to match Effect Schema's default behavior
+export interface Directive {
+  readonly name: string;
+  readonly args?: readonly string[] | undefined;
+  readonly block?: readonly Directive[] | undefined;
+}
 
 /**
  * Directive schema - recursive for nested directives.
  */
-const baseDirectiveSchema = z.object({
-  name: z.string(),
-  args: z.array(z.string()).optional(),
-  block: z.lazy(() => z.array(directiveSchema)).optional(),
-});
-
-// The interface must explicitly include undefined for Zod compatibility with exactOptionalPropertyTypes
-export interface Directive {
-  name: string;
-  args?: string[] | undefined;
-  block?: Directive[] | undefined;
-}
-
-export const directiveSchema: z.ZodType<Directive> = baseDirectiveSchema;
+export const directiveSchema: Schema.Schema<Directive> = Schema.Struct({
+  name: Schema.String,
+  args: Schema.optional(Schema.Array(Schema.String)),
+  block: Schema.optional(
+    Schema.suspend((): Schema.Schema<readonly Directive[]> => Schema.Array(directiveSchema))
+  ),
+}) as unknown as Schema.Schema<Directive>;
 
 /**
  * Named matcher interface for exactOptionalPropertyTypes compatibility.
+ * Use readonly to match Effect Schema's default behavior.
  */
 export interface NamedMatcher {
-  name: string;
-  path?: string[] | undefined;
-  pathRegexp?: string | undefined;
-  host?: string[] | undefined;
-  method?: string[] | undefined;
-  header?: Record<string, string> | undefined;
-  headerRegexp?: Record<string, string> | undefined;
-  query?: Record<string, string> | undefined;
-  remoteIp?: string[] | undefined;
-  protocol?: string | undefined;
-  not?: Omit<NamedMatcher, "name"> | undefined;
-  expression?: string | undefined;
+  readonly name: string;
+  readonly path?: readonly string[] | undefined;
+  readonly pathRegexp?: string | undefined;
+  readonly host?: readonly string[] | undefined;
+  readonly method?: readonly string[] | undefined;
+  readonly header?: Readonly<Record<string, string>> | undefined;
+  readonly headerRegexp?: Readonly<Record<string, string>> | undefined;
+  readonly query?: Readonly<Record<string, string>> | undefined;
+  readonly remoteIp?: readonly string[] | undefined;
+  readonly protocol?: string | undefined;
+  readonly not?: Omit<NamedMatcher, "name"> | undefined;
+  readonly expression?: string | undefined;
 }
+
+// Extract matcher fields for reuse in 'not' (without name)
+const matcherFieldsWithoutName = {
+  path: Schema.optional(Schema.Array(Schema.String)),
+  pathRegexp: Schema.optional(Schema.String),
+  host: Schema.optional(Schema.Array(Schema.String)),
+  method: Schema.optional(Schema.Array(Schema.String)),
+  header: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  headerRegexp: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  query: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  remoteIp: Schema.optional(Schema.Array(Schema.String)),
+  protocol: Schema.optional(Schema.String),
+  expression: Schema.optional(Schema.String),
+};
 
 /**
  * Named matcher schema.
  */
-const baseNamedMatcherSchema = z.object({
-  name: z.string(),
-  path: z.array(z.string()).optional(),
-  pathRegexp: z.string().optional(),
-  host: z.array(z.string()).optional(),
-  method: z.array(z.string()).optional(),
-  header: z.record(z.string()).optional(),
-  headerRegexp: z.record(z.string()).optional(),
-  query: z.record(z.string()).optional(),
-  remoteIp: z.array(z.string()).optional(),
-  protocol: z.string().optional(),
-  not: z
-    .lazy(
-      (): z.ZodType<Omit<NamedMatcher, "name"> | undefined> =>
-        baseNamedMatcherSchema.omit({ name: true })
-    )
-    .optional(),
-  expression: z.string().optional(),
-});
-
-export const namedMatcherSchema: z.ZodType<NamedMatcher> = baseNamedMatcherSchema;
+export const namedMatcherSchema: Schema.Schema<NamedMatcher> = Schema.Struct({
+  name: Schema.String,
+  ...matcherFieldsWithoutName,
+  not: Schema.optional(Schema.Struct(matcherFieldsWithoutName)),
+}) as unknown as Schema.Schema<NamedMatcher>;
 
 /**
  * Snippet schema.
  */
 /** Caddyfile snippet */
 export interface Snippet {
-  name: string;
-  args?: string[] | undefined;
-  directives: Directive[];
+  readonly name: string;
+  readonly args?: readonly string[] | undefined;
+  readonly directives: readonly Directive[];
 }
 
-export const snippetSchema: z.ZodType<Snippet> = z.object({
-  name: z.string(),
-  args: z.array(z.string()).optional(),
-  directives: z.array(directiveSchema),
+export const snippetSchema: Schema.Schema<Snippet> = Schema.Struct({
+  name: Schema.String,
+  args: Schema.optional(Schema.Array(Schema.String)),
+  directives: Schema.Array(directiveSchema),
 });
 
 /**
  * Caddyfile route.
  */
 export interface Route {
-  name?: string | undefined;
-  match?: string[] | undefined;
-  directives: Directive[];
+  readonly name?: string | undefined;
+  readonly match?: readonly string[] | undefined;
+  readonly directives: readonly Directive[];
 }
 
-export const routeSchema: z.ZodType<Route> = z.object({
-  name: z.string().optional(),
-  match: z.array(z.string()).optional(),
-  directives: z.array(directiveSchema),
+export const routeSchema: Schema.Schema<Route> = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  match: Schema.optional(Schema.Array(Schema.String)),
+  directives: Schema.Array(directiveSchema),
 });
 
 /**
  * Caddyfile site.
  */
 export interface Site {
-  addresses: string[];
-  matchers?: NamedMatcher[] | undefined;
-  routes?: Route[] | undefined;
-  directives?: Directive[] | undefined;
+  readonly addresses: readonly string[];
+  readonly matchers?: readonly NamedMatcher[] | undefined;
+  readonly routes?: readonly Route[] | undefined;
+  readonly directives?: readonly Directive[] | undefined;
 }
 
-export const siteSchema: z.ZodType<Site> = z.object({
-  addresses: z.array(z.string()),
-  matchers: z.array(namedMatcherSchema).optional(),
-  routes: z.array(routeSchema).optional(),
-  directives: z.array(directiveSchema).optional(),
+export const siteSchema: Schema.Schema<Site> = Schema.Struct({
+  addresses: Schema.Array(Schema.String),
+  matchers: Schema.optional(Schema.Array(namedMatcherSchema)),
+  routes: Schema.optional(Schema.Array(routeSchema)),
+  directives: Schema.optional(Schema.Array(directiveSchema)),
 });
 
 /**
  * Caddy global options.
  */
 export interface GlobalOptions {
-  debug?: boolean | undefined;
-  email?: string | undefined;
-  acmeCA?: string | undefined;
-  acmeCaRoot?: string | undefined;
-  localCerts?: boolean | undefined;
-  skipInstallTrust?: boolean | undefined;
-  adminOff?: boolean | undefined;
-  adminEnforceOrigin?: boolean | undefined;
-  httpPort?: number | undefined;
-  httpsPort?: number | undefined;
-  autoHttps?: "off" | "disable_redirects" | "disable_certs" | "ignore_loaded_certs" | undefined;
-  servers?:
-    | Record<
-        string,
-        {
-          listen?: string[] | undefined;
-          protocols?: string[] | undefined;
-          strictSniHost?: boolean | undefined;
-        }
+  readonly debug?: boolean | undefined;
+  readonly email?: string | undefined;
+  readonly acmeCA?: string | undefined;
+  readonly acmeCaRoot?: string | undefined;
+  readonly localCerts?: boolean | undefined;
+  readonly skipInstallTrust?: boolean | undefined;
+  readonly adminOff?: boolean | undefined;
+  readonly adminEnforceOrigin?: boolean | undefined;
+  readonly httpPort?: number | undefined;
+  readonly httpsPort?: number | undefined;
+  readonly autoHttps?:
+    | "off"
+    | "disable_redirects"
+    | "disable_certs"
+    | "ignore_loaded_certs"
+    | undefined;
+  readonly servers?:
+    | Readonly<
+        Record<
+          string,
+          {
+            readonly listen?: readonly string[] | undefined;
+            readonly protocols?: readonly string[] | undefined;
+            readonly strictSniHost?: boolean | undefined;
+          }
+        >
       >
     | undefined;
-  logFormat?: "console" | "json" | undefined;
-  logLevel?: "DEBUG" | "INFO" | "WARN" | "ERROR" | undefined;
+  readonly logFormat?: "console" | "json" | undefined;
+  readonly logLevel?: "DEBUG" | "INFO" | "WARN" | "ERROR" | undefined;
 }
 
-export const globalOptionsSchema: z.ZodType<GlobalOptions> = z.object({
-  debug: z.boolean().optional(),
-  email: z.string().email().optional(),
-  acmeCA: z.string().url().optional(),
-  acmeCaRoot: z.string().optional(),
-  localCerts: z.boolean().optional(),
-  skipInstallTrust: z.boolean().optional(),
-  adminOff: z.boolean().optional(),
-  adminEnforceOrigin: z.boolean().optional(),
-  httpPort: z.number().int().optional(),
-  httpsPort: z.number().int().optional(),
-  autoHttps: z
-    .enum(["off", "disable_redirects", "disable_certs", "ignore_loaded_certs"])
-    .optional(),
-  servers: z
-    .record(
-      z.object({
-        listen: z.array(z.string()).optional(),
-        protocols: z.array(z.string()).optional(),
-        strictSniHost: z.boolean().optional(),
-      })
+export const globalOptionsSchema: Schema.Schema<GlobalOptions> = Schema.Struct({
+  debug: Schema.optional(Schema.Boolean),
+  email: Schema.optional(
+    Schema.String.pipe(
+      Schema.filter(isValidEmail, { message: (): string => "Invalid email address" })
     )
-    .optional(),
-  logFormat: z.enum(["console", "json"]).optional(),
-  logLevel: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
+  ),
+  acmeCA: Schema.optional(
+    Schema.String.pipe(Schema.filter(isValidUrl, { message: (): string => "Invalid URL" }))
+  ),
+  acmeCaRoot: Schema.optional(Schema.String),
+  localCerts: Schema.optional(Schema.Boolean),
+  skipInstallTrust: Schema.optional(Schema.Boolean),
+  adminOff: Schema.optional(Schema.Boolean),
+  adminEnforceOrigin: Schema.optional(Schema.Boolean),
+  httpPort: Schema.optional(Schema.Number.pipe(Schema.int())),
+  httpsPort: Schema.optional(Schema.Number.pipe(Schema.int())),
+  autoHttps: Schema.optional(
+    Schema.Literal("off", "disable_redirects", "disable_certs", "ignore_loaded_certs")
+  ),
+  servers: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Struct({
+        listen: Schema.optional(Schema.Array(Schema.String)),
+        protocols: Schema.optional(Schema.Array(Schema.String)),
+        strictSniHost: Schema.optional(Schema.Boolean),
+      }),
+    })
+  ),
+  logFormat: Schema.optional(Schema.Literal("console", "json")),
+  logLevel: Schema.optional(Schema.Literal("DEBUG", "INFO", "WARN", "ERROR")),
 });
 
 /**
  * Caddyfile configuration.
  */
 export interface CaddyfileConfig {
-  global?: GlobalOptions | undefined;
-  snippets?: Snippet[] | undefined;
-  sites: Site[];
+  readonly global?: GlobalOptions | undefined;
+  readonly snippets?: readonly Snippet[] | undefined;
+  readonly sites: readonly Site[];
 }
 
-export const caddyfileSchema: z.ZodType<CaddyfileConfig> = z.object({
-  global: globalOptionsSchema.optional(),
-  snippets: z.array(snippetSchema).optional(),
-  sites: z.array(siteSchema),
+export const caddyfileSchema: Schema.Schema<CaddyfileConfig> = Schema.Struct({
+  global: Schema.optional(globalOptionsSchema),
+  snippets: Schema.optional(Schema.Array(snippetSchema)),
+  sites: Schema.Array(siteSchema),
 });
 
 /**
- * Container configuration schema (extends base).
+ * Caddy container configuration (output after decoding).
+ * Similar to ContainerBaseConfig but with Caddy-specific defaults applied.
  */
-const caddyContainerSchemaRaw = z.object({
-  image: z.string().regex(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/),
-  imageDigest: z.string().optional(),
-  networkMode: z.enum(["pasta", "slirp4netns", "host", "none"]).default("pasta"),
-  ports: z.array(portSchema).default([
-    { host: 80, container: 80, protocol: "tcp" as const },
-    { host: 443, container: 443, protocol: "tcp" as const },
-    { host: 443, container: 443, protocol: "udp" as const },
-  ]),
-  volumes: z
-    .array(z.object({ source: z.string(), target: z.string(), options: z.string().optional() }))
-    .optional(),
-  environment: z.record(z.string()).optional(),
-  environmentFiles: z.array(z.string()).optional(),
-  healthCheck: z
-    .object({
-      cmd: z.string(),
-      interval: z.string().default("30s"),
-      timeout: z.string().default("30s"),
-      retries: z.number().int().min(1).default(3),
-      startPeriod: z.string().default("0s"),
-      onFailure: z.enum(["none", "kill", "restart", "stop"]).default("none"),
-    })
-    .optional(),
-  readOnlyRootfs: z.boolean().default(false),
-  noNewPrivileges: z.boolean().default(true),
-  capAdd: z.array(z.string()).optional(),
-  capDrop: z.array(z.string()).optional(),
-  seccompProfile: z.string().optional(),
-  shmSize: z.string().optional(),
-  devices: z.array(z.string()).optional(),
-  autoUpdate: z.enum(["registry", "local"]).or(z.literal(false)).default("registry"),
-  restart: z
-    .enum(["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"])
-    .default("on-failure"),
-  restartSec: z.number().int().min(0).optional(),
-  timeoutStartSec: z.number().int().min(0).optional(),
-  timeoutStopSec: z.number().int().min(0).optional(),
-});
+export interface CaddyContainerConfig {
+  readonly image: string;
+  readonly imageDigest?: string | undefined;
+  readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
+  readonly ports: readonly PortConfig[];
+  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
+  readonly environmentFiles?: readonly string[] | undefined;
+  readonly healthCheck?: HealthCheckConfig | undefined;
+  readonly readOnlyRootfs: boolean;
+  readonly noNewPrivileges: boolean;
+  readonly capAdd?: readonly string[] | undefined;
+  readonly capDrop?: readonly string[] | undefined;
+  readonly seccompProfile?: string | undefined;
+  readonly shmSize?: string | undefined;
+  readonly devices?: readonly string[] | undefined;
+  readonly autoUpdate: "registry" | "local" | false;
+  readonly restart: ServiceRestartPolicy;
+  readonly restartSec?: number | undefined;
+  readonly timeoutStartSec?: number | undefined;
+  readonly timeoutStopSec?: number | undefined;
+}
 
-export const caddyContainerSchema: z.ZodType<ContainerBaseConfig> =
-  caddyContainerSchemaRaw as z.ZodType<ContainerBaseConfig>;
+/**
+ * Caddy container configuration (input before decoding).
+ */
+export interface CaddyContainerConfigInput {
+  readonly image: string;
+  readonly imageDigest?: string | undefined;
+  readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  readonly ports?: readonly PortConfigInput[] | undefined;
+  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
+  readonly environmentFiles?: readonly string[] | undefined;
+  readonly healthCheck?: HealthCheckConfigInput | undefined;
+  readonly readOnlyRootfs?: boolean | undefined;
+  readonly noNewPrivileges?: boolean | undefined;
+  readonly capAdd?: readonly string[] | undefined;
+  readonly capDrop?: readonly string[] | undefined;
+  readonly seccompProfile?: string | undefined;
+  readonly shmSize?: string | undefined;
+  readonly devices?: readonly string[] | undefined;
+  readonly autoUpdate?: "registry" | "local" | false | undefined;
+  readonly restart?: ServiceRestartPolicy | undefined;
+  readonly restartSec?: number | undefined;
+  readonly timeoutStartSec?: number | undefined;
+  readonly timeoutStopSec?: number | undefined;
+}
+
+export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyContainerConfigInput> =
+  Schema.Struct({
+    image: Schema.String.pipe(
+      Schema.pattern(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
+        message: (): string => "Invalid container image format",
+      })
+    ),
+    imageDigest: Schema.optional(Schema.String),
+    networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns", "host", "none"), {
+      default: (): "pasta" => "pasta",
+    }),
+    ports: Schema.optionalWith(Schema.Array(portSchema), {
+      default: (): PortConfig[] => [
+        { host: 80, container: 80, protocol: "tcp" },
+        { host: 443, container: 443, protocol: "tcp" },
+        { host: 443, container: 443, protocol: "udp" },
+      ],
+    }),
+    volumes: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          source: Schema.String,
+          target: Schema.String,
+          options: Schema.optional(Schema.String),
+        })
+      )
+    ),
+    environment: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+    environmentFiles: Schema.optional(Schema.Array(Schema.String)),
+    healthCheck: Schema.optional(
+      Schema.Struct({
+        cmd: Schema.String,
+        interval: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+        timeout: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+        retries: Schema.optionalWith(
+          Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
+          {
+            default: (): number => 3,
+          }
+        ),
+        startPeriod: Schema.optionalWith(Schema.String, { default: (): string => "0s" }),
+        onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
+          default: (): "none" => "none",
+        }),
+      })
+    ),
+    readOnlyRootfs: Schema.optionalWith(Schema.Boolean, { default: (): boolean => false }),
+    noNewPrivileges: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
+    capAdd: Schema.optional(Schema.Array(Schema.String)),
+    capDrop: Schema.optional(Schema.Array(Schema.String)),
+    seccompProfile: Schema.optional(Schema.String),
+    shmSize: Schema.optional(Schema.String),
+    devices: Schema.optional(Schema.Array(Schema.String)),
+    autoUpdate: Schema.optionalWith(
+      Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+      {
+        default: (): "registry" => "registry",
+      }
+    ),
+    restart: Schema.optionalWith(
+      Schema.Literal("no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"),
+      { default: (): "on-failure" => "on-failure" }
+    ),
+    restartSec: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+    timeoutStartSec: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))
+    ),
+    timeoutStopSec: Schema.optional(
+      Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))
+    ),
+  });
 
 /**
  * Network configuration schema.
  */
-const caddyNetworkSchema = z.object({
-  mapHostLoopback: z.string().optional(),
+const caddyNetworkSchema = Schema.Struct({
+  mapHostLoopback: Schema.optional(Schema.String),
 });
 
 /**
- * Full Caddy service configuration.
+ * Full Caddy service configuration (output after decoding).
  */
 export interface CaddyConfig {
-  paths: {
-    dataDir: string;
+  readonly paths: {
+    readonly dataDir: string;
   };
-  container?: ContainerBaseConfig | undefined;
-  network?:
+  readonly container?: CaddyContainerConfig | undefined;
+  readonly network?:
     | {
-        mapHostLoopback?: string | undefined;
+        readonly mapHostLoopback?: string | undefined;
       }
     | undefined;
-  caddyfile: CaddyfileConfig;
+  readonly caddyfile: CaddyfileConfig;
 }
 
-export const caddyConfigSchema: z.ZodType<CaddyConfig> = z.object({
-  paths: z.object({
+/**
+ * Full Caddy service configuration (input before decoding).
+ */
+export interface CaddyConfigInput {
+  readonly paths: {
+    readonly dataDir: string;
+  };
+  readonly container?: CaddyContainerConfigInput | undefined;
+  readonly network?:
+    | {
+        readonly mapHostLoopback?: string | undefined;
+      }
+    | undefined;
+  readonly caddyfile: CaddyfileConfig;
+}
+
+export const caddyConfigSchema: Schema.Schema<CaddyConfig, CaddyConfigInput> = Schema.Struct({
+  paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),
-  container: caddyContainerSchemaRaw.optional(),
-  network: caddyNetworkSchema.optional(),
+  container: Schema.optional(caddyContainerSchema),
+  network: Schema.optional(caddyNetworkSchema),
   caddyfile: caddyfileSchema,
-}) as z.ZodType<CaddyConfig>;
+});

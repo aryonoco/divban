@@ -95,7 +95,7 @@ export const generateSite = (site: Site): string => {
 /**
  * Generate all sites.
  */
-export const generateSites = (sites: Site[]): string => {
+export const generateSites = (sites: readonly Site[]): string => {
   return sites.map(generateSite).join("\n\n");
 };
 
@@ -115,10 +115,9 @@ export const Sites: Record<string, (...args: never[]) => Site> = {
    * Static file server site
    */
   fileServer: (addresses: string[], root: string, options?: { browse?: boolean }): Site => {
-    const fileServerDirective: Directive = { name: "file_server" };
-    if (options?.browse) {
-      fileServerDirective.args = ["browse"];
-    }
+    const fileServerDirective: Directive = options?.browse
+      ? { name: "file_server", args: ["browse"] }
+      : { name: "file_server" };
     return {
       addresses,
       directives: [{ name: "root", args: ["*", root] }, fileServerDirective],

@@ -15,11 +15,11 @@ import type { VolumeMount } from "../types";
 
 export interface ContainerVolumeConfig {
   /** Volume mounts */
-  volumes?: VolumeMount[] | undefined;
+  volumes?: readonly VolumeMount[] | undefined;
   /** Tmpfs mounts */
-  tmpfs?: string[] | undefined;
+  tmpfs?: readonly string[] | undefined;
   /** Read-only bind mounts */
-  readOnlyMounts?: string[] | undefined;
+  readOnlyMounts?: readonly string[] | undefined;
 }
 
 /**
@@ -214,9 +214,9 @@ export const withOwnershipFlag = (mount: VolumeMount): VolumeMount => {
  * Returns undefined if input is undefined (preserves optionality).
  */
 export const relabelVolumes = (
-  volumes: VolumeMount[] | undefined,
+  volumes: readonly VolumeMount[] | undefined,
   selinuxEnforcing: boolean
-): VolumeMount[] | undefined => {
+): readonly VolumeMount[] | undefined => {
   if (!volumes) {
     return undefined;
   }
@@ -238,9 +238,9 @@ export interface VolumeProcessingOptions {
  * Combines withSELinuxRelabel and withOwnershipFlag into a single pass.
  */
 export const processVolumes = (
-  volumes: VolumeMount[] | undefined,
+  volumes: readonly VolumeMount[] | undefined,
   options: VolumeProcessingOptions
-): VolumeMount[] | undefined => {
+): readonly VolumeMount[] | undefined => {
   if (!volumes) {
     return undefined;
   }

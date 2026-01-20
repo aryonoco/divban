@@ -9,8 +9,9 @@
  * Immich service configuration schema.
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 import { absolutePathSchema } from "../../config/schema";
+import { isValidIP, isValidUrl } from "../../lib/schema-utils";
 import { DEFAULT_IMAGES } from "./constants";
 
 /**
@@ -25,14 +26,23 @@ export type TranscodingConfig =
   | { readonly type: "rkmpp" }
   | { readonly type: "disabled" };
 
-export const transcodingConfigSchema: z.ZodType<TranscodingConfig> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("nvenc"), gpuIndex: z.number().int().min(0).optional() }),
-  z.object({ type: z.literal("qsv"), renderDevice: z.string().optional() }),
-  z.object({ type: z.literal("vaapi"), renderDevice: z.string().optional() }),
-  z.object({ type: z.literal("vaapi-wsl") }),
-  z.object({ type: z.literal("rkmpp") }),
-  z.object({ type: z.literal("disabled") }),
-]) as z.ZodType<TranscodingConfig>;
+export const transcodingConfigSchema: Schema.Schema<TranscodingConfig> = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("nvenc"),
+    gpuIndex: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("qsv"),
+    renderDevice: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("vaapi"),
+    renderDevice: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({ type: Schema.Literal("vaapi-wsl") }),
+  Schema.Struct({ type: Schema.Literal("rkmpp") }),
+  Schema.Struct({ type: Schema.Literal("disabled") })
+);
 
 /**
  * Hardware acceleration configuration for machine learning.
@@ -46,139 +56,233 @@ export type MlConfig =
   | { readonly type: "rocm"; readonly gfxVersion?: string | undefined }
   | { readonly type: "disabled" };
 
-export const mlConfigSchema: z.ZodType<MlConfig> = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("cuda"), gpuIndex: z.number().int().min(0).optional() }),
-  z.object({ type: z.literal("openvino"), device: z.enum(["CPU", "GPU", "AUTO"]).optional() }),
-  z.object({ type: z.literal("armnn") }),
-  z.object({ type: z.literal("rknn") }),
-  z.object({ type: z.literal("rocm"), gfxVersion: z.string().optional() }),
-  z.object({ type: z.literal("disabled") }),
-]) as z.ZodType<MlConfig>;
+export const mlConfigSchema: Schema.Schema<MlConfig> = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("cuda"),
+    gpuIndex: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("openvino"),
+    device: Schema.optional(Schema.Literal("CPU", "GPU", "AUTO")),
+  }),
+  Schema.Struct({ type: Schema.Literal("armnn") }),
+  Schema.Struct({ type: Schema.Literal("rknn") }),
+  Schema.Struct({
+    type: Schema.Literal("rocm"),
+    gfxVersion: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({ type: Schema.Literal("disabled") })
+);
 
 /**
- * Hardware acceleration configuration.
+ * Hardware acceleration configuration (output after decoding).
  */
 export interface HardwareConfig {
-  transcoding: TranscodingConfig;
-  ml: MlConfig;
+  readonly transcoding: TranscodingConfig;
+  readonly ml: MlConfig;
 }
 
-export const hardwareSchema: z.ZodType<HardwareConfig> = z.object({
-  transcoding: transcodingConfigSchema.default({ type: "disabled" }),
-  ml: mlConfigSchema.default({ type: "disabled" }),
-}) as z.ZodType<HardwareConfig>;
+/**
+ * Hardware acceleration configuration (input before decoding).
+ */
+export interface HardwareConfigInput {
+  readonly transcoding?: TranscodingConfig | undefined;
+  readonly ml?: MlConfig | undefined;
+}
+
+export const hardwareSchema: Schema.Schema<HardwareConfig, HardwareConfigInput> = Schema.Struct({
+  transcoding: Schema.optionalWith(transcodingConfigSchema, {
+    default: (): TranscodingConfig => ({ type: "disabled" }),
+  }),
+  ml: Schema.optionalWith(mlConfigSchema, {
+    default: (): MlConfig => ({ type: "disabled" }),
+  }),
+});
 
 /**
- * External library configuration.
+ * External library configuration (output after decoding).
  */
 export interface ExternalLibrary {
-  path: string;
-  name?: string | undefined;
-  readOnly: boolean;
+  readonly path: string;
+  readonly name?: string | undefined;
+  readonly readOnly: boolean;
 }
 
-export const externalLibrarySchema: z.ZodType<ExternalLibrary> = z.object({
-  path: absolutePathSchema,
-  name: z.string().optional(),
-  readOnly: z.boolean().default(true),
-}) as z.ZodType<ExternalLibrary>;
+/**
+ * External library configuration (input before decoding).
+ */
+export interface ExternalLibraryInput {
+  readonly path: string;
+  readonly name?: string | undefined;
+  readonly readOnly?: boolean | undefined;
+}
+
+export const externalLibrarySchema: Schema.Schema<ExternalLibrary, ExternalLibraryInput> =
+  Schema.Struct({
+    path: absolutePathSchema,
+    name: Schema.optional(Schema.String),
+    readOnly: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
+  });
 
 /**
- * Database configuration.
+ * Database configuration (output after decoding).
  * Password is auto-generated by divban during setup.
  */
 export interface DatabaseConfig {
-  database: string;
-  username: string;
+  readonly database: string;
+  readonly username: string;
 }
 
-export const databaseSchema: z.ZodType<DatabaseConfig> = z.object({
-  database: z.string().default("immich"),
-  username: z.string().default("immich"),
-}) as z.ZodType<DatabaseConfig>;
+/**
+ * Database configuration (input before decoding).
+ */
+export interface DatabaseConfigInput {
+  readonly database?: string | undefined;
+  readonly username?: string | undefined;
+}
+
+export const databaseSchema: Schema.Schema<DatabaseConfig, DatabaseConfigInput> = Schema.Struct({
+  database: Schema.optionalWith(Schema.String, { default: (): string => "immich" }),
+  username: Schema.optionalWith(Schema.String, { default: (): string => "immich" }),
+});
 
 /**
- * Container-specific configuration.
+ * Container-specific configuration (output after decoding).
  */
 export interface ImmichContainersConfig {
-  server?: { image: string } | undefined;
-  machineLearning?: { image?: string | undefined; enabled: boolean } | undefined;
-  redis?: { image: string } | undefined;
-  postgres?: { image: string } | undefined;
+  readonly server?: { readonly image: string } | undefined;
+  readonly machineLearning?:
+    | { readonly image?: string | undefined; readonly enabled: boolean }
+    | undefined;
+  readonly redis?: { readonly image: string } | undefined;
+  readonly postgres?: { readonly image: string } | undefined;
 }
 
-export const immichContainersSchema: z.ZodType<ImmichContainersConfig> = z.object({
-  server: z
-    .object({
-      image: z.string().default(DEFAULT_IMAGES.server),
+/**
+ * Container-specific configuration (input before decoding).
+ */
+export interface ImmichContainersConfigInput {
+  readonly server?: { readonly image?: string | undefined } | undefined;
+  readonly machineLearning?:
+    | { readonly image?: string | undefined; readonly enabled?: boolean | undefined }
+    | undefined;
+  readonly redis?: { readonly image?: string | undefined } | undefined;
+  readonly postgres?: { readonly image?: string | undefined } | undefined;
+}
+
+export const immichContainersSchema: Schema.Schema<
+  ImmichContainersConfig,
+  ImmichContainersConfigInput
+> = Schema.Struct({
+  server: Schema.optional(
+    Schema.Struct({
+      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.server }),
     })
-    .optional(),
-  machineLearning: z
-    .object({
-      image: z.string().optional(), // Derived from ML backend
-      enabled: z.boolean().default(true),
+  ),
+  machineLearning: Schema.optional(
+    Schema.Struct({
+      image: Schema.optional(Schema.String), // Derived from ML backend
+      enabled: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
     })
-    .optional(),
-  redis: z
-    .object({
-      image: z.string().default(DEFAULT_IMAGES.redis),
+  ),
+  redis: Schema.optional(
+    Schema.Struct({
+      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.redis }),
     })
-    .optional(),
-  postgres: z
-    .object({
-      image: z.string().default(DEFAULT_IMAGES.postgres),
+  ),
+  postgres: Schema.optional(
+    Schema.Struct({
+      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.postgres }),
     })
-    .optional(),
-}) as z.ZodType<ImmichContainersConfig>;
+  ),
+});
 
 /**
- * Network configuration.
+ * Network configuration (output after decoding).
  */
 export interface ImmichNetworkConfig {
   /** Host port to bind (default: 2283) */
-  port: number;
+  readonly port: number;
   /** Host IP to bind (default: 127.0.0.1 for security) */
-  host: string;
+  readonly host: string;
 }
-
-export const immichNetworkSchema: z.ZodType<ImmichNetworkConfig> = z.object({
-  port: z.number().int().min(1).max(65535).default(2283),
-  host: z.string().ip().default("127.0.0.1"),
-}) as z.ZodType<ImmichNetworkConfig>;
 
 /**
- * Full Immich service configuration.
+ * Network configuration (input before decoding).
  */
-export interface ImmichConfig {
-  paths: {
-    dataDir: string;
-    uploadDir?: string | undefined;
-    profileDir?: string | undefined;
-    thumbsDir?: string | undefined;
-    encodedDir?: string | undefined;
-  };
-  database: DatabaseConfig;
-  hardware?: HardwareConfig | undefined;
-  externalLibraries?: ExternalLibrary[] | undefined;
-  containers?: ImmichContainersConfig | undefined;
-  network?: ImmichNetworkConfig | undefined;
-  publicUrl?: string | undefined;
-  logLevel: "verbose" | "debug" | "log" | "warn" | "error";
+export interface ImmichNetworkConfigInput {
+  readonly port?: number | undefined;
+  readonly host?: string | undefined;
 }
 
-export const immichConfigSchema: z.ZodType<ImmichConfig> = z.object({
-  paths: z.object({
+export const immichNetworkSchema: Schema.Schema<ImmichNetworkConfig, ImmichNetworkConfigInput> =
+  Schema.Struct({
+    port: Schema.optionalWith(Schema.Number.pipe(Schema.int(), Schema.between(1, 65535)), {
+      default: (): number => 2283,
+    }),
+    host: Schema.optionalWith(
+      Schema.String.pipe(Schema.filter(isValidIP, { message: (): string => "Invalid IP address" })),
+      { default: (): string => "127.0.0.1" }
+    ),
+  });
+
+/**
+ * Full Immich service configuration (output after decoding).
+ */
+export interface ImmichConfig {
+  readonly paths: {
+    readonly dataDir: string;
+    readonly uploadDir?: string | undefined;
+    readonly profileDir?: string | undefined;
+    readonly thumbsDir?: string | undefined;
+    readonly encodedDir?: string | undefined;
+  };
+  readonly database: DatabaseConfig;
+  readonly hardware?: HardwareConfig | undefined;
+  readonly externalLibraries?: readonly ExternalLibrary[] | undefined;
+  readonly containers?: ImmichContainersConfig | undefined;
+  readonly network?: ImmichNetworkConfig | undefined;
+  readonly publicUrl?: string | undefined;
+  readonly logLevel: "verbose" | "debug" | "log" | "warn" | "error";
+}
+
+/**
+ * Full Immich service configuration (input before decoding).
+ */
+export interface ImmichConfigInput {
+  readonly paths: {
+    readonly dataDir: string;
+    readonly uploadDir?: string | undefined;
+    readonly profileDir?: string | undefined;
+    readonly thumbsDir?: string | undefined;
+    readonly encodedDir?: string | undefined;
+  };
+  readonly database: DatabaseConfigInput;
+  readonly hardware?: HardwareConfigInput | undefined;
+  readonly externalLibraries?: readonly ExternalLibraryInput[] | undefined;
+  readonly containers?: ImmichContainersConfigInput | undefined;
+  readonly network?: ImmichNetworkConfigInput | undefined;
+  readonly publicUrl?: string | undefined;
+  readonly logLevel?: "verbose" | "debug" | "log" | "warn" | "error" | undefined;
+}
+
+export const immichConfigSchema: Schema.Schema<ImmichConfig, ImmichConfigInput> = Schema.Struct({
+  paths: Schema.Struct({
     dataDir: absolutePathSchema,
-    uploadDir: absolutePathSchema.optional(),
-    profileDir: absolutePathSchema.optional(),
-    thumbsDir: absolutePathSchema.optional(),
-    encodedDir: absolutePathSchema.optional(),
+    uploadDir: Schema.optional(absolutePathSchema),
+    profileDir: Schema.optional(absolutePathSchema),
+    thumbsDir: Schema.optional(absolutePathSchema),
+    encodedDir: Schema.optional(absolutePathSchema),
   }),
   database: databaseSchema,
-  hardware: hardwareSchema.optional(),
-  externalLibraries: z.array(externalLibrarySchema).optional(),
-  containers: immichContainersSchema.optional(),
-  network: immichNetworkSchema.optional(),
-  publicUrl: z.string().url().optional(),
-  logLevel: z.enum(["verbose", "debug", "log", "warn", "error"]).default("log"),
-}) as z.ZodType<ImmichConfig>;
+  hardware: Schema.optional(hardwareSchema),
+  externalLibraries: Schema.optional(Schema.Array(externalLibrarySchema)),
+  containers: Schema.optional(immichContainersSchema),
+  network: Schema.optional(immichNetworkSchema),
+  publicUrl: Schema.optional(
+    Schema.String.pipe(Schema.filter(isValidUrl, { message: (): string => "Invalid URL" }))
+  ),
+  logLevel: Schema.optionalWith(Schema.Literal("verbose", "debug", "log", "warn", "error"), {
+    default: (): "log" => "log",
+  }),
+});

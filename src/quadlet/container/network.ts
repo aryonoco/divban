@@ -20,19 +20,19 @@ export interface ContainerNetworkConfig {
   /** Map private IP to host loopback (pasta only) */
   mapHostLoopback?: string | undefined;
   /** Port mappings */
-  ports?: PortMapping[] | undefined;
+  ports?: readonly PortMapping[] | undefined;
   /** Ports to expose (no host mapping) */
-  exposePort?: number[] | undefined;
+  exposePort?: readonly number[] | undefined;
   /** Container hostname */
   hostname?: string | undefined;
   /** DNS servers */
-  dns?: string[] | undefined;
+  dns?: readonly string[] | undefined;
   /** DNS search domains */
-  dnsSearch?: string[] | undefined;
+  dnsSearch?: readonly string[] | undefined;
   /** DNS options */
-  dnsOption?: string[] | undefined;
+  dnsOption?: readonly string[] | undefined;
   /** Add extra hosts (/etc/hosts entries) */
-  addHost?: string[] | undefined;
+  addHost?: readonly string[] | undefined;
 }
 
 /**

@@ -9,7 +9,7 @@
  * Service implementation helpers to reduce code duplication.
  */
 
-import type { ZodType } from "zod";
+import type { Schema } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type { DivbanError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
@@ -298,7 +298,9 @@ export const executeSetupSteps = async <C, S = object>(
  * Reduces boilerplate for the identical validate function in each service.
  */
 export const createConfigValidator =
-  <T>(schema: ZodType<T>): ((configPath: AbsolutePath) => Promise<Result<void, DivbanError>>) =>
+  <A, I = A>(
+    schema: Schema.Schema<A, I, never>
+  ): ((configPath: AbsolutePath) => Promise<Result<void, DivbanError>>) =>
   async (configPath): Promise<Result<void, DivbanError>> =>
     mapResult(await loadServiceConfig(configPath, schema), () => undefined);
 

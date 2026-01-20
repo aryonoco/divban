@@ -87,7 +87,7 @@ export const addEntry = (
 export const addEntries = (
   entries: Array<{ key: string; value: string }>,
   key: string,
-  values: string[] | undefined
+  values: readonly string[] | undefined
 ): void => {
   if (!values) {
     return;

@@ -42,7 +42,7 @@ export const renderDirective = (directive: Directive, level = 0): string => {
 /**
  * Render multiple directives.
  */
-export const renderDirectives = (directives: Directive[], level = 0): string => {
+export const renderDirectives = (directives: readonly Directive[], level = 0): string => {
   return directives.map((d) => renderDirective(d, level)).join("\n");
 };
 
@@ -68,14 +68,9 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
       block.push({ name: "lb_policy", args: [options.lb] });
     }
 
-    const result: Directive = {
-      name: "reverse_proxy",
-      args: upstreams,
-    };
-    if (block.length > 0) {
-      result.block = block;
-    }
-    return result;
+    return block.length > 0
+      ? { name: "reverse_proxy", args: upstreams, block }
+      : { name: "reverse_proxy", args: upstreams };
   },
 
   /**
@@ -92,11 +87,7 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
       block.push({ name: "browse" });
     }
 
-    const result: Directive = { name: "file_server" };
-    if (block.length > 0) {
-      result.block = block;
-    }
-    return result;
+    return block.length > 0 ? { name: "file_server", block } : { name: "file_server" };
   },
 
   /**
@@ -158,11 +149,7 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
       block.push({ name: "level", args: [options.level] });
     }
 
-    const result: Directive = { name: "log" };
-    if (block.length > 0) {
-      result.block = block;
-    }
-    return result;
+    return block.length > 0 ? { name: "log", block } : { name: "log" };
   },
 
   /**
@@ -211,13 +198,10 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
   /**
    * handle directive
    */
-  handle: (matcher: string | undefined, directives: Directive[]): Directive => {
-    const result: Directive = { name: "handle", block: directives };
-    if (matcher) {
-      result.args = [matcher];
-    }
-    return result;
-  },
+  handle: (matcher: string | undefined, directives: Directive[]): Directive =>
+    matcher
+      ? { name: "handle", args: [matcher], block: directives }
+      : { name: "handle", block: directives },
 
   /**
    * handle_path directive (strips matched path prefix)
@@ -231,11 +215,8 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
   /**
    * route directive (maintains order)
    */
-  route: (matcher: string | undefined, directives: Directive[]): Directive => {
-    const result: Directive = { name: "route", block: directives };
-    if (matcher) {
-      result.args = [matcher];
-    }
-    return result;
-  },
+  route: (matcher: string | undefined, directives: Directive[]): Directive =>
+    matcher
+      ? { name: "route", args: [matcher], block: directives }
+      : { name: "route", block: directives },
 };

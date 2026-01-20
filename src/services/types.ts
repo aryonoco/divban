@@ -10,7 +10,7 @@
  * All services implement this interface for consistent behavior.
  */
 
-import type { ZodType } from "zod";
+import type { Schema } from "effect";
 import type { DivbanError } from "../lib/errors";
 import type { Logger } from "../lib/logger";
 import type { Result } from "../lib/result";
@@ -27,8 +27,9 @@ export interface ServiceDefinition {
   /** Service version */
   version: string;
 
-  /** Zod schema for service-specific configuration */
-  configSchema: ZodType;
+  /** Effect Schema for service-specific configuration */
+  // biome-ignore lint/suspicious/noExplicitAny: Required for type-erased service registry
+  configSchema: Schema.Schema<any, any, never>;
 
   /** Service capabilities */
   capabilities: {

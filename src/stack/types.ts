@@ -37,15 +37,15 @@ export interface StackContainer {
   wants?: string[] | undefined;
 
   /** Port mappings (for externally exposed containers) */
-  ports?: PortMapping[] | undefined;
+  ports?: readonly PortMapping[] | undefined;
   /** Volume mounts */
-  volumes?: VolumeMount[] | undefined;
+  volumes?: readonly VolumeMount[] | undefined;
   /** Environment variables */
-  environment?: Record<string, string> | undefined;
+  environment?: Readonly<Record<string, string>> | undefined;
   /** Environment file paths */
-  environmentFiles?: string[] | undefined;
+  environmentFiles?: readonly string[] | undefined;
   /** Podman secrets to mount or inject */
-  secrets?: SecretMount[] | undefined;
+  secrets?: readonly SecretMount[] | undefined;
 
   /** User namespace configuration */
   userNs?: UserNamespace | undefined;

@@ -42,7 +42,7 @@ export const generateSnippet = (snippet: Snippet): string => {
 /**
  * Generate all snippets.
  */
-export const generateSnippets = (snippets: Snippet[]): string => {
+export const generateSnippets = (snippets: readonly Snippet[]): string => {
   if (snippets.length === 0) {
     return "";
   }
@@ -53,7 +53,7 @@ export const generateSnippets = (snippets: Snippet[]): string => {
 /**
  * Generate a snippet import directive.
  */
-export const importSnippet = (name: string, args?: string[]): string => {
+export const importSnippet = (name: string, args?: readonly string[]): string => {
   const argsOpt = nonEmpty(args);
   if (argsOpt.isSome) {
     return `import ${name} ${argsOpt.value.join(" ")}`;

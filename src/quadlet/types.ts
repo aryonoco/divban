@@ -15,13 +15,13 @@
  */
 export interface PortMapping {
   /** Host IP to bind to (optional, defaults to all interfaces) */
-  hostIp?: string | undefined;
+  readonly hostIp?: string | undefined;
   /** Host port number */
-  host: number;
+  readonly host: number;
   /** Container port number */
-  container: number;
+  readonly container: number;
   /** Protocol (tcp or udp) */
-  protocol?: "tcp" | "udp" | undefined;
+  readonly protocol?: "tcp" | "udp" | undefined;
 }
 
 /**
@@ -119,21 +119,21 @@ export interface ContainerQuadlet {
   networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
   /** Map private IP to host loopback (pasta networkMode only) */
   mapHostLoopback?: string | undefined;
-  ports?: PortMapping[] | undefined;
-  exposePort?: number[] | undefined;
+  ports?: readonly PortMapping[] | undefined;
+  exposePort?: readonly number[] | undefined;
   hostname?: string | undefined;
-  dns?: string[] | undefined;
+  dns?: readonly string[] | undefined;
 
   /** Volume configuration */
-  volumes?: VolumeMount[] | undefined;
-  tmpfs?: string[] | undefined;
+  volumes?: readonly VolumeMount[] | undefined;
+  tmpfs?: readonly string[] | undefined;
 
   /** Environment configuration */
   environmentFiles?: string[] | undefined;
   environment?: Record<string, string> | undefined;
 
   /** Podman secrets to mount or inject */
-  secrets?: SecretMount[] | undefined;
+  secrets?: readonly SecretMount[] | undefined;
 
   /** User namespace configuration */
   userNs?: UserNamespace | undefined;
