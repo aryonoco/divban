@@ -1,6 +1,6 @@
 # divban
 
-CLI for managing rootless Podman services with systemd Quadlet integration. Built with Bun and TypeScript.
+CLI for managing rootless Podman services with systemd Quadlet integration. Built with Bun, TypeScript, and Effect.
 
 ## Purpose
 
@@ -9,12 +9,13 @@ Declarative TOML-based configuration for containerised services. Each service ru
 ## Key Directories
 
 - `src/cli/` - Command-line interface and argument parsing
-- `src/config/` - TOML configuration loading and Zod validation
+- `src/config/` - TOML configuration loading and Effect Schema validation
 - `src/services/` - Service implementations (caddy, immich, actual)
+- `src/services/helpers.ts` - Shared service utilities and tracked resource operations
 - `src/quadlet/` - Quadlet file generation for systemd
 - `src/stack/` - Multi-container orchestration
-- `src/system/` - System operations (exec, user management, systemctl)
-- `src/lib/` - Shared utilities (Result type, errors, logging, branded types)
+- `src/system/` - System operations (exec, user management, systemctl, directories, secrets)
+- `src/lib/` - Shared utilities (errors, logging, branded types)
 
 ## Commands
 
@@ -27,13 +28,25 @@ Declarative TOML-based configuration for containerised services. Each service ru
 
 ## Architecture
 
-**Error Handling:** Uses Rust-inspired `Result<T, E>` type from `src/lib/result.ts`. No exceptions - all errors are typed and returned.
+**Effect-based:** All operations use Effect for typed errors, resource management, and composition. Functions return `Effect.Effect<A, E>` rather than throwing exceptions.
+
+**Resource Management:** Setup operations use `Effect.acquireRelease` with tracked functions for idempotent rollback. The `Acquired<A>` pattern tracks whether resources were created (for conditional rollback) or already existed.
+
+**Tracked Operations:** Functions like `ensureDirectoriesTracked`, `writeGeneratedFilesTracked`, `reloadAndEnableServicesTracked` return metadata about what was created/modified, enabling precise rollback on failure.
 
 **Type Safety:** Branded types in `src/lib/types.ts` prevent mixing incompatible values (UserId, Username, AbsolutePath, etc.).
 
-**Service Pattern:** All services implement a common interface with lifecycle methods (validate, generate, setup) and runtime methods (start, stop, restart, status, logs).
+**Service Pattern:** All services implement `ServiceEffect<C>` with lifecycle methods (validate, generate, setup) and runtime methods (start, stop, restart, status, logs). Setup uses `SetupStepResource` for scoped execution with automatic rollback.
 
 **Error Codes:** Organised exit codes in `src/lib/errors.ts` - General (0-9), Config (10-19), System (20-29), Service (30-39), Container (40-49), Backup (50-59).
+
+## Key Patterns
+
+**Setup Flow:** `setup.ts` orchestrates service setup using `Effect.scoped` with nested `acquireRelease` calls for user creation, linger enablement, directory creation, config copying, and service-specific setup.
+
+**Service Setup Steps:** Each service defines setup steps as `SetupStepResource[]` with acquire/release pairs. The `executeSetupStepsScoped` helper runs them sequentially, calling release functions in reverse order on failure.
+
+**File Write Tracking:** `FileWriteResult` discriminated union tracks whether files were `Created` (delete on rollback) or `Modified` (restore from `.bak` backup on rollback, delete backup on success).
 
 ## Verification
 
