@@ -1,0 +1,239 @@
+ ---
+  Codebase Analysis Summary
+
+  Current Effect Usage
+
+  You've already adopted:
+  - Effect Schema - Configuration validation (replacing Zod)
+  - Effect.Effect - All async/error-prone operations use Effect.gen()
+  - Effect.Option - Nullable value handling
+  - Effect.Either - Error handling with Effect.either()
+
+  Existing Patterns (Hand-Crafted FP)
+  ┌────────────────────┬───────────────────────┬─────────────────────────────────────────────────┐
+  │      Pattern       │       Location        │             Current Implementation              │
+  ├────────────────────┼───────────────────────┼─────────────────────────────────────────────────┤
+  │ Dependency Passing │ ServiceContext<C>     │ Manual struct passed to every function          │
+  ├────────────────────┼───────────────────────┼─────────────────────────────────────────────────┤
+  │ Logger             │ src/lib/logger.ts     │ Custom implementation, threaded through calls   │
+  ├────────────────────┼───────────────────────┼─────────────────────────────────────────────────┤
+  │ Resource Cleanup   │ executeSetupSteps     │ Manual rollback tracking with reverse iteration │
+  ├────────────────────┼───────────────────────┼─────────────────────────────────────────────────┤
+  │ Service Registry   │ src/services/index.ts │ Map<string, AnyServiceEffect>                   │
+  ├────────────────────┼───────────────────────┼─────────────────────────────────────────────────┤
+  │ Branded Types      │ src/lib/types.ts      │ Custom with { readonly __brand: "..." }         │
+  └────────────────────┴───────────────────────┴─────────────────────────────────────────────────┘
+  Key Observation
+
+  Your ServiceContext<C> is essentially a manual Context implementation:
+
+  interface ServiceContext<C> {
+    config: C;          // Could be a Service
+    logger: Logger;     // Perfect candidate for Service
+    paths: { ... };     // Could be a Service
+    user: { ... };      // Could be a Service
+    options: { ... };   // Could be a Service
+    system: { ... };    // Could be a Service
+  }
+
+  ---
+  Recommendation: Resource Management with Scope
+
+  The highest-value next adoption is Effect's Resource Management (Scope, acquireRelease,
+  addFinalizer) because:
+
+  1. Direct Replacement for Your Manual Rollback Logic
+
+  Your current executeSetupSteps in src/services/helpers.ts:259-317 manually tracks completed steps
+  and rolls back on failure:
+
+  // Your current pattern
+  const completedSteps: Array<{ step: SetupStepEffect<C, S, E>; state: S }> = [];
+  // ... on failure:
+  for (const completed of completedSteps.reverse()) {
+    if (completed.step.rollback) {
+      yield* completed.step.rollback(ctx, completed.state);
+    }
+  }
+
+  With Effect's acquireRelease:
+
+  const createServiceUser = (name: string) =>
+    Effect.acquireRelease(
+      // Acquire: create user
+      Effect.gen(function* () {
+        yield* execSuccess(["useradd", name]);
+        return name;
+      }),
+      // Release: delete user on scope close (failure or success)
+      (username) => execSuccess(["userdel", username])
+    );
+
+  const setup = Effect.scoped(
+    Effect.gen(function* () {
+      const user = yield* createServiceUser("divban-caddy");
+      const dir = yield* createDirectory("/srv/caddy");
+      // If anything fails here, cleanup runs automatically in reverse order
+      yield* writeQuadlets(...);
+    })
+  );
+
+  2. Perfect for Your Use Cases
+  ┌─────────────────────────────┬─────────────────┬────────────────────────────────┐
+  │          Operation          │     Current     │           With Scope           │
+  ├─────────────────────────────┼─────────────────┼────────────────────────────────┤
+  │ User creation with rollback │ Manual tracking │ acquireRelease(create, delete) │
+  ├─────────────────────────────┼─────────────────┼────────────────────────────────┤
+  │ File locking                │ Manual          │ acquireRelease(lock, unlock)   │
+  ├─────────────────────────────┼─────────────────┼────────────────────────────────┤
+  │ Directory creation          │ Manual rollback │ acquireRelease(mkdir, rmdir)   │
+  ├─────────────────────────────┼─────────────────┼────────────────────────────────┤
+  │ systemd operations          │ Try/catch style │ onExit finalizers              │
+  └─────────────────────────────┴─────────────────┴────────────────────────────────┘
+  3. Composability
+
+  Resources compose naturally:
+
+  const setupEnvironment = Effect.all([
+    createServiceUser(serviceName),
+    createDataDirectory(dataDir),
+    createQuadletDirectory(quadletDir),
+  ]);
+
+  // All resources acquired, all cleaned up on failure
+  const program = Effect.scoped(setupEnvironment);
+
+  4. Stepping Stone to Layers
+
+  Understanding Scope prepares you for Layer, since Layers are essentially scoped resources that
+  construct services.
+
+  ---
+  Implementation Path
+
+  Phase 1: Adopt acquireRelease for Atomic Operations
+
+  Replace manual rollback in src/system/user.ts:
+
+  // Before (manual)
+  export const createServiceUser = (name: string) =>
+    Effect.gen(function* () {
+      yield* execSuccess(["useradd", ...]);
+      // If subsequent step fails, user is orphaned
+    });
+
+  // After (with Scope)
+  export const createServiceUserScoped = (name: string) =>
+    Effect.acquireRelease(
+      execSuccess(["useradd", name, ...]).pipe(Effect.as(name)),
+      (username) => execSuccess(["userdel", username]).pipe(Effect.ignore)
+    );
+
+  Phase 2: Refactor executeSetupSteps to Use Scoped Resources
+
+  export const executeSetupSteps = <C, S>(
+    ctx: ServiceContext<C>,
+    steps: SetupStepScoped<C, S>[]
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const step of steps) {
+          ctx.logger.step(i, total, step.message);
+          yield* step.resource(ctx); // Each step is an acquireRelease
+        }
+      })
+    );
+
+  Phase 3 (Future): Adopt Layers for Dependency Injection
+
+  Once comfortable with Scope, migrate to Layers:
+
+  // Define Logger as a Service
+  class Logger extends Context.Tag("Logger")<Logger, {
+    readonly debug: (msg: string) => Effect.Effect<void>;
+    readonly info: (msg: string) => Effect.Effect<void>;
+    // ...
+  }>() {}
+
+  // Define the Layer
+  const LoggerLive = Layer.succeed(Logger, {
+    debug: (msg) => Effect.sync(() => console.log(`DEBUG: ${msg}`)),
+    info: (msg) => Effect.sync(() => console.log(`INFO: ${msg}`)),
+  });
+
+  // Use in Effects
+  const program = Effect.gen(function* () {
+    const logger = yield* Logger;
+    yield* logger.info("Starting service...");
+  });
+
+  // Provide at the edge
+  Effect.provide(program, LoggerLive);
+
+  ---
+  Why Not Layers First?
+
+  Layers would require restructuring ServiceContext into multiple Context.Tag definitions and
+  changing how every service method accesses dependencies. It's a larger refactor with higher risk.
+
+  Scope/acquireRelease can be adopted incrementally - one resource at a time - without changing your
+   overall architecture. It directly improves your existing rollback patterns with battle-tested
+  semantics.
+
+  ---
+  Quick Win: Effect.ensuring / Effect.onExit
+
+  As an immediate improvement, you could use Effect.ensuring or Effect.onExit for simple cleanup:
+
+  // Current pattern in exec.ts
+  const result = yield* Effect.tryPromise({ ... });
+
+  // With ensuring (always runs cleanup)
+  const withCleanup = someOperation.pipe(
+    Effect.ensuring(Effect.sync(() => console.log("Cleanup")))
+  );
+
+  // With onExit (receives Exit to inspect success/failure)
+  const withExitHandler = someOperation.pipe(
+    Effect.onExit((exit) =>
+      exit._tag === "Failure"
+        ? Effect.sync(() => console.log("Failed:", exit.cause))
+        : Effect.void
+    )
+  );
+
+  ---
+  Summary
+  Priority: 1
+  Feature: Scope/acquireRelease
+  Effort: Medium
+  Value: High
+  Why: Directly replaces manual rollback, composable
+  ────────────────────────────────────────
+  Priority: 2
+  Feature: Effect.ensuring/onExit
+  Effort: Low
+  Value: Medium
+  Why: Quick wins for cleanup patterns
+  ────────────────────────────────────────
+  Priority: 3
+  Feature: Layer system
+  Effort: High
+  Value: Very High
+  Why: Full DI, better testing - but big refactor
+  ────────────────────────────────────────
+  Priority: 4
+  Feature: Effect Logging
+  Effort: Medium
+  Value: Medium
+  Why: Integrates with Layer system
+  Start with Scope and acquireRelease - it provides the highest value-to-effort ratio and prepares
+  you for the full Layer system later.
+
+✻ Cooked for 3m 35s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)
+

@@ -1,0 +1,39 @@
+analyse this codebase in comprehensive details. Get a full understanding of its functionality,  modules, patterns and principles used. 
+
+I have recently adopted the Effect library in this codebase and am moving from a combination of Zod + hand rolled facilities to fully adopting Effect as I'm finding the Effect library is quite good and very much in line with my software development principles (my background is in OCaml. 
+
+Obviously Effect is a big library and adopting it in one go is not possible but I'm exploring ideas on how to gradually adopt more parts of it and replace some of my hand crated FP-oriented facilities with it 
+
+Read @llms/effect.llms.headline.txt 
+
+To find more about a topic, you can read the full effect docs at llms/effect.llms.full.txt (this file is too big to fit in your context so grep for the relevant sections and read that) 
+----
+
+Once you have all the information needed about the existing codebase and effect, tell me, what is the most logical part of Effect which I can adopt next which would provide the highest value to this codebase? 
+
+
+----
+
+
+I have previously been provided with the following analysis. Read the following report completely and in full. Analyse the relevant sections. 
+
+Then focus only on
+1. Direct Replacement for Your Manual Rollback Logic
+Provide me with a full plan to completely and fully replace my manual rollback logic with the relevant tools from Effect 
+
+Your plan should be complete. Once the plan is fully executed, there should be no sign of the legacy code left. No compatibility bridges or shims or wrappers. It should be a complete and clean refactor. 
+
+----
+
+
+ensure the plan is exhaustive and idempotent. do not leave any decisions for later. Do the
+  required investigation and ensure the plan is deterministic and complete
+
+
+----
+
+Ensure the plan fully leverages all the relevant tools available in Effect
+
+Read @llms/effect.llms.headline.txt 
+
+To find more about a topic, you can read the full effect docs at llms/effect.llms.full.txt (this file is too big to fit in your context so grep for the relevant sections and read that) 
