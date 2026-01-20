@@ -9,7 +9,8 @@
  * Hardware acceleration device mappings for transcoding.
  */
 
-import { None, type Option, Some, fromUndefined, mapOr } from "../../../lib/option";
+import { Option } from "effect";
+import { mapOr } from "../../../lib/option-helpers";
 import { assertNever } from "../../../lib/types";
 import type { TranscodingConfig } from "../schema";
 
@@ -30,12 +31,12 @@ export interface TranscodingDevices {
  */
 const getNvencDevices = (gpuIndex?: number): TranscodingDevices => ({
   devices: mapOr(
-    fromUndefined(gpuIndex),
+    Option.fromNullable(gpuIndex),
     ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"],
     (idx) => [`/dev/nvidia${idx}`, "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"]
   ),
   environment: {
-    NVIDIA_VISIBLE_DEVICES: mapOr(fromUndefined(gpuIndex), "all", String),
+    NVIDIA_VISIBLE_DEVICES: mapOr(Option.fromNullable(gpuIndex), "all", String),
     NVIDIA_DRIVER_CAPABILITIES: "compute,video,utility",
   },
 });
@@ -76,20 +77,22 @@ const getRkmppDevices = (): TranscodingDevices => ({
 /**
  * Get device mappings for a transcoding configuration.
  */
-export const getTranscodingDevices = (config: TranscodingConfig): Option<TranscodingDevices> => {
+export const getTranscodingDevices = (
+  config: TranscodingConfig
+): Option.Option<TranscodingDevices> => {
   switch (config.type) {
     case "nvenc":
-      return Some(getNvencDevices(config.gpuIndex));
+      return Option.some(getNvencDevices(config.gpuIndex));
     case "qsv":
-      return Some(getQsvDevices(config.renderDevice));
+      return Option.some(getQsvDevices(config.renderDevice));
     case "vaapi":
-      return Some(getVaapiDevices(config.renderDevice));
+      return Option.some(getVaapiDevices(config.renderDevice));
     case "vaapi-wsl":
-      return Some(getVaapiWslDevices());
+      return Option.some(getVaapiWslDevices());
     case "rkmpp":
-      return Some(getRkmppDevices());
+      return Option.some(getRkmppDevices());
     case "disabled":
-      return None;
+      return Option.none();
     default:
       return assertNever(config);
   }

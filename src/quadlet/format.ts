@@ -9,7 +9,7 @@
  * INI file formatting utilities for quadlet files.
  */
 
-import { fromUndefined, isNone } from "../lib/option";
+import { Option } from "effect";
 
 /**
  * Section in an INI file.
@@ -70,7 +70,7 @@ export const addEntry = (
   key: string,
   value: string | number | boolean | undefined
 ): void => {
-  if (isNone(fromUndefined(value))) {
+  if (Option.isNone(Option.fromNullable(value))) {
     return;
   }
 

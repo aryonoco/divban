@@ -10,8 +10,8 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
+import { Option } from "effect";
 import { ErrorCode, GeneralError } from "./errors";
-import { type Option, fromUndefined } from "./option";
 
 /**
  * Simple Result type for validation functions.
@@ -426,7 +426,7 @@ export const joinPath = (...segments: string[]): ValidationResult<AbsolutePath> 
 /**
  * Get an environment variable value.
  */
-export const getEnv = (key: string): Option<string> => fromUndefined(Bun.env[key]);
+export const getEnv = (key: string): Option.Option<string> => Option.fromNullable(Bun.env[key]);
 
 /**
  * Get environment variable with a default fallback.

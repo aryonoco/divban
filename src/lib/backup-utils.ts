@@ -11,13 +11,12 @@
  */
 
 import { Glob } from "bun";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
 import { createArchive } from "../system/archive";
 import { directoryExists, ensureDirectory } from "../system/fs";
 import { BackupError, ErrorCode, type SystemError, errorMessage } from "./errors";
 import type { Logger } from "./logger";
-import { None, type Option, Some, isNone } from "./option";
 import type { AbsolutePath } from "./types";
 
 /**
@@ -120,14 +119,14 @@ export const listBackupFiles = (
 /**
  * Detect compression format from file extension.
  */
-export const detectCompressionFormat = (path: string): Option<"gzip" | "zstd"> => {
+export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> => {
   if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
-    return Some("gzip");
+    return Option.some("gzip");
   }
   if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
-    return Some("zstd");
+    return Option.some("zstd");
   }
-  return None;
+  return Option.none();
 };
 
 /**
@@ -160,11 +159,11 @@ export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<numbe
  * Returns Ok if metadata is missing (backwards compat) or service matches.
  */
 export const validateBackupService = (
-  metadata: Option<ArchiveMetadata>,
+  metadata: Option.Option<ArchiveMetadata>,
   expectedService: string,
   logger: Logger
 ): Effect.Effect<void, BackupError> => {
-  if (isNone(metadata)) {
+  if (Option.isNone(metadata)) {
     return Effect.void; // No metadata = legacy backup, allow
   }
 

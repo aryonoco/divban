@@ -9,7 +9,7 @@
  * Container image configuration for quadlet files.
  */
 
-import { None, type Option, Some } from "../../lib/option";
+import { Option } from "effect";
 import { addEntry } from "../format";
 
 export interface ImageConfig {
@@ -57,14 +57,14 @@ export const parseImageReference = (
   digest?: string;
 } => {
   let remaining = ref;
-  let digest: Option<string> = None;
-  let tag: Option<string> = None;
-  let registry: Option<string> = None;
+  let digest: Option.Option<string> = Option.none();
+  let tag: Option.Option<string> = Option.none();
+  let registry: Option.Option<string> = Option.none();
 
   // Extract digest
   const digestIndex = remaining.indexOf("@");
   if (digestIndex !== -1) {
-    digest = Some(remaining.slice(digestIndex + 1));
+    digest = Option.some(remaining.slice(digestIndex + 1));
     remaining = remaining.slice(0, digestIndex);
   }
 
@@ -73,7 +73,7 @@ export const parseImageReference = (
   // Only treat as tag if it's after the last slash (not a port)
   const lastSlash = remaining.lastIndexOf("/");
   if (tagIndex !== -1 && tagIndex > lastSlash) {
-    tag = Some(remaining.slice(tagIndex + 1));
+    tag = Option.some(remaining.slice(tagIndex + 1));
     remaining = remaining.slice(0, tagIndex);
   }
 
@@ -82,7 +82,7 @@ export const parseImageReference = (
   if (firstSlash !== -1) {
     const potentialRegistry = remaining.slice(0, firstSlash);
     if (potentialRegistry.includes(".") || potentialRegistry.includes(":")) {
-      registry = Some(potentialRegistry);
+      registry = Option.some(potentialRegistry);
       remaining = remaining.slice(firstSlash + 1);
     }
   }
@@ -94,13 +94,13 @@ export const parseImageReference = (
     digest?: string;
   } = { name: remaining };
 
-  if (registry.isSome) {
+  if (Option.isSome(registry)) {
     result.registry = registry.value;
   }
-  if (tag.isSome) {
+  if (Option.isSome(tag)) {
     result.tag = tag.value;
   }
-  if (digest.isSome) {
+  if (Option.isSome(digest)) {
     result.digest = digest.value;
   }
 

@@ -13,7 +13,7 @@
  * discriminated unions and pattern matching.
  */
 
-import { fromUndefined, mapOr } from "./option";
+import { Option, pipe } from "effect";
 
 /**
  * Error code interface for isolatedDeclarations compatibility.
@@ -133,7 +133,11 @@ export const toExitCode = (code: ErrorCodeValue): number => Math.min(code, 125);
  */
 export const getErrorCodeName = (code: ErrorCodeValue): string => {
   const entry = Object.entries(ErrorCode).find(([, v]) => v === code);
-  return mapOr(fromUndefined(entry), "UNKNOWN", (e) => e[0]);
+  return pipe(
+    Option.fromNullable(entry),
+    Option.map((e) => e[0]),
+    Option.getOrElse(() => "UNKNOWN")
+  );
 };
 
 /**

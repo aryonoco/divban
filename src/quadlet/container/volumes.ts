@@ -9,7 +9,7 @@
  * Container volume configuration for quadlet files.
  */
 
-import { fromUndefined } from "../../lib/option";
+import { Option } from "effect";
 import { addEntries } from "../format";
 import type { VolumeMount } from "../types";
 
@@ -60,8 +60,8 @@ export const addVolumeEntries = (
  */
 export const createBindMount = (source: string, target: string, options?: string): VolumeMount => {
   const result: VolumeMount = { source, target };
-  const optionsOpt = fromUndefined(options);
-  if (optionsOpt.isSome) {
+  const optionsOpt = Option.fromNullable(options);
+  if (Option.isSome(optionsOpt)) {
     result.options = optionsOpt.value;
   }
   return result;
@@ -85,8 +85,8 @@ export const createNamedVolumeMount = (
   options?: string
 ): VolumeMount => {
   const result: VolumeMount = { source: `${volumeName}.volume`, target };
-  const optionsOpt = fromUndefined(options);
-  if (optionsOpt.isSome) {
+  const optionsOpt = Option.fromNullable(options);
+  if (Option.isSome(optionsOpt)) {
     result.options = optionsOpt.value;
   }
   return result;

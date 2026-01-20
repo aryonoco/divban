@@ -11,7 +11,7 @@
  */
 
 import { semver } from "bun";
-import { None, type Option, fromUndefined } from "./option";
+import { Option } from "effect";
 
 /**
  * Check if a version satisfies a semver range.
@@ -107,12 +107,12 @@ export const neq = (a: string, b: string): boolean => {
  * @example
  * maxVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("2.0.0")
  */
-export const maxVersion = (versions: string[]): Option<string> => {
+export const maxVersion = (versions: string[]): Option.Option<string> => {
   if (versions.length === 0) {
-    return None;
+    return Option.none();
   }
   const sorted = sortVersionsDesc(versions);
-  return fromUndefined(sorted[0]);
+  return Option.fromNullable(sorted[0]);
 };
 
 /**
@@ -122,12 +122,12 @@ export const maxVersion = (versions: string[]): Option<string> => {
  * @example
  * minVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("1.0.0")
  */
-export const minVersion = (versions: string[]): Option<string> => {
+export const minVersion = (versions: string[]): Option.Option<string> => {
   if (versions.length === 0) {
-    return None;
+    return Option.none();
   }
   const sorted = sortVersions(versions);
-  return fromUndefined(sorted[0]);
+  return Option.fromNullable(sorted[0]);
 };
 
 /**
@@ -137,7 +137,7 @@ export const minVersion = (versions: string[]): Option<string> => {
  * @example
  * maxSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // Some("1.5.0")
  */
-export const maxSatisfying = (versions: string[], range: string): Option<string> => {
+export const maxSatisfying = (versions: string[], range: string): Option.Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));
   return maxVersion(matching);
 };
@@ -149,7 +149,7 @@ export const maxSatisfying = (versions: string[], range: string): Option<string>
  * @example
  * minSatisfying(["1.0.0", "1.5.0", "2.0.0"], "^1.0.0") // Some("1.0.0")
  */
-export const minSatisfying = (versions: string[], range: string): Option<string> => {
+export const minSatisfying = (versions: string[], range: string): Option.Option<string> => {
   const matching = versions.filter((v) => semver.satisfies(v, range));
   return minVersion(matching);
 };

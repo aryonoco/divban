@@ -10,7 +10,7 @@
  * Generates grouped environment files with comments.
  */
 
-import { fromUndefined, isSome } from "../lib/option";
+import { Option } from "effect";
 
 /**
  * Environment variable group.
@@ -83,7 +83,9 @@ export const generateEnvFile = (config: EnvFileConfig): string => {
   // Groups
   for (const group of config.groups) {
     // Skip empty groups
-    const entries = Object.entries(group.vars).filter(([, v]) => isSome(fromUndefined(v)));
+    const entries = Object.entries(group.vars).filter(([, v]) =>
+      Option.isSome(Option.fromNullable(v))
+    );
     if (entries.length === 0) {
       continue;
     }
@@ -94,8 +96,8 @@ export const generateEnvFile = (config: EnvFileConfig): string => {
 
     // Variables
     for (const [key, value] of entries) {
-      const valueOpt = fromUndefined(value);
-      if (valueOpt.isSome) {
+      const valueOpt = Option.fromNullable(value);
+      if (Option.isSome(valueOpt)) {
         lines.push(formatEnvLine(key, valueOpt.value));
       }
     }
@@ -177,8 +179,8 @@ export const mergeEnv = (
       continue;
     }
     for (const [key, value] of Object.entries(env)) {
-      const valueOpt = fromUndefined(value);
-      if (valueOpt.isSome) {
+      const valueOpt = Option.fromNullable(value);
+      if (Option.isSome(valueOpt)) {
         const v = valueOpt.value;
         result[key] = typeof v === "boolean" ? (v ? "true" : "false") : String(v);
       }

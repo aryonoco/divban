@@ -22,7 +22,7 @@ export {
 } from "./ml";
 export type { MlDevices } from "./ml";
 
-import type { Option } from "../../../lib/option";
+import { Option } from "effect";
 import type { MlConfig, TranscodingConfig } from "../schema";
 import { type MlDevices, getMlDevices } from "./ml";
 import { type TranscodingDevices, getTranscodingDevices } from "./transcoding";
@@ -31,7 +31,7 @@ import { type TranscodingDevices, getTranscodingDevices } from "./transcoding";
  * Combined hardware configuration.
  */
 export interface HardwareConfig {
-  transcoding: Option<TranscodingDevices>;
+  transcoding: Option.Option<TranscodingDevices>;
   ml: MlDevices;
 }
 
@@ -50,14 +50,14 @@ export const getHardwareConfig = (
  * Merge devices from multiple sources.
  */
 export const mergeDevices = (
-  ...sources: (TranscodingDevices | MlDevices | Option<TranscodingDevices>)[]
+  ...sources: (TranscodingDevices | MlDevices | Option.Option<TranscodingDevices>)[]
 ): string[] => {
   const devices = new Set<string>();
 
   for (const source of sources) {
     // Handle Option type
-    if ("isSome" in source) {
-      if (source.isSome) {
+    if ("_tag" in source) {
+      if (Option.isSome(source)) {
         for (const device of source.value.devices) {
           devices.add(device);
         }
@@ -76,14 +76,14 @@ export const mergeDevices = (
  * Merge environment variables from multiple sources.
  */
 export const mergeEnvironment = (
-  ...sources: (TranscodingDevices | MlDevices | Option<TranscodingDevices>)[]
+  ...sources: (TranscodingDevices | MlDevices | Option.Option<TranscodingDevices>)[]
 ): Record<string, string> => {
   const env: Record<string, string> = {};
 
   for (const source of sources) {
     // Handle Option type
-    if ("isSome" in source) {
-      if (source.isSome) {
+    if ("_tag" in source) {
+      if (Option.isSome(source)) {
         Object.assign(env, source.value.environment);
       }
     } else {

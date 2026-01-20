@@ -10,7 +10,7 @@
  * Uses Bun.color() for automatic terminal capability detection.
  */
 
-import { None, type Option, Some, getOrElseLazy } from "./option";
+import { Option } from "effect";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -181,15 +181,15 @@ export const createLogger = (options: LoggerOptions): Logger => {
 /**
  * Default logger for quick access.
  */
-let defaultLogger: Option<Logger> = None;
+let defaultLogger: Option.Option<Logger> = Option.none();
 
 export const getLogger = (): Logger =>
-  getOrElseLazy(defaultLogger, () => {
+  Option.getOrElse(defaultLogger, () => {
     const logger = createLogger({ level: "info", format: "pretty" });
-    defaultLogger = Some(logger);
+    defaultLogger = Option.some(logger);
     return logger;
   });
 
 export const setDefaultLogger = (logger: Logger): void => {
-  defaultLogger = Some(logger);
+  defaultLogger = Option.some(logger);
 };

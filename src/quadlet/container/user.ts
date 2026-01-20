@@ -9,7 +9,7 @@
  * Container user namespace configuration for quadlet files.
  */
 
-import { fromUndefined, isSome, mapOption, toArray } from "../../lib/option";
+import { Option, pipe } from "effect";
 import { assertNever } from "../../lib/types";
 import type { UserNamespace } from "../types";
 
@@ -29,8 +29,18 @@ export const addUserNsEntries = (
       // keep-id maps container UID 0 to host user's UID
       // Transform each optional value to Option<string>, then collect present values
       const parts = [
-        ...toArray(mapOption(fromUndefined(config.uid), (uid) => `uid=${uid}`)),
-        ...toArray(mapOption(fromUndefined(config.gid), (gid) => `gid=${gid}`)),
+        ...Option.toArray(
+          pipe(
+            Option.fromNullable(config.uid),
+            Option.map((uid) => `uid=${uid}`)
+          )
+        ),
+        ...Option.toArray(
+          pipe(
+            Option.fromNullable(config.gid),
+            Option.map((gid) => `gid=${gid}`)
+          )
+        ),
       ];
       const suffix = parts.length > 0 ? `:${parts.join(",")}` : "";
       entries.push({ key: "UserNS", value: `keep-id${suffix}` });
@@ -102,7 +112,7 @@ export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean => {
   if (ns.mode !== "keep-id") {
     return false;
   }
-  return isSome(fromUndefined(ns.uid)) || isSome(fromUndefined(ns.gid));
+  return Option.isSome(Option.fromNullable(ns.uid)) || Option.isSome(Option.fromNullable(ns.gid));
 };
 
 /**

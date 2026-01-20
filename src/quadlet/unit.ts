@@ -9,7 +9,7 @@
  * [Unit] section builder for quadlet files.
  */
 
-import { fromUndefined, mapOption } from "../lib/option";
+import { Option, pipe } from "effect";
 import type { IniSection } from "./format";
 import { addEntries, addEntry } from "./format";
 
@@ -81,23 +81,35 @@ export const buildUnitDependencies = (
 ): Pick<UnitConfig, "requires" | "wants" | "after" | "before"> => {
   const result: Pick<UnitConfig, "requires" | "wants" | "after" | "before"> = {};
 
-  const reqOpt = mapOption(fromUndefined(requires), (r) => r.map(toUnitName));
-  if (reqOpt.isSome) {
+  const reqOpt = pipe(
+    Option.fromNullable(requires),
+    Option.map((r) => r.map(toUnitName))
+  );
+  if (Option.isSome(reqOpt)) {
     result.requires = reqOpt.value;
   }
 
-  const wantsOpt = mapOption(fromUndefined(wants), (w) => w.map(toUnitName));
-  if (wantsOpt.isSome) {
+  const wantsOpt = pipe(
+    Option.fromNullable(wants),
+    Option.map((w) => w.map(toUnitName))
+  );
+  if (Option.isSome(wantsOpt)) {
     result.wants = wantsOpt.value;
   }
 
-  const afterOpt = mapOption(fromUndefined(after), (a) => a.map(toUnitName));
-  if (afterOpt.isSome) {
+  const afterOpt = pipe(
+    Option.fromNullable(after),
+    Option.map((a) => a.map(toUnitName))
+  );
+  if (Option.isSome(afterOpt)) {
     result.after = afterOpt.value;
   }
 
-  const beforeOpt = mapOption(fromUndefined(before), (b) => b.map(toUnitName));
-  if (beforeOpt.isSome) {
+  const beforeOpt = pipe(
+    Option.fromNullable(before),
+    Option.map((b) => b.map(toUnitName))
+  );
+  if (Option.isSome(beforeOpt)) {
     result.before = beforeOpt.value;
   }
 

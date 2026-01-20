@@ -9,7 +9,8 @@
  * External library mount handling for Immich.
  */
 
-import { type Option, mapOr, nonEmpty } from "../../lib/option";
+import { Option } from "effect";
+import { mapOr, nonEmpty } from "../../lib/option-helpers";
 import type { VolumeMount } from "../../quadlet/types";
 import type { ExternalLibrary } from "./schema";
 
@@ -49,7 +50,7 @@ export const getLibraryEnvironment = (
   libraries: readonly ExternalLibrary[] | undefined
 ): Record<string, string> => {
   const libs = nonEmpty(libraries);
-  if (!libs.isSome) {
+  if (!Option.isSome(libs)) {
     return {};
   }
   return {
@@ -63,10 +64,10 @@ export const getLibraryEnvironment = (
  */
 export const validateLibraryPaths = async (
   libraries: readonly ExternalLibrary[] | undefined
-): Promise<Option<readonly string[]>> => {
+): Promise<Option.Option<readonly string[]>> => {
   const libs = nonEmpty(libraries);
-  if (!libs.isSome) {
-    return { isSome: false };
+  if (!Option.isSome(libs)) {
+    return Option.none();
   }
 
   const checks = await Promise.all(

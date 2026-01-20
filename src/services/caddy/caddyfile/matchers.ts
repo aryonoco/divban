@@ -9,7 +9,8 @@
  * Named matcher generation for Caddyfile.
  */
 
-import { fromUndefined, isSome, nonEmpty } from "../../../lib/option";
+import { Option } from "effect";
+import { nonEmpty } from "../../../lib/option-helpers";
 import type { NamedMatcher } from "../schema";
 import { createBuilder, escapeValue } from "./format";
 
@@ -23,7 +24,7 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
 
   // Path matching
   const pathOpt = nonEmpty(matcher.path);
-  if (pathOpt.isSome) {
+  if (Option.isSome(pathOpt)) {
     builder.directive("path", pathOpt.value);
   }
 
@@ -34,13 +35,13 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
 
   // Host matching
   const hostOpt = nonEmpty(matcher.host);
-  if (hostOpt.isSome) {
+  if (Option.isSome(hostOpt)) {
     builder.directive("host", hostOpt.value);
   }
 
   // Method matching
   const methodOpt = nonEmpty(matcher.method);
-  if (methodOpt.isSome) {
+  if (Option.isSome(methodOpt)) {
     builder.directive("method", methodOpt.value);
   }
 
@@ -67,7 +68,7 @@ export const generateNamedMatcher = (matcher: NamedMatcher): string => {
 
   // Remote IP matching
   const remoteIpOpt = nonEmpty(matcher.remoteIp);
-  if (remoteIpOpt.isSome) {
+  if (Option.isSome(remoteIpOpt)) {
     builder.directive("remote_ip", remoteIpOpt.value);
   }
 
@@ -125,17 +126,17 @@ export const matcherRef = (name: string): string => {
  * Check if a matcher is empty (has no conditions).
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
-  const defined = <T>(v: T | undefined): boolean => isSome(fromUndefined(v));
+  const defined = <T>(v: T | undefined): boolean => Option.isSome(Option.fromNullable(v));
 
   return !(
-    nonEmpty(matcher.path).isSome ||
+    Option.isSome(nonEmpty(matcher.path)) ||
     defined(matcher.pathRegexp) ||
-    nonEmpty(matcher.host).isSome ||
-    nonEmpty(matcher.method).isSome ||
+    Option.isSome(nonEmpty(matcher.host)) ||
+    Option.isSome(nonEmpty(matcher.method)) ||
     defined(matcher.header) ||
     defined(matcher.headerRegexp) ||
     defined(matcher.query) ||
-    nonEmpty(matcher.remoteIp).isSome ||
+    Option.isSome(nonEmpty(matcher.remoteIp)) ||
     defined(matcher.protocol) ||
     defined(matcher.not) ||
     defined(matcher.expression)

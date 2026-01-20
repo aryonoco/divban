@@ -9,7 +9,7 @@
  * Global options block generation for Caddyfile.
  */
 
-import { fromUndefined, isSome } from "../../../lib/option";
+import { Option } from "effect";
 import type { GlobalOptions } from "../schema";
 import { createBuilder } from "./format";
 
@@ -128,7 +128,7 @@ export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean =>
     return false;
   }
 
-  const defined = <T>(v: T | undefined): boolean => isSome(fromUndefined(v));
+  const defined = <T>(v: T | undefined): boolean => Option.isSome(Option.fromNullable(v));
 
   return (
     defined(options.debug) ||

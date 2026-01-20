@@ -9,7 +9,7 @@
  * [Service] section builder for quadlet files.
  */
 
-import { fromUndefined } from "../lib/option";
+import { Option } from "effect";
 import type { IniSection } from "./format";
 import { addEntry } from "./format";
 import type { ServiceConfig } from "./types";
@@ -51,23 +51,23 @@ export const mergeServiceConfig = (
     restart: config.restart ?? stackDefaults.restart ?? systemDefaults.restart ?? "on-failure",
   };
 
-  const restartSecOpt = fromUndefined(
+  const restartSecOpt = Option.fromNullable(
     config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec
   );
-  const timeoutStartSecOpt = fromUndefined(
+  const timeoutStartSecOpt = Option.fromNullable(
     config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec
   );
-  const timeoutStopSecOpt = fromUndefined(
+  const timeoutStopSecOpt = Option.fromNullable(
     config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec
   );
 
-  if (restartSecOpt.isSome) {
+  if (Option.isSome(restartSecOpt)) {
     result.restartSec = restartSecOpt.value;
   }
-  if (timeoutStartSecOpt.isSome) {
+  if (Option.isSome(timeoutStartSecOpt)) {
     result.timeoutStartSec = timeoutStartSecOpt.value;
   }
-  if (timeoutStopSecOpt.isSome) {
+  if (Option.isSome(timeoutStopSecOpt)) {
     result.timeoutStopSec = timeoutStopSecOpt.value;
   }
 

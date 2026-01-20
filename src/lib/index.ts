@@ -45,43 +45,15 @@ export type {
   VolumeName as VolumeNameType,
 } from "./types";
 
-// Option - Explicit nullable value handling
+// Option - Re-exported from Effect with helpers
+export { Option } from "effect";
 export {
-  // Constructors
-  Some,
-  None,
-  // Type guards
-  isSome,
-  isNone,
-  // Core transformations
-  mapOption,
-  flatMapOption,
-  filter as filterOption,
-  // Value extraction
-  getOrElse,
-  getOrElseLazy,
-  unwrap as unwrapOption,
-  expect as expectOption,
-  // Map with default
+  expectOption,
   mapOr,
   mapOrElse,
-  // Boolean combinators
-  and as andOption,
-  or as orOption,
-  xor as xorOption,
-  // Combining & nesting
-  zip as zipOption,
-  zipWith as zipWithOption,
-  flatten as flattenOption,
-  // Utilities
-  contains as containsOption,
-  toArray as optionToArray,
-  // Construction
-  fromUndefined,
-  fromNullable,
   nonEmpty,
-} from "./option";
-export type { Option } from "./option";
+  xorOption,
+} from "./option-helpers";
 
 // Errors - Tagged error classes for Effect-based error handling
 export {

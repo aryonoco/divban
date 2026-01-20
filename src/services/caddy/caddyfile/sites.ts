@@ -9,7 +9,8 @@
  * Site block generation for Caddyfile.
  */
 
-import { nonEmpty } from "../../../lib/option";
+import { Option } from "effect";
+import { nonEmpty } from "../../../lib/option-helpers";
 import type { Directive, Route, Site } from "../schema";
 import { renderDirectives } from "./directives";
 import { createBuilder } from "./format";
@@ -30,7 +31,7 @@ export const generateRoute = (route: Route): string => {
   if (route.name) {
     // Named route
     builder.open(`@${route.name}`);
-  } else if (matchOpt.isSome) {
+  } else if (Option.isSome(matchOpt)) {
     // Matched route (using handle_path for path-based matching)
     const matchStr = matchOpt.value.join(" ");
     builder.open(`handle_path ${matchStr}`);
@@ -61,7 +62,7 @@ export const generateSite = (site: Site): string => {
 
   // Named matchers (if any)
   const matchersOpt = nonEmpty(site.matchers);
-  if (matchersOpt.isSome) {
+  if (Option.isSome(matchersOpt)) {
     const matchersContent = generateNamedMatchers(matchersOpt.value);
     builder.blank();
     builder.comment("Named matchers");
@@ -70,7 +71,7 @@ export const generateSite = (site: Site): string => {
 
   // Routes (if any)
   const routesOpt = nonEmpty(site.routes);
-  if (routesOpt.isSome) {
+  if (Option.isSome(routesOpt)) {
     builder.blank();
     builder.comment("Routes");
     for (const route of routesOpt.value) {
@@ -81,7 +82,7 @@ export const generateSite = (site: Site): string => {
 
   // Direct directives (if any)
   const directivesOpt = nonEmpty(site.directives);
-  if (directivesOpt.isSome) {
+  if (Option.isSome(directivesOpt)) {
     builder.blank();
     const directivesContent = renderDirectives(directivesOpt.value, 1);
     builder.raw(directivesContent.trim());

@@ -9,7 +9,8 @@
  * Hardware acceleration for machine learning inference.
  */
 
-import { fromUndefined, mapOr } from "../../../lib/option";
+import { Option } from "effect";
+import { mapOr } from "../../../lib/option-helpers";
 import { assertNever } from "../../../lib/types";
 import type { MlConfig } from "../schema";
 
@@ -32,12 +33,12 @@ export interface MlDevices {
  */
 const getCudaConfig = (gpuIndex?: number): MlDevices => ({
   devices: mapOr(
-    fromUndefined(gpuIndex),
+    Option.fromNullable(gpuIndex),
     ["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-uvm"],
     (idx) => [`/dev/nvidia${idx}`, "/dev/nvidiactl", "/dev/nvidia-uvm"]
   ),
   environment: {
-    NVIDIA_VISIBLE_DEVICES: mapOr(fromUndefined(gpuIndex), "all", String),
+    NVIDIA_VISIBLE_DEVICES: mapOr(Option.fromNullable(gpuIndex), "all", String),
     NVIDIA_DRIVER_CAPABILITIES: "compute,utility",
   },
   imageSuffix: "-cuda",
