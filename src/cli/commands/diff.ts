@@ -17,6 +17,7 @@ import {
   TEMP_PATHS,
   configFilePath,
   quadletFilePath,
+  toAbsolutePath,
   userConfigDir,
   userQuadletDir,
 } from "../../lib/paths";
@@ -26,7 +27,7 @@ import type { AnyService, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, toAbsolute } from "./utils";
+import { detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface DiffOptions {
   service: AnyService;
@@ -52,7 +53,7 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
   }
 
   // Chain: validate path → load config
-  const configResult = await asyncFlatMapResult(toAbsolute(configPath), (validPath) => {
+  const configResult = await asyncFlatMapResult(toAbsolutePath(configPath), (validPath) => {
     logger.info(`Comparing configuration for ${service.definition.name}...`);
     return loadServiceConfig(validPath, service.definition.configSchema);
   });
@@ -97,6 +98,7 @@ export const executeDiff = async (options: DiffOptions): Promise<Result<void, Di
       dataDir: TEMP_PATHS.diffDataDir,
       quadletDir,
       configDir,
+      homeDir: userResult.ok ? userResult.value.homeDir : TEMP_PATHS.nonexistent,
     },
     user: userResult.ok
       ? {

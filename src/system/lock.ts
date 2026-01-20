@@ -14,7 +14,14 @@ import { DivbanError, ErrorCode } from "../lib/errors";
 import { None, type Option, Some, getOrElse, isSome, mapOption } from "../lib/option";
 import { Err, Ok, type Result, mapErr, retry } from "../lib/result";
 import type { AbsolutePath } from "../lib/types";
-import { deleteFile, ensureDirectory, readFile, writeFileExclusive } from "./fs";
+import {
+  deleteFile,
+  ensureDirectory,
+  readFile,
+  renameFile,
+  writeFile,
+  writeFileExclusive,
+} from "./fs";
 
 const LOCK_DIR = "/var/lock/divban" as AbsolutePath;
 const STALE_LOCK_AGE_MS = 60000; // 1 minute
@@ -76,6 +83,64 @@ const isLockStale = async (lockPath: AbsolutePath): Promise<boolean> => {
   );
 };
 
+/**
+ * Atomically take over a stale lock using rename.
+ *
+ * Algorithm:
+ * 1. Write our PID to temp file
+ * 2. Re-verify lock is still stale (owner may have refreshed)
+ * 3. Atomic rename temp → lock (overwrites stale lock)
+ *
+ * Returns Ok(true) if takeover succeeded, Ok(false) if lock changed during takeover.
+ *
+ * FP pattern: asyncFlatMapResult chain with cleanup on all exit paths.
+ */
+const takeoverStaleLock = async (
+  lockPath: AbsolutePath,
+  _resourceName: string
+): Promise<Result<boolean, DivbanError>> => {
+  const pidContent = `${process.pid}\n${Date.now()}\n`;
+  const tempPath = `${lockPath}.${process.pid}.tmp` as AbsolutePath;
+
+  const cleanup = (): Promise<Result<void, DivbanError>> => deleteFile(tempPath);
+
+  // Step 1: Write our PID to temp file
+  const writeResult = await writeFile(tempPath, pidContent);
+  if (!writeResult.ok) {
+    return writeResult;
+  }
+
+  // Step 2: Re-read current lock to verify it's still stale
+  const currentContent = await readFile(lockPath);
+  if (!currentContent.ok) {
+    // Lock was deleted by another process - clean up and signal retry
+    await cleanup();
+    return Ok(false);
+  }
+
+  // Verify lock is still stale (owner may have refreshed it)
+  const stillStale = getOrElse(
+    mapOption(parseLockContent(currentContent.value), isInfoStale),
+    true // Invalid content = treat as stale
+  );
+
+  if (!stillStale) {
+    // Lock was refreshed by active process - abort takeover
+    await cleanup();
+    return Ok(false);
+  }
+
+  // Step 3: Atomic rename to take over the lock
+  const renameResult = await renameFile(tempPath, lockPath);
+  if (!renameResult.ok) {
+    // Rename failed (permissions, etc.) - clean up and signal retry
+    await cleanup();
+    return Ok(false);
+  }
+
+  return Ok(true);
+};
+
 /** Error indicating lock couldn't be acquired (retryable) */
 const lockBusyError = (resourceName: string): DivbanError =>
   new DivbanError(ErrorCode.GENERAL_ERROR, `Lock '${resourceName}' is busy`);
@@ -90,6 +155,10 @@ const lockTimeoutError = (resourceName: string, maxWaitMs: number): DivbanError 
 /**
  * Single attempt to acquire a lock.
  * Returns Ok(true) if acquired, Err if busy (retryable), or Err for fs errors.
+ *
+ * Acquisition strategies:
+ * 1. Exclusive create (O_EXCL) - fast path for new locks
+ * 2. Atomic takeover - for stale locks (dead process, timeout)
  */
 const tryAcquireLock = async (
   lockPath: AbsolutePath,
@@ -99,18 +168,24 @@ const tryAcquireLock = async (
   const result = await writeFileExclusive(lockPath, pidContent);
 
   if (!result.ok) {
-    return result; // Filesystem error
+    return result; // Filesystem error (permissions, disk full, etc.)
   }
 
   if (isSome(result.value)) {
-    return Ok(true); // Lock acquired
+    return Ok(true); // Lock acquired via exclusive create (fast path)
   }
 
-  // Lock exists - check if stale
+  // Lock file exists - check if stale
   if (await isLockStale(lockPath)) {
-    await deleteFile(lockPath);
-    // Return busy to trigger retry (will succeed on next attempt)
-    return Err(lockBusyError(resourceName));
+    // Attempt atomic takeover of stale lock
+    const takeoverResult = await takeoverStaleLock(lockPath, resourceName);
+    if (!takeoverResult.ok) {
+      return takeoverResult; // Filesystem error during takeover
+    }
+    if (takeoverResult.value) {
+      return Ok(true); // Successfully took over stale lock
+    }
+    // Takeover failed (lock refreshed or deleted) - signal retry
   }
 
   // Lock held by active process

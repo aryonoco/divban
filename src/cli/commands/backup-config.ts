@@ -16,7 +16,7 @@ import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode, wrapError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { fromUndefined, mapOption, transpose } from "../../lib/option";
-import { userConfigDir } from "../../lib/paths";
+import { toAbsolutePath, userConfigDir } from "../../lib/paths";
 import {
   Err,
   Ok,
@@ -34,7 +34,7 @@ import { type ArchiveMetadata, createArchive } from "../../system/archive";
 import { directoryExists, ensureDirectory, fileExists } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { formatBytes, toAbsolute } from "./utils";
+import { formatBytes } from "./utils";
 
 export interface BackupConfigOptions {
   service: AnyService;
@@ -259,7 +259,7 @@ const prepareOutputPath = async (
 ): Promise<Result<AbsolutePath, DivbanError>> => {
   // Option pattern: validate custom path if provided, using transpose for Option<Result> → Result<Option>
   const customOpt = fromUndefined(customPath);
-  const validatedOpt = transpose(mapOption(customOpt, toAbsolute));
+  const validatedOpt = transpose(mapOption(customOpt, toAbsolutePath));
 
   // If validation failed, return the error
   if (!validatedOpt.ok) {

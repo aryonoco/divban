@@ -11,24 +11,13 @@
  * Uses Bun's native TOML parser for optimal performance.
  */
 
-import { resolve } from "node:path";
 import type { Schema } from "effect";
 import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
+import { toAbsolutePath } from "../lib/paths";
 import { Err, Ok, type Result, tryCatch } from "../lib/result";
 import { decodeOrThrow, decodeToResult } from "../lib/schema-utils";
 import type { AbsolutePath } from "../lib/types";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
-
-/**
- * Resolve a path to absolute.
- * Used at the boundary when a config file is found.
- */
-const toAbsolute = (p: string): AbsolutePath => {
-  if (p.startsWith("/")) {
-    return p as AbsolutePath;
-  }
-  return resolve(process.cwd(), p) as AbsolutePath;
-};
 
 /**
  * Load and parse a TOML file.
@@ -89,10 +78,14 @@ export const loadGlobalConfig = async (
   for (const p of paths) {
     const file = Bun.file(p);
     if (await file.exists()) {
+      const absoluteResult = toAbsolutePath(p);
+      if (!absoluteResult.ok) {
+        return absoluteResult;
+      }
       // Use explicit type assertion due to Effect Schema's input/output type inference
       // with exactOptionalPropertyTypes. The schema has defaults on all
       // nested objects, so the output type always has defined properties.
-      const result = await loadTomlFile(toAbsolute(p), globalConfigSchema);
+      const result = await loadTomlFile(absoluteResult.value, globalConfigSchema);
       return result as Result<GlobalConfig, DivbanError>;
     }
   }
@@ -131,7 +124,7 @@ export const findServiceConfig = async (
   for (const p of paths) {
     const file = Bun.file(p);
     if (await file.exists()) {
-      return Ok(toAbsolute(p));
+      return toAbsolutePath(p);
     }
   }
 

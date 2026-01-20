@@ -12,7 +12,7 @@
 import { loadServiceConfig } from "../../config/loader";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { TEMP_PATHS, outputConfigDir, outputQuadletDir } from "../../lib/paths";
+import { TEMP_PATHS, outputConfigDir, outputQuadletDir, toAbsolutePath } from "../../lib/paths";
 import { Err, Ok, type Result, asyncFlatMapResult, combine3 } from "../../lib/result";
 import { GroupId, UserId, Username } from "../../lib/types";
 import { writeGeneratedFilesPreview } from "../../services/helpers";
@@ -20,7 +20,7 @@ import type { AnyService, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, toAbsolute } from "./utils";
+import { detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface GenerateOptions {
   service: AnyService;
@@ -52,7 +52,7 @@ export const executeGenerate = (options: GenerateOptions): Promise<Result<void, 
   const [username, uid, gid] = userResult.value;
 
   // Chain: validate path → load config → generate
-  return asyncFlatMapResult(toAbsolute(configPath), async (validPath) => {
+  return asyncFlatMapResult(toAbsolutePath(configPath), async (validPath) => {
     const configResult = await loadServiceConfig(validPath, service.definition.configSchema);
     if (!configResult.ok) {
       return configResult;
@@ -74,6 +74,7 @@ export const executeGenerate = (options: GenerateOptions): Promise<Result<void, 
         dataDir: TEMP_PATHS.generateDataDir,
         quadletDir: quadletDirResult.value,
         configDir: configDirResult.value,
+        homeDir: TEMP_PATHS.generateDataDir, // Pseudo-home for generation
       },
       user: { name: username, uid, gid },
       options: getContextOptions(args),

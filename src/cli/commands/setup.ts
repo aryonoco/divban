@@ -15,7 +15,13 @@ import type { GlobalConfig } from "../../config/schema";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { configFilePath, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
+import {
+  configFilePath,
+  toAbsolutePath,
+  userConfigDir,
+  userDataDir,
+  userQuadletDir,
+} from "../../lib/paths";
 import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import { userIdToGroupId } from "../../lib/types";
 import type { AnyService, ServiceContext } from "../../services/types";
@@ -25,12 +31,7 @@ import { enableLinger } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { createServiceUser, getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import {
-  detectSystemCapabilities,
-  getContextOptions,
-  getDataDirFromConfig,
-  toAbsolute,
-} from "./utils";
+import { detectSystemCapabilities, getContextOptions, getDataDirFromConfig } from "./utils";
 
 export interface SetupOptions {
   service: AnyService;
@@ -58,7 +59,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   logger.info(`Setting up ${service.definition.name}...`);
 
   // Chain: validate path → load config
-  const configResult = await asyncFlatMapResult(toAbsolute(configPath), (validPath) =>
+  const configResult = await asyncFlatMapResult(toAbsolutePath(configPath), (validPath) =>
     loadServiceConfig(validPath, service.definition.configSchema)
   );
 
@@ -67,7 +68,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
   }
 
   // Store validated path for file copy later
-  const validConfigPath = toAbsolute(configPath);
+  const validConfigPath = toAbsolutePath(configPath);
   if (!validConfigPath.ok) {
     return validConfigPath; // Already validated above, but TypeScript needs this
   }
@@ -188,6 +189,7 @@ export const executeSetup = async (options: SetupOptions): Promise<Result<void, 
       dataDir,
       quadletDir: userQuadletDir(homeDir),
       configDir: userConfigDir(homeDir),
+      homeDir,
     },
     user: {
       name: username,

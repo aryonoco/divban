@@ -11,8 +11,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { DivbanError } from "./errors";
-import type { Result } from "./result";
+import { normalize, resolve } from "node:path";
+import { DivbanError, ErrorCode } from "./errors";
+import { Err, Ok, type Result, mapResult } from "./result";
 import {
   path,
   AbsolutePath,
@@ -103,6 +104,46 @@ export const lingerFile = (username: string): AbsolutePathType =>
   pathJoin(SYSTEM_PATHS.lingerDir, username);
 
 // ============================================================================
+// Path Conversion Utilities
+// ============================================================================
+
+/**
+ * Validate a path contains no null bytes (injection attack prevention).
+ * FP-style: returns Result for composition with mapResult.
+ */
+const validateNoNullBytes = (p: string): Result<string, DivbanError> =>
+  p.includes("\x00")
+    ? Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid path contains null byte: ${p}`))
+    : Ok(p);
+
+/**
+ * Normalize and resolve a path to absolute.
+ * Pure transformation function for use with mapResult.
+ */
+const resolveToAbsolute = (p: string): AbsolutePathType => {
+  const normalized = normalize(p);
+  return (
+    normalized.startsWith("/") ? normalized : resolve(process.cwd(), normalized)
+  ) as AbsolutePathType;
+};
+
+/**
+ * Convert a path to absolute with security validation.
+ * Rejects null bytes and normalizes path traversal sequences.
+ * Use for all user-provided or config-file paths.
+ *
+ * FP pattern: validateNoNullBytes → mapResult(resolveToAbsolute)
+ */
+export const toAbsolutePath = (p: string): Result<AbsolutePathType, DivbanError> =>
+  mapResult(validateNoNullBytes(p), resolveToAbsolute);
+
+/**
+ * Convert a path to absolute without Result wrapper.
+ * Use ONLY for trusted paths (hardcoded defaults, validated inputs).
+ */
+export const toAbsolutePathUnsafe = (p: string): AbsolutePathType => resolveToAbsolute(p);
+
+// ============================================================================
 // Service Paths
 // ============================================================================
 
@@ -110,6 +151,7 @@ export interface ServicePaths {
   dataDir: AbsolutePathType;
   configDir: AbsolutePathType;
   quadletDir: AbsolutePathType;
+  homeDir: AbsolutePathType;
 }
 
 export const buildServicePaths = (
@@ -119,6 +161,7 @@ export const buildServicePaths = (
   dataDir,
   configDir: userConfigDir(homeDir),
   quadletDir: userQuadletDir(homeDir),
+  homeDir,
 });
 
 // ============================================================================

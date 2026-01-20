@@ -62,6 +62,7 @@ export {
   readFile,
   readFileOrEmpty,
   readLines,
+  renameFile,
   sha256File,
   watchFile,
   writeFile,

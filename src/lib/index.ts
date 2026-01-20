@@ -222,6 +222,8 @@ export {
   quadletFilePath,
   SYSTEM_PATHS,
   TEMP_PATHS,
+  toAbsolutePath,
+  toAbsolutePathUnsafe,
   userConfigDir,
   userDataDir,
   userHomeDir,

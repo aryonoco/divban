@@ -294,7 +294,7 @@ const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
     {
       message: "Generating secrets...",
       execute: async (ctx): SetupStepResult<ImmichSetupState> => {
-        const homeDir = ctx.paths.configDir.replace("/.config/divban", "") as AbsolutePath;
+        const homeDir = ctx.paths.homeDir;
         return mapResult(
           await ensureServiceSecrets(
             SERVICE_NAME,

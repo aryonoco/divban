@@ -9,12 +9,17 @@
  * Shared utilities for CLI commands.
  */
 
-import { normalize, resolve } from "node:path";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { buildServicePaths, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
+import {
+  buildServicePaths,
+  toAbsolutePath,
+  userConfigDir,
+  userDataDir,
+  userQuadletDir,
+} from "../../lib/paths";
 import {
   Err,
   Ok,
@@ -49,23 +54,6 @@ export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["op
 });
 
 /**
- * Resolve a path to absolute with security validation.
- * Rejects null bytes and validates normalization.
- */
-export const toAbsolute = (p: string): Result<AbsolutePath, DivbanError> => {
-  // Reject null bytes (path injection attack)
-  if (p.includes("\x00")) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid path contains null byte: ${p}`));
-  }
-
-  // Normalize to resolve ../ sequences, then make absolute
-  const normalized = normalize(p);
-  const absolute = normalized.startsWith("/") ? normalized : resolve(process.cwd(), normalized);
-
-  return Ok(absolute as AbsolutePath);
-};
-
-/**
  * Common config file locations for a service.
  * Search paths are plain strings (may be relative).
  */
@@ -86,7 +74,7 @@ export const resolveServiceConfig = async (
 ): Promise<Result<unknown, DivbanError>> => {
   // If explicit path provided, use it
   if (explicitPath) {
-    return asyncFlatMapResult(toAbsolute(explicitPath), (path) =>
+    return asyncFlatMapResult(toAbsolutePath(explicitPath), (path) =>
       loadServiceConfig(path, service.definition.configSchema)
     );
   }
@@ -97,7 +85,7 @@ export const resolveServiceConfig = async (
   for (const p of searchPaths) {
     const file = Bun.file(p);
     if (await file.exists()) {
-      return asyncFlatMapResult(toAbsolute(p), (path) =>
+      return asyncFlatMapResult(toAbsolutePath(p), (path) =>
         loadServiceConfig(path, service.definition.configSchema)
       );
     }
@@ -299,6 +287,7 @@ export const buildServiceContext = async <C = unknown>(
           dataDir,
           quadletDir: userQuadletDir(user.homeDir),
           configDir: userConfigDir(user.homeDir),
+          homeDir: user.homeDir,
         }
       : buildServicePaths(user.homeDir, dataDir);
 

@@ -72,6 +72,8 @@ export interface ServiceContext<C> {
     quadletDir: AbsolutePath;
     /** Configuration files directory */
     configDir: AbsolutePath;
+    /** User home directory */
+    homeDir: AbsolutePath;
   };
 
   /** Service user information */

@@ -11,10 +11,11 @@
 
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import { toAbsolutePath } from "../../lib/paths";
 import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext, toAbsolute } from "./utils";
+import { buildServiceContext } from "./utils";
 
 export interface RestoreOptions {
   service: AnyService;
@@ -63,7 +64,7 @@ export const executeRestore = (options: RestoreOptions): Promise<Result<void, Di
   }
 
   // Chain: validate backup path → build context → restore → log success
-  return asyncFlatMapResult(toAbsolute(args.backupPath), async (validBackupPath) => {
+  return asyncFlatMapResult(toAbsolutePath(args.backupPath), async (validBackupPath) => {
     logger.info(`Restoring ${service.definition.name} from: ${validBackupPath}`);
 
     return asyncFlatMapResult(

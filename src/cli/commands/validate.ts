@@ -11,10 +11,10 @@
 
 import { DivbanError, ErrorCode } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import { toAbsolutePath } from "../../lib/paths";
 import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
 import type { AnyService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { toAbsolute } from "./utils";
 
 export interface ValidateOptions {
   service: AnyService;
@@ -36,7 +36,7 @@ export const executeValidate = (options: ValidateOptions): Promise<Result<void, 
   }
 
   // Chain: validate path → validate config → log result
-  return asyncFlatMapResult(toAbsolute(configPath), async (validPath) => {
+  return asyncFlatMapResult(toAbsolutePath(configPath), async (validPath) => {
     logger.info(`Validating configuration: ${validPath}`);
 
     const result = await service.validate(validPath);

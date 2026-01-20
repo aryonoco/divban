@@ -214,6 +214,19 @@ export const atomicWrite = async (
 };
 
 /**
+ * Atomically rename a file.
+ * Used for lock takeover operations where atomicity is critical.
+ */
+export const renameFile = async (
+  source: AbsolutePath,
+  dest: AbsolutePath
+): Promise<Result<void, DivbanError>> =>
+  tryCatch(
+    () => rename(source, dest),
+    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to rename ${source} to ${dest}`)
+  );
+
+/**
  * Compare two files for equality.
  */
 export const filesEqual = async (

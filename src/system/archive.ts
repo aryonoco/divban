@@ -10,7 +10,7 @@
  * MUST be used for ALL archive operations - no external tar commands.
  */
 
-import { type Option, fromUndefined, mapOption } from "../lib/option";
+import { None, type Option, Some, flatMapOption, fromUndefined } from "../lib/option";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
@@ -19,6 +19,18 @@ export interface ArchiveMetadata {
   timestamp: string;
   files: string[];
 }
+
+/**
+ * Safe JSON parse that returns Option instead of throwing.
+ * FP-idiomatic: transforms exception-based API to Option-based.
+ */
+const parseJsonOption = <T>(str: string): Option<T> => {
+  try {
+    return Some(JSON.parse(str) as T);
+  } catch {
+    return None;
+  }
+};
 
 /**
  * Create a tar archive with optional compression.
@@ -115,14 +127,17 @@ export const listArchive = async (
 
 /**
  * Read metadata from an archive.
+ * Returns None if metadata.json is missing OR contains invalid JSON.
+ *
+ * FP pattern: fromUndefined → flatMapOption(decode + parseJsonOption)
  */
 export const readArchiveMetadata = async (
   data: Uint8Array,
   options?: { decompress?: "gzip" | "zstd" }
 ): Promise<Option<ArchiveMetadata>> => {
   const files = await extractArchive(data, options);
-  return mapOption(fromUndefined(files.get("metadata.json")), (bytes) =>
-    JSON.parse(new TextDecoder().decode(bytes))
+  return flatMapOption(fromUndefined(files.get("metadata.json")), (bytes) =>
+    parseJsonOption<ArchiveMetadata>(new TextDecoder().decode(bytes))
   );
 };
 
