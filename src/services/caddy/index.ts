@@ -27,11 +27,11 @@ import {
   processVolumes,
 } from "../../quadlet";
 import {
-  type SetupStepEffect,
-  type SetupStepResultEffect,
+  type SetupStepAcquireResult,
+  type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
-  executeSetupSteps,
+  executeSetupStepsScoped,
   reloadAndEnableServices,
   writeGeneratedFiles,
 } from "../helpers";
@@ -179,23 +179,23 @@ interface CaddySetupState {
 
 /**
  * Full setup for Caddy service.
- * Uses executeSetupSteps for clean sequential execution with state threading.
+ * Uses executeSetupStepsScoped for clean sequential execution with state threading.
  */
 const setup = (
   ctx: ServiceContext<CaddyConfig>
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
-  const steps: SetupStepEffect<CaddyConfig, CaddySetupState>[] = [
+  const steps: SetupStepResource<CaddyConfig, CaddySetupState>[] = [
     {
       message: "Generating configuration files...",
-      execute: (ctx): SetupStepResultEffect<CaddySetupState, ServiceError | GeneralError> =>
+      acquire: (ctx): SetupStepAcquireResult<CaddySetupState, ServiceError | GeneralError> =>
         Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Writing configuration files...",
-      execute: (
+      acquire: (
         ctx,
         state
-      ): SetupStepResultEffect<CaddySetupState, ServiceError | SystemError | GeneralError> =>
+      ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
         state.files
           ? writeGeneratedFiles(state.files, ctx)
           : Effect.fail(
@@ -207,14 +207,14 @@ const setup = (
     },
     {
       message: "Enabling and starting service...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<CaddySetupState, ServiceError | SystemError | GeneralError> =>
+      ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
         reloadAndEnableServices(ctx, ["caddy"]),
     },
   ];
 
-  return executeSetupSteps(ctx, steps);
+  return executeSetupStepsScoped(ctx, steps);
 };
 
 /**

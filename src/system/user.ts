@@ -10,7 +10,7 @@
  * Creates isolated users with proper subuid/subgid configuration.
  */
 
-import { Duration, Effect, Option, Schedule } from "effect";
+import { Duration, Effect, Exit, Option, Schedule } from "effect";
 import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
@@ -114,28 +114,6 @@ const isUidConflictError = (error: SystemError | GeneralError): boolean =>
     error.message.toLowerCase().includes("already in use"));
 
 /**
- * Execute an operation with automatic rollback on failure.
- * Returns the original error (rollback failures are logged but don't mask it).
- */
-const withRollback = <T, E>(
-  operation: Effect.Effect<T, E>,
-  rollback: Effect.Effect<void, SystemError | GeneralError>,
-  rollbackContext: string
-): Effect.Effect<T, E> =>
-  operation.pipe(
-    Effect.catchAll((error) =>
-      rollback.pipe(
-        Effect.catchAll((rollbackError) =>
-          Effect.sync(() => {
-            console.error(`Rollback warning (${rollbackContext}): ${rollbackError.message}`);
-          })
-        ),
-        Effect.flatMap(() => Effect.fail(error))
-      )
-    )
-  );
-
-/**
  * Attempt cleanup, logging failures but not propagating errors.
  * Used for secondary cleanup that shouldn't fail the main operation.
  */
@@ -144,11 +122,10 @@ const cleanupWithWarning = (
   context: string
 ): Effect.Effect<void, never> =>
   cleanup.pipe(
-    Effect.catchAll((err) =>
-      Effect.sync(() => {
-        console.warn(`Warning: ${context}: ${err.message}`);
-      })
-    )
+    Effect.tapError((err) =>
+      Effect.sync(() => console.warn(`Warning: ${context}: ${err.message}`))
+    ),
+    Effect.ignore
   );
 
 /**
@@ -294,6 +271,41 @@ export const deleteServiceUser = (
   });
 
 /**
+ * Create a system user with the given UID.
+ * Returns the UID on success.
+ */
+const createUserWithUid = (
+  username: Username,
+  homeDir: AbsolutePath,
+  shell: string,
+  serviceName: string,
+  allocatedUid: UserId
+): Effect.Effect<UserId, SystemError> =>
+  execSuccess([
+    "useradd",
+    "--uid",
+    String(allocatedUid),
+    "--home-dir",
+    homeDir,
+    "--create-home",
+    "--shell",
+    shell,
+    "--comment",
+    `divban service - ${serviceName}`,
+    username,
+  ]).pipe(
+    Effect.map(() => allocatedUid),
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `Failed to create user ${username}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
+  );
+
+/**
  * Create a service user with dynamically allocated UID.
  * Username is derived from service name: divban-<service>
  * UID is allocated from range 10000-59999
@@ -338,63 +350,46 @@ export const createServiceUser = (
       Schedule.compose(Schedule.recurs(2)) // 3 total attempts
     );
 
-    const uid = yield* withLock(
-      "uid-allocation",
+    // 4. Create user with scoped rollback - if any subsequent operation fails,
+    //    the user is automatically deleted
+    return yield* Effect.scoped(
       Effect.gen(function* () {
-        const allocatedUid = yield* allocateUidInternal(settings);
-
-        yield* execSuccess([
-          "useradd",
-          "--uid",
-          String(allocatedUid),
-          "--home-dir",
-          homeDir,
-          "--create-home",
-          "--shell",
-          shell,
-          "--comment",
-          `divban service - ${serviceName}`,
-          username,
-        ]).pipe(
-          Effect.mapError(
-            (err) =>
-              new SystemError({
-                code: ErrorCode.USER_CREATE_FAILED as 20,
-                message: `Failed to create user ${username}: ${err.message}`,
-                ...(err instanceof Error ? { cause: err } : {}),
-              })
-          )
+        // Acquire: allocate UID and create user
+        // Release: delete user on failure
+        const uid = yield* Effect.acquireRelease(
+          withLock(
+            "uid-allocation",
+            Effect.gen(function* () {
+              const allocatedUid = yield* allocateUidInternal(settings);
+              yield* createUserWithUid(username, homeDir, shell, serviceName, allocatedUid);
+              return allocatedUid;
+            })
+          ).pipe(Effect.retry(retrySchedule)),
+          (_, exit) =>
+            Exit.isFailure(exit) ? deleteServiceUser(serviceName).pipe(Effect.ignore) : Effect.void
         );
 
-        return allocatedUid;
+        // === POINT OF NO RETURN: User created, rollback on subsequent failure ===
+
+        // 5. Dynamically allocate next available subuid range
+        const subuidAlloc = yield* allocateSubuidRange(
+          settings?.subuidRangeSize ?? SUBUID_RANGE.size,
+          settings
+        );
+
+        // 6. Configure subuid/subgid
+        yield* configureSubordinateIds(username, subuidAlloc.start, subuidAlloc.size);
+
+        return {
+          username,
+          uid,
+          gid: userIdToGroupId(uid),
+          subuidStart: subuidAlloc.start,
+          subuidSize: subuidAlloc.size,
+          homeDir,
+        };
       })
-    ).pipe(Effect.retry(retrySchedule));
-
-    // === POINT OF NO RETURN: User created, rollback on subsequent failure ===
-    const rollbackUser = deleteServiceUser(serviceName);
-
-    // 4. Dynamically allocate next available subuid range (with rollback)
-    const subuidAlloc = yield* withRollback(
-      allocateSubuidRange(settings?.subuidRangeSize ?? SUBUID_RANGE.size, settings),
-      rollbackUser,
-      `deleting user ${username} after subuid allocation failure`
     );
-
-    // 5. Configure subuid/subgid (with rollback)
-    yield* withRollback(
-      configureSubordinateIds(username, subuidAlloc.start, subuidAlloc.size),
-      rollbackUser,
-      `deleting user ${username} after subuid config failure`
-    );
-
-    return {
-      username,
-      uid,
-      gid: userIdToGroupId(uid),
-      subuidStart: subuidAlloc.start,
-      subuidSize: subuidAlloc.size,
-      homeDir,
-    };
   });
 
 /**

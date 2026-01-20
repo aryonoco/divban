@@ -37,10 +37,10 @@ import { ensureDirectories } from "../../system/directories";
 import { ensureServiceSecrets, getPodmanSecretName } from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
 import {
-  type SetupStepEffect,
-  type SetupStepResultEffect,
+  type SetupStepAcquireResult,
+  type SetupStepResource,
   createConfigValidator,
-  executeSetupSteps,
+  executeSetupStepsScoped,
   reloadAndEnableServices,
   wrapBackupResult,
   writeGeneratedFiles,
@@ -286,7 +286,7 @@ interface ImmichSetupState {
 
 /**
  * Full setup for Immich service.
- * Uses executeSetupSteps for clean sequential execution with state threading.
+ * Uses executeSetupStepsScoped for clean sequential execution with state threading.
  */
 const setup = (
   ctx: ServiceContext<ImmichConfig>
@@ -294,16 +294,16 @@ const setup = (
   const { config } = ctx;
   const dataDir = config.paths.dataDir;
 
-  const steps: SetupStepEffect<
+  const steps: SetupStepResource<
     ImmichConfig,
     ImmichSetupState,
     ServiceError | SystemError | ContainerError | GeneralError
   >[] = [
     {
       message: "Generating secrets...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<
+      ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > => {
@@ -323,18 +323,18 @@ const setup = (
     },
     {
       message: "Generating configuration files...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<
+      ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > => Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Creating data directories...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<
+      ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > => {
@@ -352,10 +352,10 @@ const setup = (
     },
     {
       message: "Writing configuration files...",
-      execute: (
+      acquire: (
         ctx,
         state
-      ): SetupStepResultEffect<
+      ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > =>
@@ -370,9 +370,9 @@ const setup = (
     },
     {
       message: "Reloading daemon and enabling services...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<
+      ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > =>
@@ -384,7 +384,7 @@ const setup = (
     },
   ];
 
-  return executeSetupSteps(ctx, steps);
+  return executeSetupStepsScoped(ctx, steps);
 };
 
 /**

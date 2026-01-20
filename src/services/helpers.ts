@@ -9,7 +9,7 @@
  * Effect-based service implementation helpers to reduce code duplication.
  */
 
-import { Effect, type Schema } from "effect";
+import { Effect, Exit, type Schema } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type {
   ConfigError,
@@ -232,31 +232,36 @@ export const wrapBackupResult = <E>(
 // ============================================================================
 
 /**
- * Return type for setup step execute functions.
+ * Return type for setup step acquire functions.
  * Uses void to allow steps that return Effect<void> from helper functions.
  */
 // biome-ignore lint/suspicious/noConfusingVoidType: void needed for Effect<void> compatibility
-export type SetupStepResultEffect<S, E> = Effect.Effect<Partial<S> | void, E>;
+export type SetupStepAcquireResult<S, E> = Effect.Effect<Partial<S> | void, E>;
 
 /**
- * Setup step definition.
+ * Setup step definition using Effect resource pattern.
  * Steps run sequentially. If a step returns data, it's stored in state.
+ * Uses acquireRelease for automatic rollback on failure.
  */
-export interface SetupStepEffect<C, S = object, E = SystemError | GeneralError | ServiceError> {
+export interface SetupStepResource<C, S = object, E = SystemError | GeneralError | ServiceError> {
   /** Step message for logger.step() */
   message: string;
-  /** Execute the step. Can read from state and return data to add to state. */
-  execute: (ctx: ServiceContext<C>, state: S) => SetupStepResultEffect<S, E>;
-  /** Optional rollback function called on subsequent step failure. */
-  rollback?: (ctx: ServiceContext<C>, state: S) => Effect.Effect<void, E>;
+  /** Acquire the resource. Can read from state and return data to add to state. */
+  acquire: (ctx: ServiceContext<C>, state: S) => SetupStepAcquireResult<S, E>;
+  /** Release function called on scope close. Receives Exit to check success/failure. */
+  release?: (
+    ctx: ServiceContext<C>,
+    state: S,
+    exit: Exit.Exit<unknown, unknown>
+  ) => Effect.Effect<void, never>;
 }
 
 /**
- * Execute setup steps sequentially with logging and rollback on failure.
+ * Execute setup steps sequentially using Effect's Scope for automatic rollback.
  * Each step's returned data is merged into state for subsequent steps.
- * On failure, completed steps with rollback functions are rolled back in reverse order.
+ * On failure, release functions are executed in reverse order by the Scope.
  */
-export const executeSetupSteps = <
+export const executeSetupStepsScoped = <
   C,
   S = object,
   E extends SystemError | GeneralError | ServiceError | ContainerError =
@@ -266,55 +271,44 @@ export const executeSetupSteps = <
     | ContainerError,
 >(
   ctx: ServiceContext<C>,
-  steps: SetupStepEffect<C, S, E>[],
+  steps: SetupStepResource<C, S, E>[],
   initialState: S = {} as S
 ): Effect.Effect<void, E> =>
-  Effect.gen(function* () {
-    const { logger } = ctx;
-    const totalSteps = steps.length;
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { logger } = ctx;
+      const totalSteps = steps.length;
 
-    // Track completed steps for rollback
-    const completedSteps: Array<{ step: SetupStepEffect<C, S, E>; state: S }> = [];
+      let state = { ...initialState };
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        if (!step) {
+          continue;
+        }
 
-    let state = { ...initialState };
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      if (!step) {
-        continue;
-      }
+        logger.step(i + 1, totalSteps, step.message);
 
-      logger.step(i + 1, totalSteps, step.message);
-
-      const result = yield* Effect.either(step.execute(ctx, state));
-      if (result._tag === "Left") {
-        // Rollback completed steps in reverse order
-        for (const completed of completedSteps.reverse()) {
-          if (completed.step.rollback) {
-            const rollbackResult = yield* Effect.either(
-              completed.step.rollback(ctx, completed.state)
-            );
-            if (rollbackResult._tag === "Left") {
-              logger.warn(
-                `Rollback failed for "${completed.step.message}": ${(rollbackResult.left as Error).message}`
-              );
-            }
+        if (step.release) {
+          // Capture state and release function at this point for the closure
+          const capturedState = { ...state };
+          const releaseFunc = step.release;
+          const result = yield* Effect.acquireRelease(step.acquire(ctx, state), (_, exit) =>
+            Exit.isFailure(exit) ? releaseFunc(ctx, capturedState, exit) : Effect.void
+          );
+          if (result && typeof result === "object") {
+            state = { ...state, ...result };
+          }
+        } else {
+          const result = yield* step.acquire(ctx, state);
+          if (result && typeof result === "object") {
+            state = { ...state, ...result };
           }
         }
-        return yield* Effect.fail(result.left);
       }
 
-      // Track this step as completed (capture state at completion time)
-      completedSteps.push({ step, state: { ...state } });
-
-      // Merge returned data into state
-      const value = result.right;
-      if (value && typeof value === "object") {
-        state = { ...state, ...value };
-      }
-    }
-
-    logger.success("Setup completed successfully");
-  });
+      logger.success("Setup completed successfully");
+    })
+  );
 
 // ============================================================================
 // Config Validator Factory

@@ -23,11 +23,11 @@ import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectories } from "../../system/directories";
 import {
-  type SetupStepEffect,
-  type SetupStepResultEffect,
+  type SetupStepAcquireResult,
+  type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
-  executeSetupSteps,
+  executeSetupStepsScoped,
   reloadAndEnableServices,
   wrapBackupResult,
   writeGeneratedFiles,
@@ -159,7 +159,7 @@ interface ActualSetupState {
 
 /**
  * Full setup for Actual service.
- * Uses executeSetupSteps for clean sequential execution with state threading.
+ * Uses executeSetupStepsScoped for clean sequential execution with state threading.
  */
 const setup = (
   ctx: ServiceContext<ActualConfig>
@@ -167,17 +167,17 @@ const setup = (
   const { config } = ctx;
   const dataDir = config.paths.dataDir;
 
-  const steps: SetupStepEffect<ActualConfig, ActualSetupState>[] = [
+  const steps: SetupStepResource<ActualConfig, ActualSetupState>[] = [
     {
       message: "Generating configuration files...",
-      execute: (ctx): SetupStepResultEffect<ActualSetupState, ServiceError | GeneralError> =>
+      acquire: (ctx): SetupStepAcquireResult<ActualSetupState, ServiceError | GeneralError> =>
         Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Creating data directories...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> => {
+      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> => {
         const dirs = [
           dataDir,
           `${dataDir}/server-files`,
@@ -189,10 +189,10 @@ const setup = (
     },
     {
       message: "Writing quadlet files...",
-      execute: (
+      acquire: (
         ctx,
         state
-      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> =>
+      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
         state.files
           ? writeGeneratedFiles(state.files, ctx)
           : Effect.fail(
@@ -204,14 +204,14 @@ const setup = (
     },
     {
       message: "Enabling service...",
-      execute: (
+      acquire: (
         ctx
-      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> =>
+      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
         reloadAndEnableServices(ctx, [CONTAINER_NAME], false),
     },
   ];
 
-  return executeSetupSteps(ctx, steps);
+  return executeSetupStepsScoped(ctx, steps);
 };
 
 /**

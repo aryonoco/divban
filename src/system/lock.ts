@@ -103,39 +103,37 @@ const takeoverStaleLock = (
     const pidContent = `${process.pid}\n${Date.now()}\n`;
     const tempPath = `${lockPath}.${process.pid}.tmp` as AbsolutePath;
 
-    const cleanup = deleteFile(tempPath).pipe(Effect.catchAll(() => Effect.void));
-
-    // Step 1: Write our PID to temp file
+    // Write our PID to temp file
     const writeResult = yield* Effect.either(writeFile(tempPath, pidContent));
     if (writeResult._tag === "Left") {
       return yield* Effect.fail(writeResult.left);
     }
 
-    // Step 2: Re-read current lock to verify it's still stale
-    const currentContent = yield* Effect.either(readFile(lockPath));
-    if (currentContent._tag === "Left") {
-      yield* cleanup;
-      return false;
-    }
+    // Use ensuring to guarantee temp file cleanup
+    return yield* Effect.ensuring(
+      Effect.gen(function* () {
+        // Re-read current lock to verify it's still stale
+        const currentContent = yield* Effect.either(readFile(lockPath));
+        if (currentContent._tag === "Left") {
+          return false;
+        }
 
-    const stillStale = Option.match(parseLockContent(currentContent.right), {
-      onNone: (): boolean => true,
-      onSome: isInfoStale,
-    });
+        const stillStale = Option.match(parseLockContent(currentContent.right), {
+          onNone: (): boolean => true,
+          onSome: isInfoStale,
+        });
 
-    if (!stillStale) {
-      yield* cleanup;
-      return false;
-    }
+        if (!stillStale) {
+          return false;
+        }
 
-    // Step 3: Atomic rename to take over the lock
-    const renameResult = yield* Effect.either(renameFile(tempPath, lockPath));
-    if (renameResult._tag === "Left") {
-      yield* cleanup;
-      return false;
-    }
-
-    return true;
+        // Atomic rename to take over the lock
+        const renameResult = yield* Effect.either(renameFile(tempPath, lockPath));
+        return renameResult._tag === "Right";
+      }),
+      // Cleanup: delete temp file if it still exists (rename succeeded = no file)
+      deleteFile(tempPath).pipe(Effect.ignore)
+    );
   });
 
 /**
