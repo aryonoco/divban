@@ -16,6 +16,7 @@ import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/error
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
+import type { Acquired } from "../services/helpers";
 import { exec, execSuccess } from "./exec";
 import { atomicWrite, readFileOrEmpty } from "./fs";
 import { withLock } from "./lock";
@@ -476,3 +477,55 @@ export const requireRoot = (): Effect.Effect<void, GeneralError> => {
   }
   return Effect.void;
 };
+
+// ============================================================================
+// Tracked User Operations (Functional Pattern)
+// ============================================================================
+
+/**
+ * Acquire service user with creation tracking.
+ * Returns Acquired<ServiceUser> for idempotent rollback support.
+ */
+export const acquireServiceUser = (
+  serviceName: string,
+  settings?: UidAllocationSettings
+): Effect.Effect<Acquired<ServiceUser>, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
+    const homeDir = userHomeDir(username);
+
+    const exists = yield* userExists(username);
+
+    if (exists) {
+      // User exists - verify and return with wasCreated: false
+      const uid = yield* getUidByUsername(username);
+      yield* verifyUserConfig(username, homeDir, uid);
+      const subuidStart = yield* getExistingSubuidStart(username);
+
+      return {
+        value: {
+          username,
+          uid,
+          gid: userIdToGroupId(uid),
+          subuidStart,
+          subuidSize: SUBUID_RANGE.size,
+          homeDir,
+        },
+        wasCreated: false,
+      };
+    }
+
+    // Create new user
+    const user = yield* createServiceUser(serviceName, settings);
+    return { value: user, wasCreated: true };
+  });
+
+/**
+ * Release function - conditional cleanup based on wasCreated.
+ * Pure decision, effectful execution.
+ */
+export const releaseServiceUser = (
+  serviceName: string,
+  wasCreated: boolean
+): Effect.Effect<void, never> =>
+  wasCreated ? deleteServiceUser(serviceName).pipe(Effect.ignore) : Effect.void;

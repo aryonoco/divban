@@ -10,7 +10,7 @@
  * Simple single-container personal finance application.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Exit, Option } from "effect";
 import {
   type BackupError,
   ErrorCode,
@@ -21,16 +21,20 @@ import {
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
-import { ensureDirectories } from "../../system/directories";
+import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
 import {
+  type FilesWriteResult,
+  type ServicesEnableResult,
   type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
   executeSetupStepsScoped,
-  reloadAndEnableServices,
+  releaseFileWrites,
+  reloadAndEnableServicesTracked,
+  rollbackServiceChanges,
   wrapBackupResult,
-  writeGeneratedFiles,
+  writeGeneratedFilesTracked,
 } from "../helpers";
 import type {
   BackupResult,
@@ -155,6 +159,9 @@ const generate = (
  */
 interface ActualSetupState {
   files?: GeneratedFiles;
+  createdDirs?: readonly AbsolutePath[];
+  fileResults?: FilesWriteResult;
+  serviceResults?: ServicesEnableResult;
 }
 
 /**
@@ -172,6 +179,7 @@ const setup = (
       message: "Generating configuration files...",
       acquire: (ctx): SetupStepAcquireResult<ActualSetupState, ServiceError | GeneralError> =>
         Effect.map(generate(ctx), (files) => ({ files })),
+      // No release - pure in-memory computation
     },
     {
       message: "Creating data directories...",
@@ -184,8 +192,15 @@ const setup = (
           `${dataDir}/user-files`,
           `${dataDir}/backups`,
         ] as AbsolutePath[];
-        return ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
+        return Effect.map(
+          ensureDirectoriesTracked(dirs, { uid: ctx.user.uid, gid: ctx.user.gid }),
+          ({ createdPaths }) => ({ createdDirs: createdPaths })
+        );
       },
+      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.createdDirs
+          ? removeDirectoriesReverse(state.createdDirs)
+          : Effect.void,
     },
     {
       message: "Writing quadlet files...",
@@ -194,20 +209,33 @@ const setup = (
         state
       ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
         state.files
-          ? writeGeneratedFiles(state.files, ctx)
+          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+              fileResults,
+            }))
           : Effect.fail(
               new GeneralError({
                 code: ErrorCode.GENERAL_ERROR as 1,
                 message: "No files generated",
               })
             ),
+      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Enabling service...",
       acquire: (
         ctx
       ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
-        reloadAndEnableServices(ctx, [CONTAINER_NAME], false),
+        Effect.map(
+          reloadAndEnableServicesTracked(ctx, [CONTAINER_NAME], false),
+          (serviceResults) => ({
+            serviceResults,
+          })
+        ),
+      release: (ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.serviceResults
+          ? rollbackServiceChanges(ctx, state.serviceResults)
+          : Effect.void,
     },
   ];
 

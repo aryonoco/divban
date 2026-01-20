@@ -9,7 +9,7 @@
  * Effect-based setup command - full service setup (generate, install, enable).
  */
 
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
@@ -24,12 +24,15 @@ import {
   userQuadletDir,
 } from "../../lib/paths";
 import { userIdToGroupId } from "../../lib/types";
+import { cleanupConfigBackup, copyConfigTracked, rollbackConfigCopy } from "../../services/helpers";
 import type { AnyServiceEffect, ServiceContext } from "../../services/types";
-import { chown, ensureServiceDirectories } from "../../system/directories";
-import { copyFile } from "../../system/fs";
-import { enableLinger } from "../../system/linger";
+import {
+  ensureServiceDirectoriesTracked,
+  removeDirectoriesReverse,
+} from "../../system/directories";
+import { disableLinger, enableLingerTracked } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
-import { createServiceUser, getUserByName } from "../../system/user";
+import { acquireServiceUser, getUserByName, releaseServiceUser } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { detectSystemCapabilities, getContextOptions, getDataDirFromConfig } from "./utils";
 
@@ -122,65 +125,90 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       }
     }
 
-    // Step 1 (caddy only): Configure privileged port binding
-    if (needsSysctl) {
-      currentStep++;
-      logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
-      yield* ensureUnprivilegedPorts(70, service.definition.name);
-    }
+    // Main scoped setup - compositional resource management
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
+        if (needsSysctl) {
+          currentStep++;
+          logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
+          yield* ensureUnprivilegedPorts(70, service.definition.name);
+        }
 
-    // Step: Create service user (or get existing)
-    currentStep++;
-    logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
-    const { uid, homeDir } = yield* createServiceUser(service.definition.name, uidSettings);
-    const gid = userIdToGroupId(uid);
+        // Step 2: User - scoped resource with conditional rollback
+        currentStep++;
+        logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
+        const userAcq = yield* Effect.acquireRelease(
+          acquireServiceUser(service.definition.name, uidSettings),
+          (acq, exit) =>
+            Exit.isFailure(exit) && acq.wasCreated
+              ? releaseServiceUser(service.definition.name, true)
+              : Effect.void
+        );
+        const { uid, homeDir } = userAcq.value;
+        const gid = userIdToGroupId(uid);
 
-    // Step: Enable linger
-    currentStep++;
-    logger.step(currentStep, totalSteps, "Enabling user linger...");
-    yield* enableLinger(username, uid);
+        // Step 3: Linger - scoped resource with conditional rollback
+        currentStep++;
+        logger.step(currentStep, totalSteps, "Enabling user linger...");
+        yield* Effect.acquireRelease(enableLingerTracked(username, uid), (acq, exit) =>
+          Exit.isFailure(exit) && acq.wasCreated
+            ? disableLinger(username).pipe(Effect.ignore)
+            : Effect.void
+        );
 
-    // Step: Create service directories
-    currentStep++;
-    logger.step(currentStep, totalSteps, "Creating service directories...");
-    const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
-    yield* ensureServiceDirectories(dataDir, homeDir, { uid, gid });
+        // Step 4: Directories - scoped resource with tracked rollback
+        currentStep++;
+        logger.step(currentStep, totalSteps, "Creating service directories...");
+        const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
+        yield* Effect.acquireRelease(
+          ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
+          (result, exit) =>
+            Exit.isFailure(exit) ? removeDirectoriesReverse(result.createdPaths) : Effect.void
+        );
 
-    // Step: Copy config file to service user's config directory
-    currentStep++;
-    logger.step(currentStep, totalSteps, "Copying configuration file...");
-    const configDestPath = configFilePath(
-      userConfigDir(homeDir),
-      `${service.definition.name}.toml`
+        // Step 5: Config copy - scoped resource with backup/restore
+        currentStep++;
+        logger.step(currentStep, totalSteps, "Copying configuration file...");
+        const configDestPath = configFilePath(
+          userConfigDir(homeDir),
+          `${service.definition.name}.toml`
+        );
+        yield* Effect.acquireRelease(
+          copyConfigTracked(validConfigPath, configDestPath, { uid, gid }),
+          (result, exit) =>
+            Exit.isFailure(exit)
+              ? rollbackConfigCopy(configDestPath, result)
+              : cleanupConfigBackup(result)
+        );
+
+        // Build service context
+        const system = yield* detectSystemCapabilities();
+
+        const ctx: ServiceContext<unknown> = {
+          config,
+          logger,
+          paths: {
+            dataDir,
+            quadletDir: userQuadletDir(homeDir),
+            configDir: userConfigDir(homeDir),
+            homeDir,
+          },
+          user: {
+            name: username,
+            uid,
+            gid,
+          },
+          options: getContextOptions(args),
+          system,
+        };
+
+        // Step 6: Service-specific setup
+        currentStep++;
+        logger.step(currentStep, totalSteps, "Running service-specific setup...");
+        yield* service.setup(ctx);
+      })
     );
-    yield* copyFile(validConfigPath, configDestPath);
-    yield* chown(configDestPath, { uid, gid });
-
-    // Build service context
-    const system = yield* detectSystemCapabilities();
-
-    const ctx: ServiceContext<unknown> = {
-      config,
-      logger,
-      paths: {
-        dataDir,
-        quadletDir: userQuadletDir(homeDir),
-        configDir: userConfigDir(homeDir),
-        homeDir,
-      },
-      user: {
-        name: username,
-        uid,
-        gid,
-      },
-      options: getContextOptions(args),
-      system,
-    };
-
-    // Step: Delegate to service's setup method (handles remaining steps)
-    currentStep++;
-    logger.step(currentStep, totalSteps, "Running service-specific setup...");
-    yield* service.setup(ctx);
 
     logger.success(`${service.definition.name} setup completed successfully`);
     logger.info("Next steps:");

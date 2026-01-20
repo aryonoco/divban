@@ -230,10 +230,3 @@
   Start with Scope and acquireRelease - it provides the highest value-to-effort ratio and prepares
   you for the full Layer system later.
 
-✻ Cooked for 3m 35s
-
-────────────────────────────────────────────────────────────────────────────────────────────────────
-❯ 
-────────────────────────────────────────────────────────────────────────────────────────────────────
-  ⏵⏵ accept edits on (shift+tab to cycle)
-

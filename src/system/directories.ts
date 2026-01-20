@@ -9,10 +9,11 @@
  * Directory management using Effect for error handling.
  */
 
-import { Effect } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
+import { directoryExists as fsDirectoryExists } from "./fs";
 
 export interface DirectoryOwner {
   uid: UserId;
@@ -177,3 +178,71 @@ export const removeDirectory = (
         })
     )
   );
+
+// ============================================================================
+// Tracked Directory Operations (Functional Pattern)
+// ============================================================================
+
+/**
+ * Ensure directories with tracking.
+ * Uses Effect.forEach for functional iteration over paths.
+ */
+export const ensureDirectoriesTracked = (
+  paths: readonly AbsolutePath[],
+  owner: DirectoryOwner,
+  mode = "0755"
+): Effect.Effect<{ readonly createdPaths: readonly AbsolutePath[] }, SystemError | GeneralError> =>
+  pipe(
+    Effect.forEach(
+      paths,
+      (path) =>
+        pipe(
+          fsDirectoryExists(path),
+          Effect.flatMap((exists) =>
+            exists
+              ? Effect.succeed(Option.none<AbsolutePath>())
+              : pipe(ensureDirectory(path, owner, mode), Effect.as(Option.some(path)))
+          )
+        ),
+      { concurrency: 1 } // Sequential for parent-before-child ordering
+    ),
+    Effect.map((results) => ({
+      createdPaths: results.filter(Option.isSome).map((o) => o.value),
+    }))
+  );
+
+/**
+ * Remove directories in reverse order.
+ * Functional composition with reversed array.
+ */
+export const removeDirectoriesReverse = (
+  paths: readonly AbsolutePath[]
+): Effect.Effect<void, never> =>
+  Effect.forEach([...paths].reverse(), (path) => removeDirectory(path, true).pipe(Effect.ignore), {
+    concurrency: 1,
+  }).pipe(Effect.asVoid);
+
+/**
+ * Ensure service directories with tracking.
+ */
+export const ensureServiceDirectoriesTracked = (
+  dataDir: AbsolutePath,
+  homeDir: AbsolutePath,
+  owner: DirectoryOwner
+): Effect.Effect<
+  { readonly createdPaths: readonly AbsolutePath[] },
+  SystemError | GeneralError
+> => {
+  const dirs = getServiceDirectories(dataDir, homeDir);
+
+  const allPaths: readonly AbsolutePath[] = [
+    dirs.data,
+    dirs.config,
+    dirs.logs,
+    pathJoin(homeDir, ".config") as AbsolutePath,
+    pathJoin(homeDir, ".config", "containers") as AbsolutePath,
+    dirs.quadlet,
+  ];
+
+  return ensureDirectoriesTracked(allPaths, owner);
+};

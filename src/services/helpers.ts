@@ -9,7 +9,7 @@
  * Effect-based service implementation helpers to reduce code duplication.
  */
 
-import { Effect, Exit, type Schema } from "effect";
+import { Effect, type Exit, Option, type Schema, pipe } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type {
   ConfigError,
@@ -19,13 +19,15 @@ import type {
   SystemError,
 } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
-import type { AbsolutePath, GroupId, UserId } from "../lib/types";
+import { type AbsolutePath, type GroupId, type UserId, pathWithSuffix } from "../lib/types";
 import { chown } from "../system/directories";
-import { writeFile } from "../system/fs";
+import { copyFile, deleteFile, fileExists, renameFile, writeFile } from "../system/fs";
 import {
   daemonReload,
+  disableService,
   enableService,
   isServiceActive,
+  isServiceEnabled,
   journalctl,
   restartService,
   startService,
@@ -38,6 +40,91 @@ import type {
   ServiceContext,
   ServiceStatus,
 } from "./types";
+
+// ============================================================================
+// Core Tracking Types (Functional Core)
+// ============================================================================
+
+/**
+ * Result of an acquisition that tracks whether we created the resource.
+ * Pure data - no effects.
+ */
+export interface Acquired<A> {
+  readonly value: A;
+  readonly wasCreated: boolean;
+}
+
+/**
+ * Constructor for Acquired - pure function.
+ */
+export const acquired = <A>(value: A, wasCreated: boolean): Acquired<A> => ({
+  value,
+  wasCreated,
+});
+
+/**
+ * Result tracking for file operations.
+ * Discriminated union for type-safe handling.
+ */
+export type FileWriteResult =
+  | { readonly kind: "Created"; readonly path: AbsolutePath }
+  | { readonly kind: "Modified"; readonly path: AbsolutePath; readonly backup: AbsolutePath };
+
+/**
+ * Constructors for FileWriteResult - pure functions.
+ */
+export const FileWriteResult = {
+  created: (path: AbsolutePath): FileWriteResult => ({ kind: "Created", path }),
+  modified: (path: AbsolutePath, backup: AbsolutePath): FileWriteResult => ({
+    kind: "Modified",
+    path,
+    backup,
+  }),
+} as const;
+
+/**
+ * Result of writing multiple files.
+ */
+export interface FilesWriteResult {
+  readonly results: readonly FileWriteResult[];
+}
+
+/**
+ * Result of enabling services.
+ */
+export interface ServicesEnableResult {
+  readonly newlyEnabled: readonly string[];
+  readonly newlyStarted: readonly string[];
+}
+
+// ============================================================================
+// Pure Derivation Functions (Functional Core)
+// ============================================================================
+
+/**
+ * Derive paths that were created (not modified) from file write results.
+ * Pure function - no effects.
+ */
+export const createdPaths = (results: readonly FileWriteResult[]): readonly AbsolutePath[] =>
+  results
+    .filter((r): r is Extract<FileWriteResult, { kind: "Created" }> => r.kind === "Created")
+    .map((r) => r.path);
+
+/**
+ * Derive paths that were modified (have backups) from file write results.
+ * Pure function - no effects.
+ */
+export const modifiedPaths = (
+  results: readonly FileWriteResult[]
+): readonly { path: AbsolutePath; backup: AbsolutePath }[] =>
+  results
+    .filter((r): r is Extract<FileWriteResult, { kind: "Modified" }> => r.kind === "Modified")
+    .map((r) => ({ path: r.path, backup: r.backup }));
+
+/**
+ * Backup path naming convention - pure function.
+ */
+export const backupPath = (path: AbsolutePath): AbsolutePath => pathWithSuffix(path, ".bak");
 
 // ============================================================================
 // File Writing Helpers
@@ -87,6 +174,284 @@ export const writeGeneratedFiles = <C>(
     // Execute all sequentially
     const allOps = [...quadletOps, ...networkOps, ...volumeOps, ...envOps, ...otherOps];
     yield* Effect.all(allOps, { concurrency: 1 });
+  });
+
+// ============================================================================
+// Effectful Resource Operations (Imperative Shell)
+// ============================================================================
+
+/**
+ * Write a single file with tracking.
+ * Returns a FileWriteResult describing what happened.
+ */
+const writeFileTracked = (
+  destPath: AbsolutePath,
+  content: string,
+  owner: { uid: UserId; gid: GroupId }
+): Effect.Effect<FileWriteResult, SystemError | GeneralError> =>
+  pipe(
+    fileExists(destPath),
+    Effect.flatMap((exists) =>
+      exists
+        ? pipe(
+            // File exists - backup then overwrite
+            copyFile(destPath, backupPath(destPath)),
+            Effect.flatMap(() => writeFile(destPath, content)),
+            Effect.flatMap(() => chown(destPath, owner)),
+            Effect.as(FileWriteResult.modified(destPath, backupPath(destPath)))
+          )
+        : pipe(
+            // New file - just create
+            writeFile(destPath, content),
+            Effect.flatMap(() => chown(destPath, owner)),
+            Effect.as(FileWriteResult.created(destPath))
+          )
+    )
+  );
+
+/**
+ * Write generated files with tracking using Effect.forEach.
+ * Functional composition of file writes.
+ */
+export const writeGeneratedFilesTracked = <C>(
+  files: GeneratedFiles,
+  ctx: ServiceContext<C>
+): Effect.Effect<FilesWriteResult, SystemError | GeneralError> => {
+  const { quadletDir, configDir } = ctx.paths;
+  const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
+
+  // Collect all file entries with their destinations - pure transformation
+  const allFiles: readonly { dest: AbsolutePath; content: string }[] = [
+    ...[...files.quadlets].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
+    ...[...files.networks].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
+    ...[...files.volumes].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
+    ...[...files.environment].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
+    ...[...files.other].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
+  ];
+
+  // Sequential write with tracking - effectful composition
+  return pipe(
+    Effect.forEach(
+      allFiles,
+      ({ dest, content }) => writeFileTracked(dest, content, owner),
+      { concurrency: 1 } // Sequential to maintain order
+    ),
+    Effect.map((results) => ({ results }))
+  );
+};
+
+/**
+ * Rollback file writes - delete created, restore modified.
+ * Derives rollback actions from pure FileWriteResult data.
+ */
+export const rollbackFileWrites = (
+  results: readonly FileWriteResult[]
+): Effect.Effect<void, never> =>
+  Effect.all([
+    // Delete files we created
+    Effect.forEach(createdPaths(results), (path) => deleteFile(path).pipe(Effect.ignore), {
+      concurrency: "unbounded",
+    }),
+    // Restore files we modified from backup
+    Effect.forEach(
+      modifiedPaths(results),
+      ({ path, backup }) => renameFile(backup, path).pipe(Effect.ignore),
+      { concurrency: "unbounded" }
+    ),
+  ]).pipe(Effect.asVoid);
+
+/**
+ * Cleanup backups on success.
+ */
+export const cleanupFileBackups = (
+  results: readonly FileWriteResult[]
+): Effect.Effect<void, never> =>
+  Effect.forEach(modifiedPaths(results), ({ backup }) => deleteFile(backup).pipe(Effect.ignore), {
+    concurrency: "unbounded",
+  }).pipe(Effect.asVoid);
+
+/**
+ * Handle file write results on release - rollback on failure, cleanup on success.
+ * Avoids nested ternaries in release functions.
+ */
+export const releaseFileWrites = (
+  fileResults: FilesWriteResult | undefined,
+  failed: boolean
+): Effect.Effect<void, never> => {
+  if (!fileResults) {
+    return Effect.void;
+  }
+  if (failed) {
+    return rollbackFileWrites(fileResults.results);
+  }
+  return cleanupFileBackups(fileResults.results);
+};
+
+/**
+ * Enable services with tracking.
+ * Returns only the services we actually changed.
+ */
+export const reloadAndEnableServicesTracked = <C>(
+  ctx: ServiceContext<C>,
+  services: readonly string[],
+  startAfterEnable = true
+): Effect.Effect<ServicesEnableResult, ServiceError | SystemError | GeneralError> => {
+  const opts = { user: ctx.user.name, uid: ctx.user.uid };
+
+  // Check and enable each service, collecting what we changed
+  const enableIfNeeded = (
+    svc: string
+  ): Effect.Effect<Option.Option<string>, SystemError | GeneralError> =>
+    pipe(
+      isServiceEnabled(`${svc}.service`, opts),
+      Effect.flatMap((enabled) =>
+        enabled
+          ? Effect.succeed(Option.none())
+          : pipe(enableService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
+      )
+    );
+
+  const startIfNeeded = (
+    svc: string
+  ): Effect.Effect<Option.Option<string>, ServiceError | SystemError | GeneralError> =>
+    pipe(
+      isServiceActive(`${svc}.service`, opts),
+      Effect.flatMap((active) =>
+        active
+          ? Effect.succeed(Option.none())
+          : pipe(startService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
+      )
+    );
+
+  return pipe(
+    daemonReload(opts),
+    Effect.flatMap(() =>
+      Effect.forEach(
+        services,
+        (svc) =>
+          pipe(
+            enableIfNeeded(svc),
+            Effect.flatMap((enabled) =>
+              startAfterEnable
+                ? Effect.map(startIfNeeded(svc), (started) => ({ enabled, started }))
+                : Effect.succeed({ enabled, started: Option.none() as Option.Option<string> })
+            )
+          ),
+        { concurrency: 1 }
+      )
+    ),
+    Effect.map((results) => ({
+      newlyEnabled: results
+        .map((r) => r.enabled)
+        .filter(Option.isSome)
+        .map((o) => o.value),
+      newlyStarted: results
+        .map((r) => r.started)
+        .filter(Option.isSome)
+        .map((o) => o.value),
+    }))
+  );
+};
+
+/**
+ * Rollback service changes.
+ */
+export const rollbackServiceChanges = <C>(
+  ctx: ServiceContext<C>,
+  result: ServicesEnableResult
+): Effect.Effect<void, never> => {
+  const opts = { user: ctx.user.name, uid: ctx.user.uid };
+
+  return Effect.all([
+    Effect.forEach(
+      result.newlyStarted,
+      (svc) => stopService(`${svc}.service`, opts).pipe(Effect.ignore),
+      { concurrency: "unbounded" }
+    ),
+    Effect.forEach(
+      result.newlyEnabled,
+      (svc) => disableService(`${svc}.service`, opts).pipe(Effect.ignore),
+      { concurrency: "unbounded" }
+    ),
+  ]).pipe(Effect.asVoid);
+};
+
+// ============================================================================
+// Config Copy Operations (for setup.ts)
+// ============================================================================
+
+/**
+ * Result of copying a config file.
+ * Uses Option for type-safe optional backup path.
+ */
+export interface ConfigCopyResult {
+  readonly wasNewFile: boolean;
+  readonly backupPath: Option.Option<AbsolutePath>;
+}
+
+/**
+ * Copy config file with tracking and backup.
+ * Returns structured result with Option for backup.
+ */
+export const copyConfigTracked = (
+  source: AbsolutePath,
+  dest: AbsolutePath,
+  owner: { uid: UserId; gid: GroupId }
+): Effect.Effect<ConfigCopyResult, SystemError | GeneralError> =>
+  pipe(
+    fileExists(dest),
+    Effect.flatMap(
+      (exists): Effect.Effect<ConfigCopyResult, SystemError | GeneralError> =>
+        exists
+          ? pipe(
+              // Backup existing, then copy
+              Effect.Do,
+              Effect.bind("backup", () => Effect.succeed(backupPath(dest))),
+              Effect.tap(({ backup }) => copyFile(dest, backup)),
+              Effect.tap(() => copyFile(source, dest)),
+              Effect.tap(() => chown(dest, owner)),
+              Effect.map(
+                ({ backup }): ConfigCopyResult => ({
+                  wasNewFile: false,
+                  backupPath: Option.some(backup),
+                })
+              )
+            )
+          : pipe(
+              // New file - just copy
+              copyFile(source, dest),
+              Effect.flatMap(() => chown(dest, owner)),
+              Effect.as<ConfigCopyResult>({
+                wasNewFile: true,
+                backupPath: Option.none(),
+              })
+            )
+    )
+  );
+
+/**
+ * Rollback config copy based on result.
+ * Pattern matches on Option for type safety.
+ */
+export const rollbackConfigCopy = (
+  dest: AbsolutePath,
+  result: ConfigCopyResult
+): Effect.Effect<void, never> =>
+  result.wasNewFile
+    ? deleteFile(dest).pipe(Effect.ignore)
+    : Option.match(result.backupPath, {
+        onNone: (): Effect.Effect<void, never> => Effect.void,
+        onSome: (backup): Effect.Effect<void, never> =>
+          renameFile(backup, dest).pipe(Effect.ignore),
+      });
+
+/**
+ * Cleanup config backup on success.
+ */
+export const cleanupConfigBackup = (result: ConfigCopyResult): Effect.Effect<void, never> =>
+  Option.match(result.backupPath, {
+    onNone: (): Effect.Effect<void, never> => Effect.void,
+    onSome: (backup): Effect.Effect<void, never> => deleteFile(backup).pipe(Effect.ignore),
   });
 
 // ============================================================================
@@ -260,6 +625,7 @@ export interface SetupStepResource<C, S = object, E = SystemError | GeneralError
  * Execute setup steps sequentially using Effect's Scope for automatic rollback.
  * Each step's returned data is merged into state for subsequent steps.
  * On failure, release functions are executed in reverse order by the Scope.
+ * On success, release functions can perform cleanup (e.g., removing backups).
  */
 export const executeSetupStepsScoped = <
   C,
@@ -292,8 +658,9 @@ export const executeSetupStepsScoped = <
           // Capture state and release function at this point for the closure
           const capturedState = { ...state };
           const releaseFunc = step.release;
+          // Always call release - let it decide based on exit status
           const result = yield* Effect.acquireRelease(step.acquire(ctx, state), (_, exit) =>
-            Exit.isFailure(exit) ? releaseFunc(ctx, capturedState, exit) : Effect.void
+            releaseFunc(ctx, capturedState, exit)
           );
           if (result && typeof result === "object") {
             state = { ...state, ...result };

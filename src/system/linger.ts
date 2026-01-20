@@ -10,10 +10,11 @@
  * Enables services to run without an active login session.
  */
 
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
 import type { UserId, Username } from "../lib/types";
+import type { Acquired } from "../services/helpers";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
 
@@ -194,5 +195,44 @@ export const ensureLinger = (
           message: `Failed to enable linger for service ${serviceName} (user: ${username})`,
           ...(err instanceof Error ? { cause: err } : {}),
         })
+    )
+  );
+
+// ============================================================================
+// Tracked Linger Operations (Functional Pattern)
+// ============================================================================
+
+/**
+ * Enable linger with tracking.
+ * Returns Acquired<void> with wasCreated for rollback decision.
+ */
+export const enableLingerTracked = (
+  username: Username,
+  uid: UserId
+): Effect.Effect<Acquired<void>, SystemError | GeneralError> =>
+  pipe(
+    isLingerEnabled(username),
+    Effect.flatMap((alreadyEnabled) =>
+      alreadyEnabled
+        ? pipe(
+            // Already enabled - ensure session ready, mark as not created by us
+            startUserService(uid),
+            Effect.flatMap(() => waitForUserSession(uid)),
+            Effect.flatMap((ready) =>
+              ready
+                ? Effect.succeed({ value: undefined, wasCreated: false } as Acquired<void>)
+                : Effect.fail(
+                    new SystemError({
+                      code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+                      message: `User session not ready for ${username}`,
+                    })
+                  )
+            )
+          )
+        : pipe(
+            // Not enabled - enable it, mark as created by us
+            enableLinger(username, uid),
+            Effect.as({ value: undefined, wasCreated: true } as Acquired<void>)
+          )
     )
   );

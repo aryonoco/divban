@@ -9,7 +9,7 @@
  * Caddy reverse proxy service implementation.
  */
 
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import {
   type ConfigError,
   ErrorCode,
@@ -27,13 +27,17 @@ import {
   processVolumes,
 } from "../../quadlet";
 import {
+  type FilesWriteResult,
+  type ServicesEnableResult,
   type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
   executeSetupStepsScoped,
-  reloadAndEnableServices,
-  writeGeneratedFiles,
+  releaseFileWrites,
+  reloadAndEnableServicesTracked,
+  rollbackServiceChanges,
+  writeGeneratedFilesTracked,
 } from "../helpers";
 import type { GeneratedFiles, ServiceContext, ServiceDefinition, ServiceEffect } from "../types";
 import { createGeneratedFiles } from "../types";
@@ -175,6 +179,8 @@ const generate = (
  */
 interface CaddySetupState {
   files?: GeneratedFiles;
+  fileResults?: FilesWriteResult;
+  serviceResults?: ServicesEnableResult;
 }
 
 /**
@@ -189,6 +195,7 @@ const setup = (
       message: "Generating configuration files...",
       acquire: (ctx): SetupStepAcquireResult<CaddySetupState, ServiceError | GeneralError> =>
         Effect.map(generate(ctx), (files) => ({ files })),
+      // No release - pure in-memory computation
     },
     {
       message: "Writing configuration files...",
@@ -197,20 +204,30 @@ const setup = (
         state
       ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
         state.files
-          ? writeGeneratedFiles(state.files, ctx)
+          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+              fileResults,
+            }))
           : Effect.fail(
               new GeneralError({
                 code: ErrorCode.GENERAL_ERROR as 1,
                 message: "No files generated",
               })
             ),
+      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Enabling and starting service...",
       acquire: (
         ctx
       ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
-        reloadAndEnableServices(ctx, ["caddy"]),
+        Effect.map(reloadAndEnableServicesTracked(ctx, ["caddy"], true), (serviceResults) => ({
+          serviceResults,
+        })),
+      release: (ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.serviceResults
+          ? rollbackServiceChanges(ctx, state.serviceResults)
+          : Effect.void,
     },
   ];
 

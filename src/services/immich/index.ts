@@ -10,7 +10,7 @@
  * Multi-container service with hardware acceleration support.
  */
 
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import {
   type BackupError,
   type ContainerError,
@@ -33,17 +33,25 @@ import {
 import { createStack, generateEnvFile, generateStackQuadlets } from "../../stack";
 import { getStackStatus, startStack, stopStack } from "../../stack/orchestrator";
 import type { StackContainer } from "../../stack/types";
-import { ensureDirectories } from "../../system/directories";
-import { ensureServiceSecrets, getPodmanSecretName } from "../../system/secrets";
+import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
+import {
+  deletePodmanSecrets,
+  ensureServiceSecretsTracked,
+  getPodmanSecretName,
+} from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
 import {
+  type FilesWriteResult,
+  type ServicesEnableResult,
   type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   executeSetupStepsScoped,
-  reloadAndEnableServices,
+  releaseFileWrites,
+  reloadAndEnableServicesTracked,
+  rollbackServiceChanges,
   wrapBackupResult,
-  writeGeneratedFiles,
+  writeGeneratedFilesTracked,
 } from "../helpers";
 import type {
   BackupResult,
@@ -282,6 +290,10 @@ const generate = (
  */
 interface ImmichSetupState {
   files?: GeneratedFiles;
+  createdSecrets?: readonly string[];
+  createdDirs?: readonly AbsolutePath[];
+  fileResults?: FilesWriteResult;
+  serviceResults?: ServicesEnableResult;
 }
 
 /**
@@ -306,20 +318,22 @@ const setup = (
       ): SetupStepAcquireResult<
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
-      > => {
-        const homeDir = ctx.paths.homeDir;
-        return Effect.map(
-          ensureServiceSecrets(
+      > =>
+        Effect.map(
+          ensureServiceSecretsTracked(
             SERVICE_NAME,
             IMMICH_SECRETS,
-            homeDir,
+            ctx.paths.homeDir,
             ctx.user.name,
             ctx.user.uid,
             ctx.user.gid
           ),
-          () => undefined
-        );
-      },
+          ({ createdSecrets }) => ({ createdSecrets })
+        ),
+      release: (ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.createdSecrets
+          ? deletePodmanSecrets(state.createdSecrets, ctx.user.name, ctx.user.uid)
+          : Effect.void,
     },
     {
       message: "Generating configuration files...",
@@ -329,6 +343,7 @@ const setup = (
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > => Effect.map(generate(ctx), (files) => ({ files })),
+      // No release - pure in-memory computation
     },
     {
       message: "Creating data directories...",
@@ -347,8 +362,15 @@ const setup = (
           `${dataDir}/model-cache`,
           `${dataDir}/backups`,
         ] as AbsolutePath[];
-        return ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
+        return Effect.map(
+          ensureDirectoriesTracked(dirs, { uid: ctx.user.uid, gid: ctx.user.gid }),
+          ({ createdPaths }) => ({ createdDirs: createdPaths })
+        );
       },
+      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.createdDirs
+          ? removeDirectoriesReverse(state.createdDirs)
+          : Effect.void,
     },
     {
       message: "Writing configuration files...",
@@ -360,13 +382,17 @@ const setup = (
         ServiceError | SystemError | ContainerError | GeneralError
       > =>
         state.files
-          ? writeGeneratedFiles(state.files, ctx)
+          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+              fileResults,
+            }))
           : Effect.fail(
               new GeneralError({
                 code: ErrorCode.GENERAL_ERROR as 1,
                 message: "No files generated",
               })
             ),
+      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Reloading daemon and enabling services...",
@@ -376,11 +402,18 @@ const setup = (
         ImmichSetupState,
         ServiceError | SystemError | ContainerError | GeneralError
       > =>
-        reloadAndEnableServices(
-          ctx,
-          [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
-          false
+        Effect.map(
+          reloadAndEnableServicesTracked(
+            ctx,
+            [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
+            false
+          ),
+          (serviceResults) => ({ serviceResults })
         ),
+      release: (ctx, state, exit): Effect.Effect<void, never> =>
+        Exit.isFailure(exit) && state.serviceResults
+          ? rollbackServiceChanges(ctx, state.serviceResults)
+          : Effect.void,
     },
   ];
 

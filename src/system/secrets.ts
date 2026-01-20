@@ -10,7 +10,7 @@
  * Handles generation, podman secret creation, and encrypted backup.
  */
 
-import { Effect } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { generatePassword } from "../lib/crypto";
 import { ContainerError, ErrorCode, type GeneralError, type SystemError } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
@@ -269,3 +269,123 @@ export const listServiceSecrets = (
 
     return Object.keys(secrets);
   });
+
+// ============================================================================
+// Tracked Secret Operations (Functional Pattern)
+// ============================================================================
+
+/**
+ * Ensure secrets with tracking.
+ * Returns created secret names for rollback.
+ */
+export const ensureServiceSecretsTracked = (
+  serviceName: ServiceName,
+  definitions: readonly SecretDefinition[],
+  homeDir: AbsolutePath,
+  user: Username,
+  uid: number,
+  gid: number
+): Effect.Effect<
+  { secrets: ServiceSecrets; createdSecrets: readonly string[] },
+  SystemError | GeneralError | ContainerError
+> =>
+  Effect.gen(function* () {
+    const paths = getSecretPaths(homeDir, serviceName);
+    const owner = { uid: uid as UserId, gid: gid as GroupId };
+
+    yield* ensureDirectory(paths.ageKeyDir, owner, "0700");
+    const keypair = yield* ensureKeypair(paths.ageKeyPath);
+
+    // Load existing secrets if available
+    const existingSecrets = yield* pipe(
+      fileExists(paths.secretsBackupPath),
+      Effect.flatMap((exists) =>
+        exists
+          ? pipe(
+              decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey),
+              Effect.map(Option.some),
+              Effect.catchAll(() => Effect.succeed(Option.none()))
+            )
+          : Effect.succeed(Option.none())
+      ),
+      Effect.map(Option.getOrElse(() => ({}) as Record<string, string>))
+    );
+
+    // Process each secret definition, tracking which we create
+    const results = yield* Effect.forEach(
+      definitions,
+      (def) =>
+        pipe(
+          Effect.Do,
+          Effect.bind("podmanName", () =>
+            Effect.succeed(getPodmanSecretName(serviceName, def.name))
+          ),
+          Effect.bind("secretExists", ({ podmanName }) =>
+            podmanSecretExists(podmanName, user, uid)
+          ),
+          Effect.bind("existingValue", () => Effect.succeed(existingSecrets[def.name])),
+          Effect.flatMap(({ podmanName, secretExists, existingValue }) => {
+            if (secretExists && existingValue !== undefined) {
+              // Reuse existing
+              return Effect.succeed({
+                name: def.name,
+                value: existingValue,
+                created: Option.none<string>(),
+              });
+            }
+
+            const value = existingValue ?? generatePassword(def.length ?? 32);
+
+            if (secretExists) {
+              // Secret exists in podman, just track value
+              return Effect.succeed({
+                name: def.name,
+                value,
+                created: Option.none<string>(),
+              });
+            }
+
+            // Create new secret
+            return pipe(
+              createPodmanSecret(podmanName, value, user, uid),
+              Effect.as({
+                name: def.name,
+                value,
+                created: Option.some(podmanName),
+              })
+            );
+          })
+        ),
+      { concurrency: 1 }
+    );
+
+    // Build secrets record - pure transformation
+    const secrets: Record<string, string> = {};
+    for (const r of results) {
+      secrets[r.name] = r.value;
+    }
+
+    yield* encryptSecretsToFile(secrets, keypair.publicKey, paths.secretsBackupPath);
+
+    return {
+      secrets: { values: secrets, keypair },
+      createdSecrets: results
+        .map((r) => r.created)
+        .filter(Option.isSome)
+        .map((o) => o.value),
+    };
+  });
+
+/**
+ * Delete podman secrets.
+ */
+export const deletePodmanSecrets = (
+  secretNames: readonly string[],
+  user: Username,
+  uid: number
+): Effect.Effect<void, never> =>
+  Effect.forEach(
+    secretNames,
+    (name) => execAsUser(user, uid, ["podman", "secret", "rm", name]).pipe(Effect.ignore),
+    { concurrency: "unbounded" }
+  ).pipe(Effect.asVoid);
