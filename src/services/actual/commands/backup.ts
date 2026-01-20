@@ -11,22 +11,20 @@
  */
 
 import { Glob } from "bun";
+import { Effect, Option } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
-import {
-  createBackupMetadata,
-  createBackupTimestamp,
-  ensureBackupDirectory,
-  listBackupFiles,
-  validateBackupService,
-  writeBackupArchive,
-} from "../../../lib/backup-utils";
-import { DivbanError, ErrorCode } from "../../../lib/errors";
+import { BackupError, ErrorCode, type GeneralError, SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { isSome } from "../../../lib/option";
-import { Err, Ok, type Result } from "../../../lib/result";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
-import { extractArchive, readArchiveMetadata } from "../../../system/archive";
-import { directoryExists, ensureDirectory } from "../../../system/fs";
+import type { ArchiveMetadata } from "../../../system/archive";
+import { createArchive, extractArchive, readArchiveMetadata } from "../../../system/archive";
+import {
+  directoryExists,
+  ensureDirectory,
+  fileExists,
+  readBytes,
+  writeBytes,
+} from "../../../system/fs";
 
 export interface BackupOptions {
   /** Data directory containing Actual files */
@@ -40,112 +38,176 @@ export interface BackupOptions {
 }
 
 /**
+ * Create a backup-safe timestamp string.
+ */
+const createBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
+
+/**
+ * Create archive metadata for a backup.
+ */
+const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
+  version: "1.0",
+  service,
+  timestamp: new Date().toISOString(),
+  files,
+});
+
+/**
  * Create a backup of the Actual data directory.
  * Creates a compressed tar archive using Bun.Archive.
  */
-export const backupActual = async (
+export const backupActual = (
   options: BackupOptions
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  const { dataDir, logger } = options;
+): Effect.Effect<AbsolutePath, BackupError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { dataDir, logger } = options;
 
-  // Check data directory exists
-  if (!(await directoryExists(dataDir))) {
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Data directory not found: ${dataDir}`));
-  }
-
-  const timestamp = createBackupTimestamp();
-  const backupFilename = `actual-backup-${timestamp}.tar.gz`;
-  const backupsDir = pathJoin(dataDir, "backups");
-  const backupPath = pathJoin(backupsDir, backupFilename);
-
-  logger.info(`Creating backup: ${backupFilename}`);
-
-  // Ensure backup directory exists
-  const mkdirResult = await ensureBackupDirectory(backupsDir);
-  if (!mkdirResult.ok) {
-    return mkdirResult;
-  }
-
-  // Collect files to archive using Bun.Glob
-  const glob = new Glob("**/*");
-  const files: Record<string, Uint8Array> = {};
-  const fileList: string[] = [];
-
-  for await (const path of glob.scan({ cwd: dataDir, onlyFiles: true })) {
-    // Exclude the backups directory itself to avoid recursion
-    if (path.startsWith("backups/") || path === "backups") {
-      continue;
+    // Check data directory exists
+    const exists = yield* directoryExists(dataDir);
+    if (!exists) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.BACKUP_FAILED as 50,
+          message: `Data directory not found: ${dataDir}`,
+        })
+      );
     }
 
-    const fullPath = `${dataDir}/${path}`;
-    const content = await Bun.file(fullPath).bytes();
-    files[path] = content;
-    fileList.push(path);
-  }
+    const timestamp = createBackupTimestamp();
+    const backupFilename = `actual-backup-${timestamp}.tar.gz`;
+    const backupsDir = pathJoin(dataDir, "backups");
+    const backupPath = pathJoin(backupsDir, backupFilename);
 
-  // Create metadata and archive
-  const metadata = createBackupMetadata("actual", fileList);
+    logger.info(`Creating backup: ${backupFilename}`);
 
-  const archiveResult = await writeBackupArchive(backupPath, files, {
-    compress: "gzip",
-    metadata,
+    // Ensure backup directory exists
+    yield* ensureDirectory(backupsDir);
+
+    // Collect files to archive using Bun.Glob
+    const glob = new Glob("**/*");
+    const { files, fileList } = yield* Effect.promise(async () => {
+      const files: Record<string, Uint8Array> = {};
+      const fileList: string[] = [];
+
+      for await (const path of glob.scan({ cwd: dataDir, onlyFiles: true })) {
+        // Exclude the backups directory itself to avoid recursion
+        if (path.startsWith("backups/") || path === "backups") {
+          continue;
+        }
+
+        const fullPath = `${dataDir}/${path}`;
+        const content = await Bun.file(fullPath).bytes();
+        files[path] = content;
+        fileList.push(path);
+      }
+
+      return { files, fileList };
+    });
+
+    // Create metadata and archive
+    const metadata = createBackupMetadata("actual", fileList);
+
+    const archiveData = yield* createArchive(files, {
+      compress: "gzip",
+      metadata,
+    });
+
+    yield* writeBytes(backupPath, archiveData);
+
+    // Get backup size using stat for accuracy
+    const stat = yield* Effect.promise(() => Bun.file(backupPath).stat());
+    const size = stat?.size ?? 0;
+
+    logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
+    return backupPath;
   });
-  if (!archiveResult.ok) {
-    return archiveResult;
-  }
-
-  // Get backup size using stat for accuracy
-  const stat = await Bun.file(backupPath).stat();
-  const size = stat?.size ?? 0;
-
-  logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
-  return Ok(backupPath);
-};
 
 /**
  * List available backups.
- * Re-exported from backup-utils for service-specific usage.
  */
-export const listBackups = (dataDir: AbsolutePath): Promise<Result<string[], DivbanError>> =>
-  listBackupFiles(pathJoin(dataDir, "backups"), "*.tar.gz");
+export const listBackups = (
+  dataDir: AbsolutePath,
+  pattern = "*.tar.gz"
+): Effect.Effect<string[], never> =>
+  Effect.gen(function* () {
+    const backupDir = pathJoin(dataDir, "backups");
+
+    const exists = yield* directoryExists(backupDir);
+    if (!exists) {
+      return [];
+    }
+
+    const glob = new Glob(pattern);
+    const files = yield* Effect.promise(async () => {
+      const result: string[] = [];
+      for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
+        result.push(file);
+      }
+      return result;
+    });
+
+    // Sort by modification time (newest first)
+    const withStats = yield* Effect.promise(() =>
+      Promise.all(
+        files.map(async (f) => ({
+          name: f,
+          mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
+        }))
+      )
+    );
+
+    withStats.sort((a, b) => b.mtime - a.mtime);
+    return withStats.map((f) => f.name);
+  });
 
 /**
  * Restore from a backup archive.
  * Uses Bun.Archive for extraction - no subprocess tar needed.
  */
-export const restoreActual = async (
+export const restoreActual = (
   backupPath: AbsolutePath,
   dataDir: AbsolutePath,
   _user: Username,
   _uid: UserId,
   logger: Logger
-): Promise<Result<void, DivbanError>> => {
-  // Check backup file exists
-  const file = Bun.file(backupPath);
-  if (!(await file.exists())) {
-    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
-  }
-
-  logger.info(`Restoring from: ${backupPath}`);
-  logger.warn("This will overwrite existing data!");
-
-  try {
-    // Read and decompress archive
-    const compressedData = await file.bytes();
-
-    // Read and validate metadata
-    const metadata = await readArchiveMetadata(compressedData, { decompress: "gzip" });
-    const validationResult = validateBackupService(metadata, "actual", logger);
-    if (!validationResult.ok) {
-      return validationResult;
+): Effect.Effect<void, BackupError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    // Check backup file exists
+    const exists = yield* fileExists(backupPath);
+    if (!exists) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.BACKUP_NOT_FOUND as 52,
+          message: `Backup file not found: ${backupPath}`,
+          path: backupPath,
+        })
+      );
     }
 
-    if (isSome(metadata)) {
-      logger.info(`Files in backup: ${metadata.value.files.length}`);
+    logger.info(`Restoring from: ${backupPath}`);
+    logger.warn("This will overwrite existing data!");
+
+    // Read and decompress archive
+    const compressedData = yield* readBytes(backupPath);
+
+    // Read and validate metadata
+    const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: "gzip" });
+    if (Option.isSome(metadataOpt)) {
+      const metadata = metadataOpt.value;
+      if (metadata.service !== "actual") {
+        return yield* Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Backup is for service '${metadata.service}', not 'actual'. Use the correct restore command.`,
+            path: backupPath,
+          })
+        );
+      }
+      logger.info(`Backup from: ${metadata.timestamp}, files: ${metadata.files.length}`);
     }
 
     // Extract archive
-    const files = await extractArchive(compressedData, { decompress: "gzip" });
+    const files = yield* extractArchive(compressedData, { decompress: "gzip" });
 
     // Write files to data directory
     for (const [name, content] of files) {
@@ -156,11 +218,12 @@ export const restoreActual = async (
 
       // Validate filename doesn't contain path traversal
       if (name.includes("..") || name.startsWith("/") || name.includes("\x00")) {
-        return Err(
-          new DivbanError(
-            ErrorCode.RESTORE_FAILED,
-            `Invalid filename in backup archive: ${name}. Potential path traversal detected.`
-          )
+        return yield* Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Invalid filename in backup archive: ${name}. Potential path traversal detected.`,
+            path: backupPath,
+          })
         );
       }
 
@@ -169,15 +232,18 @@ export const restoreActual = async (
       // Ensure parent directory exists
       const parentDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
       if (parentDir && parentDir !== dataDir) {
-        await ensureDirectory(parentDir as AbsolutePath);
+        yield* ensureDirectory(parentDir as AbsolutePath);
       }
 
-      await Bun.write(fullPath, content);
+      yield* Effect.tryPromise({
+        try: (): Promise<number> => Bun.write(fullPath, content),
+        catch: (e): SystemError =>
+          new SystemError({
+            code: ErrorCode.FILE_WRITE_FAILED as 28,
+            message: `Failed to write file ${fullPath}: ${e}`,
+          }),
+      });
     }
-  } catch (e) {
-    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to extract backup archive: ${e}`));
-  }
 
-  logger.success("Restore completed successfully");
-  return Ok(undefined);
-};
+    logger.success("Restore completed successfully");
+  });

@@ -10,17 +10,28 @@
  * Uses Bun.Archive for extraction - no external gunzip/tar commands.
  */
 
+import { Effect, Option } from "effect";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
-import { detectCompressionFormat, validateBackupService } from "../../../lib/backup-utils";
-import { DivbanError, ErrorCode } from "../../../lib/errors";
+import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { fromUndefined, isNone, okOr } from "../../../lib/option";
-import { Err, Ok, type Result } from "../../../lib/result";
 import type { AbsolutePath, UserId, Username } from "../../../lib/types";
 import { extractArchive, readArchiveMetadata } from "../../../system/archive";
 import { execAsUser } from "../../../system/exec";
-import { fileExists } from "../../../system/fs";
+import { fileExists, readBytes } from "../../../system/fs";
 import { CONTAINERS } from "../constants";
+
+/**
+ * Detect compression format from file extension.
+ */
+const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> => {
+  if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
+    return Option.some("gzip");
+  }
+  if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
+    return Option.some("zstd");
+  }
+  return Option.none();
+};
 
 export interface RestoreOptions {
   /** Path to backup file */
@@ -43,145 +54,161 @@ export interface RestoreOptions {
  * Restore a PostgreSQL database from backup.
  * Uses Bun.Archive for extraction - no subprocess gunzip needed.
  */
-export const restoreDatabase = async (
+export const restoreDatabase = (
   options: RestoreOptions
-): Promise<Result<void, DivbanError>> => {
-  const {
-    backupPath,
-    user,
-    uid,
-    logger,
-    containerName = CONTAINERS.postgres,
-    database = "immich",
-    dbUser = "immich",
-  } = options;
+): Effect.Effect<void, BackupError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const {
+      backupPath,
+      user,
+      uid,
+      logger,
+      containerName = CONTAINERS.postgres,
+      database = "immich",
+      dbUser = "immich",
+    } = options;
 
-  // Check backup file exists
-  if (!(await fileExists(backupPath))) {
-    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
-  }
-
-  logger.info(`Restoring database from: ${backupPath}`);
-  logger.warn("This will overwrite the existing database!");
-
-  // Detect compression type
-  const compression = detectCompressionFormat(backupPath);
-  if (isNone(compression)) {
-    return Err(
-      new DivbanError(
-        ErrorCode.RESTORE_FAILED,
-        `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`
-      )
-    );
-  }
-
-  // Read the backup file
-  const file = Bun.file(backupPath);
-  const compressedData = await file.bytes();
-
-  // Read and validate metadata
-  const metadata = await readArchiveMetadata(compressedData, { decompress: compression.value });
-  const validationResult = validateBackupService(metadata, "immich", logger);
-  if (!validationResult.ok) {
-    return validationResult;
-  }
-
-  // Extract archive
-  let sqlData: string;
-  try {
-    const files = await extractArchive(compressedData, { decompress: compression.value });
-    const sqlBytesResult = okOr(
-      fromUndefined(files.get("database.sql")),
-      new DivbanError(ErrorCode.RESTORE_FAILED, "Backup archive does not contain database.sql")
-    );
-    if (!sqlBytesResult.ok) {
-      return sqlBytesResult;
+    // Check backup file exists
+    const exists = yield* fileExists(backupPath);
+    if (!exists) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.BACKUP_NOT_FOUND as 52,
+          message: `Backup file not found: ${backupPath}`,
+          path: backupPath,
+        })
+      );
     }
-    const sqlBytes = sqlBytesResult.value;
 
-    sqlData = new TextDecoder().decode(sqlBytes);
-  } catch (e) {
-    return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Failed to extract backup archive: ${e}`));
-  }
+    logger.info(`Restoring database from: ${backupPath}`);
+    logger.warn("This will overwrite the existing database!");
 
-  // Restore using psql
-  const restoreResult = await execAsUser(
-    user,
-    uid,
-    ["podman", "exec", "-i", containerName, "psql", "-U", dbUser, "-d", database],
-    {
-      timeout: DEFAULT_TIMEOUTS.restore,
-      stdin: sqlData,
-      captureStdout: true,
-      captureStderr: true,
+    // Detect compression type
+    const compressionOpt = detectCompressionFormat(backupPath);
+    if (Option.isNone(compressionOpt)) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.RESTORE_FAILED as 51,
+          message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
+          path: backupPath,
+        })
+      );
     }
-  );
+    const compression = compressionOpt.value;
 
-  if (!restoreResult.ok) {
-    return Err(
-      new DivbanError(ErrorCode.RESTORE_FAILED, "Failed to restore database", restoreResult.error)
+    // Read the backup file
+    const compressedData = yield* readBytes(backupPath);
+
+    // Read and validate metadata
+    const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: compression });
+    if (Option.isSome(metadataOpt)) {
+      const metadata = metadataOpt.value;
+      if (metadata.service !== "immich") {
+        return yield* Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Backup is for service '${metadata.service}', not 'immich'. Use the correct restore command.`,
+            path: backupPath,
+          })
+        );
+      }
+      logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`);
+    }
+
+    // Extract archive
+    const files = yield* extractArchive(compressedData, { decompress: compression });
+    const sqlBytes = files.get("database.sql");
+    if (sqlBytes === undefined) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.RESTORE_FAILED as 51,
+          message: "Backup archive does not contain database.sql",
+          path: backupPath,
+        })
+      );
+    }
+
+    const sqlData = new TextDecoder().decode(sqlBytes);
+
+    // Restore using psql
+    const restoreResult = yield* execAsUser(
+      user,
+      uid,
+      ["podman", "exec", "-i", containerName, "psql", "-U", dbUser, "-d", database],
+      {
+        timeout: DEFAULT_TIMEOUTS.restore,
+        stdin: sqlData,
+        captureStdout: true,
+        captureStderr: true,
+      }
     );
-  }
 
-  if (restoreResult.value.exitCode !== 0) {
-    // psql may return non-zero for warnings, check stderr
-    const stderr = restoreResult.value.stderr;
-    if (stderr.includes("ERROR")) {
-      return Err(new DivbanError(ErrorCode.RESTORE_FAILED, `Database restore failed: ${stderr}`));
+    if (restoreResult.exitCode !== 0) {
+      // psql may return non-zero for warnings, check stderr
+      const stderr = restoreResult.stderr;
+      if (stderr.includes("ERROR")) {
+        return yield* Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Database restore failed: ${stderr}`,
+            path: backupPath,
+          })
+        );
+      }
+      // Warnings are OK
+      logger.warn(`Restore completed with warnings: ${stderr}`);
     }
-    // Warnings are OK
-    logger.warn(`Restore completed with warnings: ${stderr}`);
-  }
 
-  logger.success("Database restored successfully");
-  return Ok(undefined);
-};
+    logger.success("Database restored successfully");
+  });
 
 /**
  * Validate a backup file.
  * Uses Bun's native decompression to validate.
  */
-export const validateBackup = async (
+export const validateBackup = (
   backupPath: AbsolutePath
-): Promise<Result<void, DivbanError>> => {
-  // Check file exists
-  if (!(await fileExists(backupPath))) {
-    return Err(new DivbanError(ErrorCode.BACKUP_NOT_FOUND, `Backup file not found: ${backupPath}`));
-  }
+): Effect.Effect<void, BackupError | SystemError> =>
+  Effect.gen(function* () {
+    // Check file exists
+    const exists = yield* fileExists(backupPath);
+    if (!exists) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.BACKUP_NOT_FOUND as 52,
+          message: `Backup file not found: ${backupPath}`,
+          path: backupPath,
+        })
+      );
+    }
 
-  // Detect compression type
-  const compression = detectCompressionFormat(backupPath);
-  if (isNone(compression)) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`
-      )
-    );
-  }
+    // Detect compression type
+    const compressionOpt = detectCompressionFormat(backupPath);
+    if (Option.isNone(compressionOpt)) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.RESTORE_FAILED as 51,
+          message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
+          path: backupPath,
+        })
+      );
+    }
+    const compression = compressionOpt.value;
 
-  // Try to read and decompress the archive
-  try {
-    const file = Bun.file(backupPath);
-    const compressedData = await file.bytes();
+    // Read and decompress the archive
+    const compressedData = yield* readBytes(backupPath);
 
     // Attempt to extract - this validates both compression and tar format
-    const files = await extractArchive(compressedData, { decompress: compression.value });
+    const files = yield* extractArchive(compressedData, { decompress: compression });
 
     // Check for database.sql
     if (!files.has("database.sql")) {
-      return Err(
-        new DivbanError(
-          ErrorCode.GENERAL_ERROR,
-          "Invalid backup file: missing database.sql in archive"
-        )
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.RESTORE_FAILED as 51,
+          message: "Invalid backup file: missing database.sql in archive",
+          path: backupPath,
+        })
       );
     }
-  } catch (e) {
-    return Err(
-      new DivbanError(ErrorCode.GENERAL_ERROR, `Invalid backup file: decompression failed: ${e}`)
-    );
-  }
-
-  return Ok(undefined);
-};
+  });

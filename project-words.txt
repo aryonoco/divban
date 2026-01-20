@@ -143,6 +143,8 @@ nothrow
 teardown
 vars
 quot
+millis
+jittered
 
 # Misc
 Filenaming

@@ -6,11 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Directory management for service data and configuration.
+ * Directory management using Effect for error handling.
  */
 
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Ok, type Result, mapErr, mapResult, parallel } from "../lib/result";
+import { Effect } from "effect";
+import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
 
@@ -21,102 +21,97 @@ export interface DirectoryOwner {
 
 /**
  * Ensure a directory exists with proper ownership and permissions.
- * Creates parent directories as needed (like mkdir -p).
  */
-export const ensureDirectory = async (
+export const ensureDirectory = (
   path: AbsolutePath,
   owner: DirectoryOwner,
   mode = "0755"
-): Promise<Result<void, DivbanError>> => {
-  // Use install -d which creates directory with correct ownership and permissions
-  const result = await execSuccess([
-    "install",
-    "-d",
-    "-m",
-    mode,
-    "-o",
-    String(owner.uid),
-    "-g",
-    String(owner.gid),
-    path,
-  ]);
-
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.DIRECTORY_CREATE_FAILED,
-        `Failed to create directory ${path}: ${err.message}`,
-        err
-      )
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* execSuccess([
+      "install",
+      "-d",
+      "-m",
+      mode,
+      "-o",
+      String(owner.uid),
+      "-g",
+      String(owner.gid),
+      path,
+    ]);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+          message: `Failed to create directory ${path}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Ensure multiple directories exist with the same ownership.
  */
-export const ensureDirectories = async (
+export const ensureDirectories = (
   paths: AbsolutePath[],
   owner: DirectoryOwner,
   mode = "0755"
-): Promise<Result<void, DivbanError>> => {
-  const result = await parallel(
-    paths.map((path) => ensureDirectory(path, owner, mode)),
-    (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, "creating directories")
-  );
-  return mapResult(result, () => undefined);
-};
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* Effect.all(
+      paths.map((path) => ensureDirectory(path, owner, mode)),
+      { concurrency: "unbounded" }
+    );
+  });
 
 /**
  * Change ownership of a file or directory.
  */
-export const chown = async (
+export const chown = (
   path: AbsolutePath,
   owner: DirectoryOwner,
   recursive = false
-): Promise<Result<void, DivbanError>> => {
-  const args = recursive
-    ? ["chown", "-R", `${owner.uid}:${owner.gid}`, path]
-    : ["chown", `${owner.uid}:${owner.gid}`, path];
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const args = recursive
+      ? ["chown", "-R", `${owner.uid}:${owner.gid}`, path]
+      : ["chown", `${owner.uid}:${owner.gid}`, path];
 
-  const result = await execSuccess(args);
-
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to change ownership of ${path}: ${err.message}`,
-        err
-      )
+    yield* execSuccess(args);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `Failed to change ownership of ${path}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Change permissions of a file or directory.
  */
-export const chmod = async (
+export const chmod = (
   path: AbsolutePath,
   mode: string,
   recursive = false
-): Promise<Result<void, DivbanError>> => {
-  const args = recursive ? ["chmod", "-R", mode, path] : ["chmod", mode, path];
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const args = recursive ? ["chmod", "-R", mode, path] : ["chmod", mode, path];
 
-  const result = await execSuccess(args);
-
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to change permissions of ${path}: ${err.message}`,
-        err
-      )
+    yield* execSuccess(args);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `Failed to change permissions of ${path}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Get standard directories for a service.
@@ -139,62 +134,46 @@ export const getServiceDirectories = (
 /**
  * Ensure all standard service directories exist.
  */
-export const ensureServiceDirectories = async (
+export const ensureServiceDirectories = (
   dataDir: AbsolutePath,
   homeDir: AbsolutePath,
   owner: DirectoryOwner
-): Promise<Result<void, DivbanError>> => {
-  const dirs = getServiceDirectories(dataDir, homeDir);
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const dirs = getServiceDirectories(dataDir, homeDir);
 
-  // Data directories need to be owned by the service user
-  const dataDirs: AbsolutePath[] = [dirs.data, dirs.config, dirs.logs];
+    const dataDirs: AbsolutePath[] = [dirs.data, dirs.config, dirs.logs];
+    const quadletParent = pathJoin(homeDir, ".config", "containers");
+    const configParent = pathJoin(homeDir, ".config");
 
-  // Quadlet directory needs parent directories created first
-  const quadletParent = pathJoin(homeDir, ".config", "containers");
-  const configParent = pathJoin(homeDir, ".config");
+    // Create data dirs and config parent in parallel
+    yield* Effect.all([ensureDirectories(dataDirs, owner), ensureDirectory(configParent, owner)], {
+      concurrency: "unbounded",
+    });
 
-  // Create in parallel
-  const result = await parallel(
-    [ensureDirectories(dataDirs, owner), ensureDirectory(configParent, owner)],
-    (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, "creating service directories")
-  );
-  if (!result.ok) {
-    return result;
-  }
-
-  // Now create containers directory and quadlet directory
-  const containerResults = await ensureDirectory(quadletParent, owner);
-  if (!containerResults.ok) {
-    return containerResults;
-  }
-
-  const quadletResult = await ensureDirectory(dirs.quadlet, owner);
-  if (!quadletResult.ok) {
-    return quadletResult;
-  }
-
-  return Ok(undefined);
-};
+    // Now create containers directory and quadlet directory sequentially
+    yield* ensureDirectory(quadletParent, owner);
+    yield* ensureDirectory(dirs.quadlet, owner);
+  });
 
 /**
  * Remove a directory and its contents.
  */
-export const removeDirectory = async (
+export const removeDirectory = (
   path: AbsolutePath,
   force = false
-): Promise<Result<void, DivbanError>> => {
-  const args = force ? ["rm", "-rf", path] : ["rm", "-r", path];
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const args = force ? ["rm", "-rf", path] : ["rm", "-r", path];
 
-  const result = await execSuccess(args);
-
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to remove directory ${path}: ${err.message}`,
-        err
-      )
+    yield* execSuccess(args);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+          message: `Failed to remove directory ${path}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};

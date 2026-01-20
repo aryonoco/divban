@@ -6,13 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * User linger management for persistent systemd user services.
+ * User linger management using Effect for error handling.
  * Enables services to run without an active login session.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
+import { Effect } from "effect";
+import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
-import { Err, Ok, type Result, mapErr } from "../lib/result";
 import type { UserId, Username } from "../lib/types";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
@@ -22,184 +22,177 @@ import { fileExists } from "./fs";
  * On some systems (like WSL), enabling linger doesn't automatically start the user session.
  * This is idempotent - if the service is already running, it's a no-op.
  */
-const startUserService = async (uid: UserId): Promise<Result<void, DivbanError>> => {
-  const result = await execSuccess(["systemctl", "start", `user@${uid}.service`]);
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.LINGER_ENABLE_FAILED,
-        `Failed to start user service for uid ${uid}: ${err.message}`,
-        err
-      )
+const startUserService = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
+  execSuccess(["systemctl", "start", `user@${uid}.service`]).pipe(
+    Effect.map(() => undefined),
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `Failed to start user service for uid ${uid}: ${err.message}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Wait for the systemd user session to be ready.
  * Polls for the D-Bus socket at /run/user/{uid}/bus.
  * Uses node:fs instead of Bun.file() because Bun.file().exists() returns false for Unix sockets.
  */
-const waitForUserSession = async (
+const waitForUserSession = (
   uid: UserId,
   maxWaitMs = 30000,
   intervalMs = 100
-): Promise<boolean> => {
-  const { existsSync } = await import("node:fs");
-  const socketPath = `/run/user/${uid}/bus`;
-  const maxAttempts = Math.ceil(maxWaitMs / intervalMs);
+): Effect.Effect<boolean, never> =>
+  Effect.promise(async () => {
+    const { existsSync } = await import("node:fs");
+    const socketPath = `/run/user/${uid}/bus`;
+    const maxAttempts = Math.ceil(maxWaitMs / intervalMs);
 
-  for (let i = 0; i < maxAttempts; i++) {
-    if (existsSync(socketPath)) {
-      return true;
+    for (let i = 0; i < maxAttempts; i++) {
+      if (existsSync(socketPath)) {
+        return true;
+      }
+      await Bun.sleep(intervalMs);
     }
-    await Bun.sleep(intervalMs);
-  }
-  return false;
-};
+    return false;
+  });
 
 /**
  * Check if linger is enabled for a user.
  */
-export const isLingerEnabled = (username: Username): Promise<boolean> => {
-  // Check the linger file directly (more reliable than loginctl)
-  return fileExists(lingerFile(username));
-};
+export const isLingerEnabled = (username: Username): Effect.Effect<boolean, never> =>
+  fileExists(lingerFile(username));
 
 /**
  * Enable linger for a user.
  * This allows their systemd user services to run without an active login session.
  */
-export const enableLinger = async (
+export const enableLinger = (
   username: Username,
   uid: UserId
-): Promise<Result<void, DivbanError>> => {
-  // Check if already enabled
-  if (await isLingerEnabled(username)) {
-    // Still need to ensure user service is running and session is ready
-    const startResult = await startUserService(uid);
-    if (!startResult.ok) {
-      return startResult;
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    // Check if already enabled
+    const alreadyEnabled = yield* isLingerEnabled(username);
+
+    if (alreadyEnabled) {
+      // Still need to ensure user service is running and session is ready
+      yield* startUserService(uid);
+      const sessionReady = yield* waitForUserSession(uid);
+      if (!sessionReady) {
+        return yield* Effect.fail(
+          new SystemError({
+            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+            message: `User session not ready for ${username} after enabling linger`,
+          })
+        );
+      }
+      return;
     }
-    const sessionReady = await waitForUserSession(uid);
-    if (!sessionReady) {
-      return Err(
-        new DivbanError(
-          ErrorCode.LINGER_ENABLE_FAILED,
-          `User session not ready for ${username} after enabling linger`
-        )
+
+    yield* execSuccess(["loginctl", "enable-linger", username]).pipe(
+      Effect.mapError(
+        (err) =>
+          new SystemError({
+            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+            message: `Failed to enable linger for ${username}: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
+      )
+    );
+
+    // Verify it was enabled
+    const enabled = yield* isLingerEnabled(username);
+    if (!enabled) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `Linger was not enabled for ${username} despite successful command`,
+        })
       );
     }
-    return Ok(undefined);
-  }
 
-  const result = await execSuccess(["loginctl", "enable-linger", username]);
+    // Explicitly start the user service (idempotent, needed on some systems like WSL)
+    yield* startUserService(uid);
 
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.LINGER_ENABLE_FAILED,
-        `Failed to enable linger for ${username}: ${err.message}`,
-        err
-      )
-  );
-  if (!mapped.ok) {
-    return mapped;
-  }
-
-  // Verify it was enabled
-  if (!(await isLingerEnabled(username))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.LINGER_ENABLE_FAILED,
-        `Linger was not enabled for ${username} despite successful command`
-      )
-    );
-  }
-
-  // Explicitly start the user service (idempotent, needed on some systems like WSL)
-  const startResult = await startUserService(uid);
-  if (!startResult.ok) {
-    return startResult;
-  }
-
-  // Wait for user session to be ready
-  const sessionReady = await waitForUserSession(uid);
-  if (!sessionReady) {
-    return Err(
-      new DivbanError(
-        ErrorCode.LINGER_ENABLE_FAILED,
-        `User session not ready for ${username} after enabling linger`
-      )
-    );
-  }
-
-  return Ok(undefined);
-};
+    // Wait for user session to be ready
+    const sessionReady = yield* waitForUserSession(uid);
+    if (!sessionReady) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `User session not ready for ${username} after enabling linger`,
+        })
+      );
+    }
+  });
 
 /**
  * Disable linger for a user.
  */
-export const disableLinger = async (username: Username): Promise<Result<void, DivbanError>> => {
-  // Check if already disabled
-  if (!(await isLingerEnabled(username))) {
-    return Ok(undefined);
-  }
+export const disableLinger = (
+  username: Username
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    // Check if already disabled
+    const enabled = yield* isLingerEnabled(username);
+    if (!enabled) {
+      return;
+    }
 
-  const result = await execSuccess(["loginctl", "disable-linger", username]);
-
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to disable linger for ${username}: ${err.message}`,
-        err
+    yield* execSuccess(["loginctl", "disable-linger", username]).pipe(
+      Effect.mapError(
+        (err) =>
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Failed to disable linger for ${username}: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
       )
-  );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
+    );
+  });
 
 /**
  * Get list of users with linger enabled.
  */
-export const getLingeringUsers = async (): Promise<Result<string[], DivbanError>> => {
-  const result = await exec(["ls", SYSTEM_PATHS.lingerDir], { captureStdout: true });
+export const getLingeringUsers = (): Effect.Effect<string[], never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(
+      exec(["ls", SYSTEM_PATHS.lingerDir], { captureStdout: true })
+    );
 
-  if (!result.ok) {
-    // Directory might not exist if no users have linger enabled
-    return Ok([]);
-  }
+    if (result._tag === "Left") {
+      // Directory might not exist if no users have linger enabled
+      return [];
+    }
 
-  if (result.value.exitCode !== 0) {
-    return Ok([]);
-  }
+    if (result.right.exitCode !== 0) {
+      return [];
+    }
 
-  const users = result.value.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  return Ok(users);
-};
+    return result.right.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  });
 
 /**
  * Ensure linger is enabled for a service user, with proper error context.
  */
-export const ensureLinger = async (
+export const ensureLinger = (
   username: Username,
   uid: UserId,
   serviceName: string
-): Promise<Result<void, DivbanError>> => {
-  return mapErr(
-    await enableLinger(username, uid),
-    (err) =>
-      new DivbanError(
-        ErrorCode.LINGER_ENABLE_FAILED,
-        `Failed to enable linger for service ${serviceName} (user: ${username})`,
-        err
-      )
+): Effect.Effect<void, SystemError | GeneralError> =>
+  enableLinger(username, uid).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `Failed to enable linger for service ${serviceName} (user: ${username})`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-};

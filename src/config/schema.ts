@@ -10,9 +10,8 @@
  * Single source of truth for configuration structure and validation.
  */
 
-import { Schema } from "effect";
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { Err, Ok, type Result } from "../lib/result";
+import { Effect, Schema } from "effect";
+import { ErrorCode, GeneralError } from "../lib/errors";
 import { isValidIP } from "../lib/schema-utils";
 import { type AbsolutePath, type Username, AbsolutePath as makeAbsolutePath } from "../lib/types";
 
@@ -429,70 +428,90 @@ export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig> = Schema.Struct
   }),
 });
 
+// ============================================================================
+// Effect-based Helper Functions
+// ============================================================================
+
 /**
- * Generate username from service name.
+ * Generate username from service name (Effect version).
  * Pattern: divban-<service>
  * Examples: divban-caddy, divban-immich, divban-actual
  */
-export const getServiceUsername = (serviceName: string): Result<Username, DivbanError> => {
+export const getServiceUsername = (serviceName: string): Effect.Effect<Username, GeneralError> => {
   const username = `divban-${serviceName}`;
 
   // Validate against POSIX username rules
   if (!POSIX_USERNAME_REGEX.test(username)) {
-    return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid service name for username: ${serviceName}. Must match [a-z_][a-z0-9_-]*`
-      )
+    return Effect.fail(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid service name for username: ${serviceName}. Must match [a-z_][a-z0-9_-]*`,
+      })
     );
   }
   if (username.length > 32) {
-    return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Service name too long: ${serviceName}. Username would be ${username.length} chars (max 32)`
-      )
+    return Effect.fail(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Service name too long: ${serviceName}. Username would be ${username.length} chars (max 32)`,
+      })
     );
   }
 
-  return Ok(username as Username);
+  return Effect.succeed(username as Username);
 };
 
 /**
- * Get data directory for a service.
+ * Get data directory for a service (Effect version).
  * Pattern: <baseDataDir>/divban-<service>
  */
 export const getServiceDataDir = (
   serviceName: string,
   baseDataDir = "/srv"
-): Result<AbsolutePath, DivbanError> => {
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
+): Effect.Effect<AbsolutePath, GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
 
-  const pathResult = makeAbsolutePath(`${baseDataDir}/${usernameResult.value}`);
+    const pathResult = makeAbsolutePath(`${baseDataDir}/${username}`);
+    if (!pathResult.ok) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid data directory: ${baseDataDir}/${username}`,
+        })
+      );
+    }
+    return pathResult.value;
+  });
+
+/**
+ * Get quadlet directory for a service user (Effect version).
+ */
+export const getQuadletDir = (homeDir: string): Effect.Effect<AbsolutePath, GeneralError> => {
+  const pathResult = makeAbsolutePath(`${homeDir}/.config/containers/systemd`);
   if (!pathResult.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid data directory: ${baseDataDir}/${usernameResult.value}`
-      )
+    return Effect.fail(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid quadlet directory path: ${homeDir}/.config/containers/systemd`,
+      })
     );
   }
-  return pathResult;
+  return Effect.succeed(pathResult.value);
 };
 
 /**
- * Get quadlet directory for a service user.
+ * Get config directory for a service (Effect version).
  */
-export const getQuadletDir = (homeDir: string): Result<AbsolutePath, DivbanError> => {
-  return makeAbsolutePath(`${homeDir}/.config/containers/systemd`);
-};
-
-/**
- * Get config directory for a service.
- */
-export const getConfigDir = (dataDir: string): Result<AbsolutePath, DivbanError> => {
-  return makeAbsolutePath(`${dataDir}/config`);
+export const getConfigDir = (dataDir: string): Effect.Effect<AbsolutePath, GeneralError> => {
+  const pathResult = makeAbsolutePath(`${dataDir}/config`);
+  if (!pathResult.ok) {
+    return Effect.fail(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid config directory path: ${dataDir}/config`,
+      })
+    );
+  }
+  return Effect.succeed(pathResult.value);
 };

@@ -8,6 +8,9 @@
 /**
  * Error handling infrastructure for divban.
  * Uses typed error codes that map to exit codes.
+ *
+ * Error classes are tagged (with _tag property) for use with Effect.ts
+ * discriminated unions and pattern matching.
  */
 
 import { fromUndefined, mapOr } from "./option";
@@ -120,72 +123,6 @@ export const ErrorCode: ErrorCodeMap = {
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 /**
- * Main error class for divban operations.
- * Contains a typed error code and optional cause for error chaining.
- */
-export class DivbanError extends Error {
-  readonly code: ErrorCodeValue;
-  override readonly cause?: Error;
-
-  constructor(code: ErrorCodeValue, message: string, cause?: Error) {
-    super(message);
-    this.name = "DivbanError";
-    this.code = code;
-    const causeOpt = fromUndefined(cause);
-    if (causeOpt.isSome) {
-      this.cause = causeOpt.value;
-    }
-
-    // Capture stack trace, excluding the constructor
-    Error.captureStackTrace?.(this, DivbanError);
-  }
-
-  /**
-   * Create error with formatted message including context.
-   */
-  static withContext(
-    code: ErrorCodeValue,
-    message: string,
-    context: Record<string, unknown>
-  ): DivbanError {
-    const contextStr = Object.entries(context)
-      .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-      .join(", ");
-    return new DivbanError(code, `${message} [${contextStr}]`);
-  }
-
-  /**
-   * Get the full error chain as an array.
-   */
-  getChain(): Error[] {
-    const chain: Error[] = [this];
-    let current: Error | undefined = this.cause;
-    while (current) {
-      chain.push(current);
-      current = current instanceof DivbanError ? current.cause : undefined;
-    }
-    return chain;
-  }
-
-  /**
-   * Format error for display, including cause chain.
-   */
-  format(): string {
-    const chain = this.getChain();
-    if (chain.length === 1) {
-      return `Error [${this.code}]: ${this.message}`;
-    }
-    return chain
-      .map((e, i) => {
-        const prefix = i === 0 ? "Error" : "Caused by";
-        const code = e instanceof DivbanError ? ` [${e.code}]` : "";
-        return `${prefix}${code}: ${e.message}`;
-      })
-      .join("\n  ");
-  }
-}
-
-/**
  * Convert error code to process exit code.
  * Exit codes are capped at 125 (POSIX convention).
  */
@@ -200,15 +137,6 @@ export const getErrorCodeName = (code: ErrorCodeValue): string => {
 };
 
 /**
- * Wrap an unknown caught value into a DivbanError.
- */
-export const wrapError = (e: unknown, code: ErrorCodeValue, context?: string): DivbanError => {
-  const message = context ? `${context}: ${errorMessage(e)}` : errorMessage(e);
-  const cause = e instanceof Error ? e : undefined;
-  return new DivbanError(code, message, cause);
-};
-
-/**
  * Extract error message from unknown value.
  */
 export const errorMessage = (e: unknown): string => {
@@ -219,4 +147,369 @@ export const errorMessage = (e: unknown): string => {
     return e;
   }
   return String(e);
+};
+
+// ============================================================================
+// Effect-Style Tagged Error Classes
+// ============================================================================
+
+/** General error code values (1-4) */
+export type GeneralErrorCode = 1 | 2 | 3 | 4;
+
+/** Config error code values (10-13) */
+export type ConfigErrorCode = 10 | 11 | 12 | 13;
+
+/** System error code values (20-28) */
+export type SystemErrorCode = 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
+
+/** Service error code values (30-35) */
+export type ServiceErrorCode = 30 | 31 | 32 | 33 | 34 | 35;
+
+/** Container error code values (40-46) */
+export type ContainerErrorCode = 40 | 41 | 42 | 43 | 44 | 45 | 46;
+
+/** Backup error code values (50-52) */
+export type BackupErrorCode = 50 | 51 | 52;
+
+/** Props for GeneralError */
+export interface GeneralErrorProps {
+  readonly code: GeneralErrorCode;
+  readonly message: string;
+  readonly cause?: Error;
+}
+
+/** Props for ConfigError */
+export interface ConfigErrorProps {
+  readonly code: ConfigErrorCode;
+  readonly message: string;
+  readonly path?: string;
+  readonly cause?: Error;
+}
+
+/** Props for SystemError */
+export interface SystemErrorProps {
+  readonly code: SystemErrorCode;
+  readonly message: string;
+  readonly cause?: Error;
+}
+
+/** Props for ServiceError */
+export interface ServiceErrorProps {
+  readonly code: ServiceErrorCode;
+  readonly message: string;
+  readonly service?: string;
+  readonly cause?: Error;
+}
+
+/** Props for ContainerError */
+export interface ContainerErrorProps {
+  readonly code: ContainerErrorCode;
+  readonly message: string;
+  readonly container?: string;
+  readonly cause?: Error;
+}
+
+/** Props for BackupError */
+export interface BackupErrorProps {
+  readonly code: BackupErrorCode;
+  readonly message: string;
+  readonly path?: string;
+  readonly cause?: Error;
+}
+
+/**
+ * General errors (codes 1-4)
+ * GENERAL_ERROR, INVALID_ARGS, ROOT_REQUIRED, DEPENDENCY_MISSING
+ */
+export class GeneralError extends Error {
+  readonly _tag = "GeneralError" as const;
+  readonly code: GeneralErrorCode;
+  override readonly cause?: Error;
+
+  constructor(props: GeneralErrorProps) {
+    super(props.message);
+    this.name = "GeneralError";
+    this.code = props.code;
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, GeneralError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * Config errors (codes 10-13)
+ * CONFIG_NOT_FOUND, CONFIG_PARSE_ERROR, CONFIG_VALIDATION_ERROR, CONFIG_MERGE_ERROR
+ */
+export class ConfigError extends Error {
+  readonly _tag = "ConfigError" as const;
+  readonly code: ConfigErrorCode;
+  readonly path?: string;
+  override readonly cause?: Error;
+
+  constructor(props: ConfigErrorProps) {
+    super(props.message);
+    this.name = "ConfigError";
+    this.code = props.code;
+    if (props.path !== undefined) {
+      this.path = props.path;
+    }
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, ConfigError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * System errors (codes 20-28)
+ * USER_CREATE_FAILED, SUBUID_CONFIG_FAILED, DIRECTORY_CREATE_FAILED,
+ * LINGER_ENABLE_FAILED, UID_RANGE_EXHAUSTED, SUBUID_RANGE_EXHAUSTED,
+ * EXEC_FAILED, FILE_READ_FAILED, FILE_WRITE_FAILED
+ */
+export class SystemError extends Error {
+  readonly _tag = "SystemError" as const;
+  readonly code: SystemErrorCode;
+  override readonly cause?: Error;
+
+  constructor(props: SystemErrorProps) {
+    super(props.message);
+    this.name = "SystemError";
+    this.code = props.code;
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, SystemError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * Service errors (codes 30-35)
+ * SERVICE_NOT_FOUND, SERVICE_START_FAILED, SERVICE_STOP_FAILED,
+ * SERVICE_ALREADY_RUNNING, SERVICE_NOT_RUNNING, SERVICE_RELOAD_FAILED
+ */
+export class ServiceError extends Error {
+  readonly _tag = "ServiceError" as const;
+  readonly code: ServiceErrorCode;
+  readonly service?: string;
+  override readonly cause?: Error;
+
+  constructor(props: ServiceErrorProps) {
+    super(props.message);
+    this.name = "ServiceError";
+    this.code = props.code;
+    if (props.service !== undefined) {
+      this.service = props.service;
+    }
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, ServiceError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * Container errors (codes 40-46)
+ * CONTAINER_BUILD_FAILED, QUADLET_INSTALL_FAILED, NETWORK_CREATE_FAILED,
+ * VOLUME_CREATE_FAILED, CONTAINER_NOT_FOUND, SECRET_ERROR, SECRET_NOT_FOUND
+ */
+export class ContainerError extends Error {
+  readonly _tag = "ContainerError" as const;
+  readonly code: ContainerErrorCode;
+  readonly container?: string;
+  override readonly cause?: Error;
+
+  constructor(props: ContainerErrorProps) {
+    super(props.message);
+    this.name = "ContainerError";
+    this.code = props.code;
+    if (props.container !== undefined) {
+      this.container = props.container;
+    }
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, ContainerError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * Backup errors (codes 50-52)
+ * BACKUP_FAILED, RESTORE_FAILED, BACKUP_NOT_FOUND
+ */
+export class BackupError extends Error {
+  readonly _tag = "BackupError" as const;
+  readonly code: BackupErrorCode;
+  readonly path?: string;
+  override readonly cause?: Error;
+
+  constructor(props: BackupErrorProps) {
+    super(props.message);
+    this.name = "BackupError";
+    this.code = props.code;
+    if (props.path !== undefined) {
+      this.path = props.path;
+    }
+    if (props.cause !== undefined) {
+      this.cause = props.cause;
+    }
+    Error.captureStackTrace?.(this, BackupError);
+  }
+
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
+}
+
+/**
+ * Union type for Effect error channel.
+ * This is the complete set of errors that can occur in the application.
+ */
+export type DivbanEffectError =
+  | GeneralError
+  | ConfigError
+  | SystemError
+  | ServiceError
+  | ContainerError
+  | BackupError;
+
+/**
+ * Helper to get exit code from any Effect error.
+ */
+export const getExitCode = (error: DivbanEffectError): number => error.exitCode;
+
+// ============================================================================
+// Error Factory Functions
+// ============================================================================
+
+/**
+ * Create a GeneralError from an ErrorCode constant and message.
+ */
+export const makeGeneralError = (
+  code: GeneralErrorCode,
+  message: string,
+  cause?: Error
+): GeneralError =>
+  cause !== undefined
+    ? new GeneralError({ code, message, cause })
+    : new GeneralError({ code, message });
+
+/**
+ * Create a ConfigError from an ErrorCode constant and message.
+ */
+export const makeConfigError = (
+  code: ConfigErrorCode,
+  message: string,
+  path?: string,
+  cause?: Error
+): ConfigError => {
+  const base = { code, message } as const;
+  if (path !== undefined && cause !== undefined) {
+    return new ConfigError({ ...base, path, cause });
+  }
+  if (path !== undefined) {
+    return new ConfigError({ ...base, path });
+  }
+  if (cause !== undefined) {
+    return new ConfigError({ ...base, cause });
+  }
+  return new ConfigError(base);
+};
+
+/**
+ * Create a SystemError from an ErrorCode constant and message.
+ */
+export const makeSystemError = (
+  code: SystemErrorCode,
+  message: string,
+  cause?: Error
+): SystemError =>
+  cause !== undefined
+    ? new SystemError({ code, message, cause })
+    : new SystemError({ code, message });
+
+/**
+ * Create a ServiceError from an ErrorCode constant and message.
+ */
+export const makeServiceError = (
+  code: ServiceErrorCode,
+  message: string,
+  service?: string,
+  cause?: Error
+): ServiceError => {
+  const base = { code, message } as const;
+  if (service !== undefined && cause !== undefined) {
+    return new ServiceError({ ...base, service, cause });
+  }
+  if (service !== undefined) {
+    return new ServiceError({ ...base, service });
+  }
+  if (cause !== undefined) {
+    return new ServiceError({ ...base, cause });
+  }
+  return new ServiceError(base);
+};
+
+/**
+ * Create a ContainerError from an ErrorCode constant and message.
+ */
+export const makeContainerError = (
+  code: ContainerErrorCode,
+  message: string,
+  container?: string,
+  cause?: Error
+): ContainerError => {
+  const base = { code, message } as const;
+  if (container !== undefined && cause !== undefined) {
+    return new ContainerError({ ...base, container, cause });
+  }
+  if (container !== undefined) {
+    return new ContainerError({ ...base, container });
+  }
+  if (cause !== undefined) {
+    return new ContainerError({ ...base, cause });
+  }
+  return new ContainerError(base);
+};
+
+/**
+ * Create a BackupError from an ErrorCode constant and message.
+ */
+export const makeBackupError = (
+  code: BackupErrorCode,
+  message: string,
+  path?: string,
+  cause?: Error
+): BackupError => {
+  const base = { code, message } as const;
+  if (path !== undefined && cause !== undefined) {
+    return new BackupError({ ...base, path, cause });
+  }
+  if (path !== undefined) {
+    return new BackupError({ ...base, path });
+  }
+  if (cause !== undefined) {
+    return new BackupError({ ...base, cause });
+  }
+  return new BackupError(base);
 };

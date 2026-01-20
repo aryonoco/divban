@@ -6,25 +6,31 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Start command - start a service.
+ * Effect-based start command - start a service.
  */
 
-import type { DivbanError } from "../../lib/errors";
+import { Effect } from "effect";
+import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { type Result, asyncFlatMapResult } from "../../lib/result";
-import type { AnyService } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 import { buildServiceContext } from "./utils";
 
 export interface StartOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
 
 /**
  * Execute the start command.
- * Uses buildServiceContext for FP-friendly context resolution.
  */
-export const executeStart = async (options: StartOptions): Promise<Result<void, DivbanError>> =>
-  asyncFlatMapResult(await buildServiceContext(options), ({ ctx }) => options.service.start(ctx));
+export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanEffectError> =>
+  Effect.flatMap(
+    buildServiceContext({
+      service: options.service,
+      args: options.args,
+      logger: options.logger,
+    }),
+    ({ ctx }) => options.service.start(ctx)
+  );

@@ -10,16 +10,21 @@
  * Simple single-container personal finance application.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { fromUndefined, isSome } from "../../lib/option";
-import { Err, Ok, type Result, mapResult } from "../../lib/result";
+import { Effect, Option } from "effect";
+import {
+  type BackupError,
+  ErrorCode,
+  GeneralError,
+  type ServiceError,
+  type SystemError,
+} from "../../lib/errors";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectories } from "../../system/directories";
 import {
-  type SetupStep,
-  type SetupStepResult,
+  type SetupStepEffect,
+  type SetupStepResultEffect,
   createConfigValidator,
   createSingleContainerOps,
   executeSetupSteps,
@@ -30,9 +35,9 @@ import {
 import type {
   BackupResult,
   GeneratedFiles,
-  Service,
   ServiceContext,
   ServiceDefinition,
+  ServiceEffect,
 } from "../types";
 import { createGeneratedFiles } from "../types";
 import { backupActual, restoreActual } from "./commands/backup";
@@ -76,73 +81,74 @@ const validate = createConfigValidator(actualConfigSchema);
  */
 const generate = (
   ctx: ServiceContext<ActualConfig>
-): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const { config } = ctx;
-  const files = createGeneratedFiles();
+): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
+  Effect.sync(() => {
+    const { config } = ctx;
+    const files = createGeneratedFiles();
 
-  // Build container quadlet
-  const port = config.network?.port ?? 5006;
-  const host = config.network?.host ?? "127.0.0.1";
+    // Build container quadlet
+    const port = config.network?.port ?? 5006;
+    const host = config.network?.host ?? "127.0.0.1";
 
-  const quadletConfig: Parameters<typeof generateContainerQuadlet>[0] = {
-    name: CONTAINER_NAME,
-    containerName: CONTAINER_NAME,
-    description: "Actual Budget Server",
-    image: config.container?.image ?? "docker.io/actualbudget/actual-server:latest",
+    const quadletConfig: Parameters<typeof generateContainerQuadlet>[0] = {
+      name: CONTAINER_NAME,
+      containerName: CONTAINER_NAME,
+      description: "Actual Budget Server",
+      image: config.container?.image ?? "docker.io/actualbudget/actual-server:latest",
 
-    // Network - bind to localhost by default for security
-    ports: [
-      {
-        hostIp: host,
-        host: port,
-        container: 5006,
-      },
-    ],
-
-    // Volumes
-    volumes: relabelVolumes(
-      [
+      // Network - bind to localhost by default for security
+      ports: [
         {
-          source: config.paths.dataDir,
-          target: "/data",
+          hostIp: host,
+          host: port,
+          container: 5006,
         },
       ],
-      ctx.system.selinuxEnforcing
-    ),
 
-    // User namespace
-    userNs: {
-      mode: "keep-id",
-    },
+      // Volumes
+      volumes: relabelVolumes(
+        [
+          {
+            source: config.paths.dataDir,
+            target: "/data",
+          },
+        ],
+        ctx.system.selinuxEnforcing
+      ),
 
-    // Health check
-    healthCheck: createHttpHealthCheck("http://localhost:5006/", {
-      interval: "30s",
-      startPeriod: "10s",
-    }),
+      // User namespace
+      userNs: {
+        mode: "keep-id",
+      },
 
-    // Security
-    readOnlyRootfs: false, // Actual needs write access to various paths
-    noNewPrivileges: true,
+      // Health check
+      healthCheck: createHttpHealthCheck("http://localhost:5006/", {
+        interval: "30s",
+        startPeriod: "10s",
+      }),
 
-    // Service options
-    service: {
-      restart: "always",
-    },
-  };
+      // Security
+      readOnlyRootfs: false, // Actual needs write access to various paths
+      noNewPrivileges: true,
 
-  // Only add autoUpdate if defined
-  const autoUpdate = config.container?.autoUpdate;
-  if (isSome(fromUndefined(autoUpdate))) {
-    quadletConfig.autoUpdate = autoUpdate;
-  }
+      // Service options
+      service: {
+        restart: "always",
+      },
+    };
 
-  const containerQuadlet = generateContainerQuadlet(quadletConfig);
+    // Only add autoUpdate if defined
+    const autoUpdate = config.container?.autoUpdate;
+    if (Option.isSome(Option.fromNullable(autoUpdate))) {
+      quadletConfig.autoUpdate = autoUpdate;
+    }
 
-  files.quadlets.set(`${CONTAINER_NAME}.container`, containerQuadlet.content);
+    const containerQuadlet = generateContainerQuadlet(quadletConfig);
 
-  return Promise.resolve(Ok(files));
-};
+    files.quadlets.set(`${CONTAINER_NAME}.container`, containerQuadlet.content);
+
+    return files;
+  });
 
 /**
  * Setup state for Actual - tracks data passed between steps.
@@ -155,19 +161,23 @@ interface ActualSetupState {
  * Full setup for Actual service.
  * Uses executeSetupSteps for clean sequential execution with state threading.
  */
-const setup = (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanError>> => {
+const setup = (
+  ctx: ServiceContext<ActualConfig>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
   const { config } = ctx;
   const dataDir = config.paths.dataDir;
 
-  const steps: SetupStep<ActualConfig, ActualSetupState>[] = [
+  const steps: SetupStepEffect<ActualConfig, ActualSetupState>[] = [
     {
       message: "Generating configuration files...",
-      execute: async (ctx): SetupStepResult<ActualSetupState> =>
-        mapResult(await generate(ctx), (files) => ({ files })),
+      execute: (ctx): SetupStepResultEffect<ActualSetupState, ServiceError | GeneralError> =>
+        Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Creating data directories...",
-      execute: (ctx): SetupStepResult<ActualSetupState> => {
+      execute: (
+        ctx
+      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> => {
         const dirs = [
           dataDir,
           `${dataDir}/server-files`,
@@ -179,14 +189,24 @@ const setup = (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanEr
     },
     {
       message: "Writing quadlet files...",
-      execute: async (ctx, state): SetupStepResult<ActualSetupState> =>
+      execute: (
+        ctx,
+        state
+      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> =>
         state.files
           ? writeGeneratedFiles(state.files, ctx)
-          : Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated")),
+          : Effect.fail(
+              new GeneralError({
+                code: ErrorCode.GENERAL_ERROR as 1,
+                message: "No files generated",
+              })
+            ),
     },
     {
       message: "Enabling service...",
-      execute: (ctx): SetupStepResult<ActualSetupState> =>
+      execute: (
+        ctx
+      ): SetupStepResultEffect<ActualSetupState, ServiceError | SystemError | GeneralError> =>
         reloadAndEnableServices(ctx, [CONTAINER_NAME], false),
     },
   ];
@@ -197,9 +217,11 @@ const setup = (ctx: ServiceContext<ActualConfig>): Promise<Result<void, DivbanEr
 /**
  * Backup Actual data.
  */
-const backup = (ctx: ServiceContext<ActualConfig>): Promise<Result<BackupResult, DivbanError>> => {
+const backup = (
+  ctx: ServiceContext<ActualConfig>
+): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError> => {
   const { config } = ctx;
-  return wrapBackupResult(() =>
+  return wrapBackupResult(
     backupActual({
       dataDir: config.paths.dataDir as AbsolutePath,
       user: ctx.user.name,
@@ -215,7 +237,7 @@ const backup = (ctx: ServiceContext<ActualConfig>): Promise<Result<BackupResult,
 const restore = (
   ctx: ServiceContext<ActualConfig>,
   backupPath: AbsolutePath
-): Promise<Result<void, DivbanError>> => {
+): Effect.Effect<void, BackupError | SystemError | GeneralError> => {
   const { config } = ctx;
 
   return restoreActual(
@@ -230,7 +252,7 @@ const restore = (
 /**
  * Actual service implementation.
  */
-export const actualService: Service<ActualConfig> = {
+export const actualService: ServiceEffect<ActualConfig> = {
   definition,
   validate,
   generate,

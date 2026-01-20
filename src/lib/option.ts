@@ -10,9 +10,6 @@
  * Rust-inspired discriminated union with isSome boolean discriminator.
  */
 
-import { DivbanError, ErrorCode } from "./errors";
-import type { Result } from "./result";
-
 // ============================================================================
 // Core Type Definition
 // ============================================================================
@@ -60,31 +57,14 @@ export const unwrap = <T>(opt: Option<T>): T => {
   if (opt.isSome) {
     return opt.value;
   }
-  throw new DivbanError(ErrorCode.GENERAL_ERROR, "Called unwrap() on None");
+  throw new Error("Called unwrap() on None");
 };
 
 export const expect = <T>(opt: Option<T>, msg: string): T => {
   if (opt.isSome) {
     return opt.value;
   }
-  throw new DivbanError(ErrorCode.GENERAL_ERROR, msg);
-};
-
-// ============================================================================
-// Result Conversion
-// ============================================================================
-
-export const okOr = <T, E>(opt: Option<T>, error: E): Result<T, E> =>
-  opt.isSome ? { ok: true, value: opt.value } : { ok: false, error };
-
-export const okOrElse = <T, E>(opt: Option<T>, errorFn: () => E): Result<T, E> =>
-  opt.isSome ? { ok: true, value: opt.value } : { ok: false, error: errorFn() };
-
-export const transpose = <T, E>(opt: Option<Result<T, E>>): Result<Option<T>, E> => {
-  if (isNone(opt)) {
-    return { ok: true, value: None };
-  }
-  return opt.value.ok ? { ok: true, value: Some(opt.value.value) } : opt.value;
+  throw new Error(msg);
 };
 
 // ============================================================================

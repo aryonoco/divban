@@ -10,9 +10,16 @@
  * Multi-container service with hardware acceleration support.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Effect } from "effect";
+import {
+  type BackupError,
+  type ContainerError,
+  ErrorCode,
+  GeneralError,
+  type ServiceError,
+  type SystemError,
+} from "../../lib/errors";
 import { configFilePath } from "../../lib/paths";
-import { Err, Ok, type Result, asyncFlatMapResult, mapResult, sequence } from "../../lib/result";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
   createEnvSecret,
@@ -23,21 +30,15 @@ import {
   createRedisHealthCheck,
   getSecretMountPath,
 } from "../../quadlet";
-import {
-  createStack,
-  generateEnvFile,
-  generateStackQuadlets,
-  getStackStatus,
-  startStack,
-  stopStack,
-} from "../../stack";
+import { createStack, generateEnvFile, generateStackQuadlets } from "../../stack";
+import { getStackStatus, startStack, stopStack } from "../../stack/orchestrator";
 import type { StackContainer } from "../../stack/types";
-import { ensureDirectory } from "../../system/directories";
+import { ensureDirectories } from "../../system/directories";
 import { ensureServiceSecrets, getPodmanSecretName } from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
 import {
-  type SetupStep,
-  type SetupStepResult,
+  type SetupStepEffect,
+  type SetupStepResultEffect,
   createConfigValidator,
   executeSetupSteps,
   reloadAndEnableServices,
@@ -48,9 +49,9 @@ import type {
   BackupResult,
   GeneratedFiles,
   LogOptions,
-  Service,
   ServiceContext,
   ServiceDefinition,
+  ServiceEffect,
   ServiceStatus,
 } from "../types";
 import { createGeneratedFiles } from "../types";
@@ -91,189 +92,190 @@ const validate = createConfigValidator(immichConfigSchema);
  */
 const generate = (
   ctx: ServiceContext<ImmichConfig>
-): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const { config } = ctx;
-  const files = createGeneratedFiles();
+): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
+  Effect.sync(() => {
+    const { config } = ctx;
+    const files = createGeneratedFiles();
 
-  // Get hardware configuration
-  const hardware = getHardwareConfig(
-    config.hardware?.transcoding ?? { type: "disabled" },
-    config.hardware?.ml ?? { type: "disabled" }
-  );
+    // Get hardware configuration
+    const hardware = getHardwareConfig(
+      config.hardware?.transcoding ?? { type: "disabled" },
+      config.hardware?.ml ?? { type: "disabled" }
+    );
 
-  // Get external library mounts
-  const libraryMounts = librariesToVolumeMounts(config.externalLibraries);
-  const libraryEnv = getLibraryEnvironment(config.externalLibraries);
+    // Get external library mounts
+    const libraryMounts = librariesToVolumeMounts(config.externalLibraries);
+    const libraryEnv = getLibraryEnvironment(config.externalLibraries);
 
-  // Paths
-  const dataDir = config.paths.dataDir;
-  const uploadDir = config.paths.uploadDir ?? `${dataDir}/upload`;
-  const profileDir = config.paths.profileDir ?? `${dataDir}/profile`;
-  const thumbsDir = config.paths.thumbsDir ?? `${dataDir}/thumbs`;
-  const encodedDir = config.paths.encodedDir ?? `${dataDir}/encoded`;
+    // Paths
+    const dataDir = config.paths.dataDir;
+    const uploadDir = config.paths.uploadDir ?? `${dataDir}/upload`;
+    const profileDir = config.paths.profileDir ?? `${dataDir}/profile`;
+    const thumbsDir = config.paths.thumbsDir ?? `${dataDir}/thumbs`;
+    const encodedDir = config.paths.encodedDir ?? `${dataDir}/encoded`;
 
-  // Generate environment file (DB_PASSWORD is injected via podman secret)
-  const envContent = generateEnvFile({
-    header: "Immich Environment Configuration",
-    groups: [
-      {
-        name: "Database Configuration",
-        vars: {
-          DB_HOSTNAME: CONTAINERS.postgres,
-          DB_PORT: 5432,
-          DB_DATABASE_NAME: config.database.database,
-          DB_USERNAME: config.database.username,
+    // Generate environment file (DB_PASSWORD is injected via podman secret)
+    const envContent = generateEnvFile({
+      header: "Immich Environment Configuration",
+      groups: [
+        {
+          name: "Database Configuration",
+          vars: {
+            DB_HOSTNAME: CONTAINERS.postgres,
+            DB_PORT: 5432,
+            DB_DATABASE_NAME: config.database.database,
+            DB_USERNAME: config.database.username,
+          },
         },
-      },
-      {
-        name: "Redis Configuration",
-        vars: {
-          REDIS_HOSTNAME: CONTAINERS.redis,
-          REDIS_PORT: 6379,
+        {
+          name: "Redis Configuration",
+          vars: {
+            REDIS_HOSTNAME: CONTAINERS.redis,
+            REDIS_PORT: 6379,
+          },
         },
-      },
-      {
-        name: "Server Configuration",
-        vars: {
-          IMMICH_SERVER_URL: INTERNAL_URLS.server,
-          IMMICH_MACHINE_LEARNING_URL:
-            config.containers?.machineLearning?.enabled !== false ? INTERNAL_URLS.ml : undefined,
-          LOG_LEVEL: config.logLevel,
-          IMMICH_WEB_URL: config.publicUrl,
+        {
+          name: "Server Configuration",
+          vars: {
+            IMMICH_SERVER_URL: INTERNAL_URLS.server,
+            IMMICH_MACHINE_LEARNING_URL:
+              config.containers?.machineLearning?.enabled !== false ? INTERNAL_URLS.ml : undefined,
+            LOG_LEVEL: config.logLevel,
+            IMMICH_WEB_URL: config.publicUrl,
+          },
         },
-      },
-      {
-        name: "Upload Paths",
-        vars: {
-          UPLOAD_LOCATION: "/upload",
+        {
+          name: "Upload Paths",
+          vars: {
+            UPLOAD_LOCATION: "/upload",
+          },
         },
+        {
+          name: "External Libraries",
+          vars: libraryEnv,
+        },
+      ],
+    });
+    files.environment.set("immich.env", envContent);
+
+    // Build containers
+    const containers: StackContainer[] = [];
+
+    // Redis container
+    containers.push({
+      name: CONTAINERS.redis,
+      description: "Immich Redis cache",
+      image: config.containers?.redis?.image ?? DEFAULT_IMAGES.redis,
+      healthCheck: createRedisHealthCheck(),
+      readOnlyRootfs: true,
+      noNewPrivileges: true,
+      service: { restart: "always" },
+    });
+
+    // PostgreSQL container
+    const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
+    containers.push({
+      name: CONTAINERS.postgres,
+      description: "Immich PostgreSQL database with pgvecto.rs",
+      image: config.containers?.postgres?.image ?? DEFAULT_IMAGES.postgres,
+      environment: {
+        POSTGRES_PASSWORD_FILE: getSecretMountPath(dbSecretName),
+        POSTGRES_USER: config.database.username,
+        POSTGRES_DB: config.database.database,
+        POSTGRES_INITDB_ARGS: "--data-checksums",
       },
-      {
-        name: "External Libraries",
-        vars: libraryEnv,
-      },
-    ],
-  });
-  files.environment.set("immich.env", envContent);
+      secrets: [createMountedSecret(dbSecretName)],
+      volumes: [{ source: `${dataDir}/postgres`, target: "/var/lib/postgresql/data" }],
+      healthCheck: createPostgresHealthCheck(config.database.username, config.database.database),
+      shmSize: "256m",
+      noNewPrivileges: true,
+      service: { restart: "always" },
+    });
 
-  // Build containers
-  const containers: StackContainer[] = [];
-
-  // Redis container
-  containers.push({
-    name: CONTAINERS.redis,
-    description: "Immich Redis cache",
-    image: config.containers?.redis?.image ?? DEFAULT_IMAGES.redis,
-    healthCheck: createRedisHealthCheck(),
-    readOnlyRootfs: true,
-    noNewPrivileges: true,
-    service: { restart: "always" },
-  });
-
-  // PostgreSQL container
-  const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
-  containers.push({
-    name: CONTAINERS.postgres,
-    description: "Immich PostgreSQL database with pgvecto.rs",
-    image: config.containers?.postgres?.image ?? DEFAULT_IMAGES.postgres,
-    environment: {
-      POSTGRES_PASSWORD_FILE: getSecretMountPath(dbSecretName),
-      POSTGRES_USER: config.database.username,
-      POSTGRES_DB: config.database.database,
-      POSTGRES_INITDB_ARGS: "--data-checksums",
-    },
-    secrets: [createMountedSecret(dbSecretName)],
-    volumes: [{ source: `${dataDir}/postgres`, target: "/var/lib/postgresql/data" }],
-    healthCheck: createPostgresHealthCheck(config.database.username, config.database.database),
-    shmSize: "256m",
-    noNewPrivileges: true,
-    service: { restart: "always" },
-  });
-
-  // Main server container
-  const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
-  const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
-  const networkHost = config.network?.host ?? "127.0.0.1";
-  const networkPort = config.network?.port ?? 2283;
-
-  containers.push({
-    name: CONTAINERS.server,
-    description: "Immich server",
-    image: config.containers?.server?.image ?? DEFAULT_IMAGES.server,
-    requires: [CONTAINERS.redis, CONTAINERS.postgres],
-    wants: config.containers?.machineLearning?.enabled !== false ? [CONTAINERS.ml] : undefined,
-    ports: [{ hostIp: networkHost, host: networkPort, container: 2283 }],
-    volumes: [
-      { source: uploadDir, target: "/upload" },
-      { source: profileDir, target: "/profile" },
-      { source: thumbsDir, target: "/thumbs" },
-      { source: encodedDir, target: "/encoded" },
-      ...libraryMounts,
-    ],
-    environmentFiles: [`${ctx.paths.configDir}/immich.env`],
-    environment: serverEnv,
-    secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
-    devices: serverDevices.length > 0 ? serverDevices : undefined,
-    userNs: createKeepIdNs(),
-    healthCheck: createHttpHealthCheck("http://localhost:2283/api/server/ping", {
-      interval: "30s",
-      startPeriod: "30s",
-    }),
-    noNewPrivileges: true,
-    service: { restart: "always" },
-  });
-
-  // Machine Learning container (optional)
-  if (config.containers?.machineLearning?.enabled !== false) {
-    const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_IMAGES.ml;
-    const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
-    const mlDevices = mergeDevices(hardware.ml);
-    const mlEnv = mergeEnvironment(hardware.ml);
+    // Main server container
+    const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
+    const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
+    const networkHost = config.network?.host ?? "127.0.0.1";
+    const networkPort = config.network?.port ?? 2283;
 
     containers.push({
-      name: CONTAINERS.ml,
-      description: "Immich Machine Learning",
-      image: mlImage,
-      volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
+      name: CONTAINERS.server,
+      description: "Immich server",
+      image: config.containers?.server?.image ?? DEFAULT_IMAGES.server,
+      requires: [CONTAINERS.redis, CONTAINERS.postgres],
+      wants: config.containers?.machineLearning?.enabled !== false ? [CONTAINERS.ml] : undefined,
+      ports: [{ hostIp: networkHost, host: networkPort, container: 2283 }],
+      volumes: [
+        { source: uploadDir, target: "/upload" },
+        { source: profileDir, target: "/profile" },
+        { source: thumbsDir, target: "/thumbs" },
+        { source: encodedDir, target: "/encoded" },
+        ...libraryMounts,
+      ],
       environmentFiles: [`${ctx.paths.configDir}/immich.env`],
-      environment: mlEnv,
+      environment: serverEnv,
       secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
-      devices: mlDevices.length > 0 ? mlDevices : undefined,
-      healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
+      devices: serverDevices.length > 0 ? serverDevices : undefined,
+      userNs: createKeepIdNs(),
+      healthCheck: createHttpHealthCheck("http://localhost:2283/api/server/ping", {
         interval: "30s",
-        startPeriod: "60s",
+        startPeriod: "30s",
       }),
       noNewPrivileges: true,
       service: { restart: "always" },
     });
-  }
 
-  // Create stack and generate quadlets
-  const stack = createStack({
-    name: "immich",
-    network: { name: NETWORK_NAME, internal: true },
-    containers,
+    // Machine Learning container (optional)
+    if (config.containers?.machineLearning?.enabled !== false) {
+      const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_IMAGES.ml;
+      const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
+      const mlDevices = mergeDevices(hardware.ml);
+      const mlEnv = mergeEnvironment(hardware.ml);
+
+      containers.push({
+        name: CONTAINERS.ml,
+        description: "Immich Machine Learning",
+        image: mlImage,
+        volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
+        environmentFiles: [`${ctx.paths.configDir}/immich.env`],
+        environment: mlEnv,
+        secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
+        devices: mlDevices.length > 0 ? mlDevices : undefined,
+        healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
+          interval: "30s",
+          startPeriod: "60s",
+        }),
+        noNewPrivileges: true,
+        service: { restart: "always" },
+      });
+    }
+
+    // Create stack and generate quadlets
+    const stack = createStack({
+      name: "immich",
+      network: { name: NETWORK_NAME, internal: true },
+      containers,
+    });
+
+    const stackFiles = generateStackQuadlets(stack, {
+      envFilePath: configFilePath(ctx.paths.configDir, "immich.env"),
+      userNs: createKeepIdNs(),
+      selinuxEnforcing: ctx.system.selinuxEnforcing,
+    });
+
+    // Merge into files
+    for (const [k, v] of stackFiles.containers) {
+      files.quadlets.set(k, v);
+    }
+    for (const [k, v] of stackFiles.networks) {
+      files.networks.set(k, v);
+    }
+    for (const [k, v] of stackFiles.volumes) {
+      files.volumes.set(k, v);
+    }
+
+    return files;
   });
-
-  const stackFiles = generateStackQuadlets(stack, {
-    envFilePath: configFilePath(ctx.paths.configDir, "immich.env"),
-    userNs: createKeepIdNs(),
-    selinuxEnforcing: ctx.system.selinuxEnforcing,
-  });
-
-  // Merge into files
-  for (const [k, v] of stackFiles.containers) {
-    files.quadlets.set(k, v);
-  }
-  for (const [k, v] of stackFiles.networks) {
-    files.networks.set(k, v);
-  }
-  for (const [k, v] of stackFiles.volumes) {
-    files.volumes.set(k, v);
-  }
-
-  return Promise.resolve(Ok(files));
-};
 
 /**
  * Setup state for Immich - tracks data passed between steps.
@@ -286,17 +288,28 @@ interface ImmichSetupState {
  * Full setup for Immich service.
  * Uses executeSetupSteps for clean sequential execution with state threading.
  */
-const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+const setup = (
+  ctx: ServiceContext<ImmichConfig>
+): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError> => {
   const { config } = ctx;
   const dataDir = config.paths.dataDir;
 
-  const steps: SetupStep<ImmichConfig, ImmichSetupState>[] = [
+  const steps: SetupStepEffect<
+    ImmichConfig,
+    ImmichSetupState,
+    ServiceError | SystemError | ContainerError | GeneralError
+  >[] = [
     {
       message: "Generating secrets...",
-      execute: async (ctx): SetupStepResult<ImmichSetupState> => {
+      execute: (
+        ctx
+      ): SetupStepResultEffect<
+        ImmichSetupState,
+        ServiceError | SystemError | ContainerError | GeneralError
+      > => {
         const homeDir = ctx.paths.homeDir;
-        return mapResult(
-          await ensureServiceSecrets(
+        return Effect.map(
+          ensureServiceSecrets(
             SERVICE_NAME,
             IMMICH_SECRETS,
             homeDir,
@@ -310,13 +323,21 @@ const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
     },
     {
       message: "Generating configuration files...",
-      execute: async (ctx): SetupStepResult<ImmichSetupState> =>
-        mapResult(await generate(ctx), (files) => ({ files })),
+      execute: (
+        ctx
+      ): SetupStepResultEffect<
+        ImmichSetupState,
+        ServiceError | SystemError | ContainerError | GeneralError
+      > => Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Creating data directories...",
-      execute: async (ctx): SetupStepResult<ImmichSetupState> => {
-        const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
+      execute: (
+        ctx
+      ): SetupStepResultEffect<
+        ImmichSetupState,
+        ServiceError | SystemError | ContainerError | GeneralError
+      > => {
         const dirs = [
           `${dataDir}/upload`,
           `${dataDir}/profile`,
@@ -325,25 +346,36 @@ const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
           `${dataDir}/postgres`,
           `${dataDir}/model-cache`,
           `${dataDir}/backups`,
-        ];
-        const dirOps = dirs.map(
-          (dir): (() => Promise<Result<void, DivbanError>>) =>
-            (): Promise<Result<void, DivbanError>> =>
-              ensureDirectory(dir as AbsolutePath, owner)
-        );
-        return mapResult(await sequence(dirOps), () => undefined);
+        ] as AbsolutePath[];
+        return ensureDirectories(dirs, { uid: ctx.user.uid, gid: ctx.user.gid });
       },
     },
     {
       message: "Writing configuration files...",
-      execute: (ctx, state): SetupStepResult<ImmichSetupState> =>
+      execute: (
+        ctx,
+        state
+      ): SetupStepResultEffect<
+        ImmichSetupState,
+        ServiceError | SystemError | ContainerError | GeneralError
+      > =>
         state.files
           ? writeGeneratedFiles(state.files, ctx)
-          : Promise.resolve(Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated"))),
+          : Effect.fail(
+              new GeneralError({
+                code: ErrorCode.GENERAL_ERROR as 1,
+                message: "No files generated",
+              })
+            ),
     },
     {
       message: "Reloading daemon and enabling services...",
-      execute: (ctx): SetupStepResult<ImmichSetupState> =>
+      execute: (
+        ctx
+      ): SetupStepResultEffect<
+        ImmichSetupState,
+        ServiceError | SystemError | ContainerError | GeneralError
+      > =>
         reloadAndEnableServices(
           ctx,
           [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
@@ -358,7 +390,9 @@ const setup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
 /**
  * Start Immich service.
  */
-const start = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+const start = (
+  ctx: ServiceContext<ImmichConfig>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
   const { config } = ctx;
   const containers: StackContainer[] = [
     { name: CONTAINERS.redis, image: "", requires: [] },
@@ -377,7 +411,9 @@ const start = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanEr
 /**
  * Stop Immich service.
  */
-const stop = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
+const stop = (
+  ctx: ServiceContext<ImmichConfig>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
   const { config } = ctx;
   const containers: StackContainer[] = [
     { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
@@ -396,50 +432,50 @@ const stop = (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanErr
 /**
  * Restart Immich service.
  */
-const restart = async (ctx: ServiceContext<ImmichConfig>): Promise<Result<void, DivbanError>> => {
-  ctx.logger.info("Restarting Immich...");
-  return asyncFlatMapResult(await stop(ctx), () => start(ctx));
-};
+const restart = (
+  ctx: ServiceContext<ImmichConfig>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    ctx.logger.info("Restarting Immich...");
+    yield* stop(ctx);
+    yield* start(ctx);
+  });
 
 /**
  * Get Immich status.
  */
-const status = async (
+const status = (
   ctx: ServiceContext<ImmichConfig>
-): Promise<Result<ServiceStatus, DivbanError>> => {
-  const { config } = ctx;
-  const containers: StackContainer[] = [
-    { name: CONTAINERS.redis, image: "" },
-    { name: CONTAINERS.postgres, image: "" },
-    { name: CONTAINERS.server, image: "" },
-  ];
+): Effect.Effect<ServiceStatus, ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const { config } = ctx;
+    const containers: StackContainer[] = [
+      { name: CONTAINERS.redis, image: "" },
+      { name: CONTAINERS.postgres, image: "" },
+      { name: CONTAINERS.server, image: "" },
+    ];
 
-  if (config.containers?.machineLearning?.enabled !== false) {
-    containers.push({ name: CONTAINERS.ml, image: "" });
-  }
+    if (config.containers?.machineLearning?.enabled !== false) {
+      containers.push({ name: CONTAINERS.ml, image: "" });
+    }
 
-  const stack = createStack({ name: "immich", containers });
-  const statusResult = await getStackStatus(stack, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    logger: ctx.logger,
+    const stack = createStack({ name: "immich", containers });
+    const containerStatuses = yield* getStackStatus(stack, {
+      user: ctx.user.name,
+      uid: ctx.user.uid,
+      logger: ctx.logger,
+    });
+
+    const allRunning = containerStatuses.every((c) => c.running);
+
+    return {
+      running: allRunning,
+      containers: containerStatuses.map((c) => ({
+        name: c.name,
+        status: c.running ? { status: "running" as const } : { status: "stopped" as const },
+      })),
+    };
   });
-
-  if (!statusResult.ok) {
-    return statusResult;
-  }
-
-  const containerStatuses = statusResult.value;
-  const allRunning = containerStatuses.every((c) => c.running);
-
-  return Ok({
-    running: allRunning,
-    containers: containerStatuses.map((c) => ({
-      name: c.name,
-      status: c.running ? { status: "running" as const } : { status: "stopped" as const },
-    })),
-  });
-};
 
 /**
  * View Immich logs.
@@ -447,7 +483,7 @@ const status = async (
 const logs = (
   ctx: ServiceContext<ImmichConfig>,
   options: LogOptions
-): Promise<Result<void, DivbanError>> => {
+): Effect.Effect<void, ServiceError | SystemError> => {
   const unit = options.container ? `${options.container}.service` : `${CONTAINERS.server}.service`;
 
   return journalctl(unit, {
@@ -461,9 +497,11 @@ const logs = (
 /**
  * Backup Immich database.
  */
-const backup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<BackupResult, DivbanError>> => {
+const backup = (
+  ctx: ServiceContext<ImmichConfig>
+): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError> => {
   const { config } = ctx;
-  return wrapBackupResult(() =>
+  return wrapBackupResult(
     backupDatabase({
       dataDir: config.paths.dataDir as AbsolutePath,
       user: ctx.user.name,
@@ -481,7 +519,7 @@ const backup = (ctx: ServiceContext<ImmichConfig>): Promise<Result<BackupResult,
 const restore = (
   ctx: ServiceContext<ImmichConfig>,
   backupPath: AbsolutePath
-): Promise<Result<void, DivbanError>> => {
+): Effect.Effect<void, BackupError | SystemError | GeneralError> => {
   const { config } = ctx;
 
   return restoreDatabase({
@@ -497,7 +535,7 @@ const restore = (
 /**
  * Immich service implementation.
  */
-export const immichService: Service<ImmichConfig> = {
+export const immichService: ServiceEffect<ImmichConfig> = {
   definition,
   validate,
   generate,

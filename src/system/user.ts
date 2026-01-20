@@ -6,15 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * User management for service accounts.
+ * User management using Effect for error handling.
  * Creates isolated users with proper subuid/subgid configuration.
  */
 
+import { Duration, Effect, Option, Schedule } from "effect";
 import { getServiceUsername } from "../config/schema";
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { None, type Option, Some } from "../lib/option";
+import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
-import { Err, Ok, type Result, mapErr, mapResult, retry } from "../lib/result";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
 import { exec, execSuccess } from "./exec";
@@ -35,65 +34,67 @@ import {
  * Verify existing user has correct configuration.
  * Checks UID, home directory, and shell match expectations.
  */
-const verifyUserConfig = async (
+const verifyUserConfig = (
   username: Username,
   expectedHome: AbsolutePath,
   expectedUid: UserId
-): Promise<Result<void, DivbanError>> => {
-  const result = await exec(["getent", "passwd", username], { captureStdout: true });
-  if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.USER_CREATE_FAILED,
-        `Failed to verify user ${username}: ${result.error.message}`,
-        result.error
-      )
-    );
-  }
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const result = yield* exec(["getent", "passwd", username], { captureStdout: true });
 
-  const parts = result.value.stdout.trim().split(":");
-  if (parts.length < 7) {
-    return Err(
-      new DivbanError(ErrorCode.USER_CREATE_FAILED, `Invalid passwd entry for ${username}`)
-    );
-  }
+    if (result.exitCode !== 0) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `Failed to verify user ${username}`,
+        })
+      );
+    }
 
-  const passwdUid = parts[2];
-  const homeDir = parts[5];
-  const shell = parts[6];
+    const parts = result.stdout.trim().split(":");
+    if (parts.length < 7) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `Invalid passwd entry for ${username}`,
+        })
+      );
+    }
 
-  // Verify UID matches
-  if (Number(passwdUid) !== expectedUid) {
-    return Err(
-      new DivbanError(
-        ErrorCode.USER_CREATE_FAILED,
-        `User ${username} exists with UID ${passwdUid}, expected ${expectedUid}`
-      )
-    );
-  }
+    const passwdUid = parts[2];
+    const homeDir = parts[5];
+    const shell = parts[6];
 
-  // Verify home directory matches
-  if (homeDir !== expectedHome) {
-    return Err(
-      new DivbanError(
-        ErrorCode.USER_CREATE_FAILED,
-        `User ${username} has home ${homeDir}, expected ${expectedHome}`
-      )
-    );
-  }
+    // Verify UID matches
+    if (Number(passwdUid) !== expectedUid) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `User ${username} exists with UID ${passwdUid}, expected ${expectedUid}`,
+        })
+      );
+    }
 
-  // Verify shell is nologin (security requirement)
-  if (!(shell?.endsWith("/nologin") || shell?.endsWith("/false"))) {
-    return Err(
-      new DivbanError(
-        ErrorCode.USER_CREATE_FAILED,
-        `User ${username} has interactive shell ${shell}, expected nologin`
-      )
-    );
-  }
+    // Verify home directory matches
+    if (homeDir !== expectedHome) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `User ${username} has home ${homeDir}, expected ${expectedHome}`,
+        })
+      );
+    }
 
-  return Ok(undefined);
-};
+    // Verify shell is nologin (security requirement)
+    if (!(shell?.endsWith("/nologin") || shell?.endsWith("/false"))) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `User ${username} has interactive shell ${shell}, expected nologin`,
+        })
+      );
+    }
+  });
 
 export interface ServiceUser {
   username: Username;
@@ -107,7 +108,7 @@ export interface ServiceUser {
 /**
  * Check if error indicates UID conflict (already in use by concurrent process).
  */
-const isUidConflictError = (error: DivbanError): boolean =>
+const isUidConflictError = (error: SystemError | GeneralError): boolean =>
   error.message.toLowerCase().includes("uid") &&
   (error.message.toLowerCase().includes("exists") ||
     error.message.toLowerCase().includes("already in use"));
@@ -116,191 +117,68 @@ const isUidConflictError = (error: DivbanError): boolean =>
  * Execute an operation with automatic rollback on failure.
  * Returns the original error (rollback failures are logged but don't mask it).
  */
-const withRollback = async <T>(
-  operation: () => Promise<Result<T, DivbanError>>,
-  rollback: () => Promise<Result<void, DivbanError>>,
+const withRollback = <T, E>(
+  operation: Effect.Effect<T, E>,
+  rollback: Effect.Effect<void, SystemError | GeneralError>,
   rollbackContext: string
-): Promise<Result<T, DivbanError>> => {
-  const result = await operation();
-  if (result.ok) {
-    return result;
-  }
-
-  // Attempt rollback, log failures but preserve original error
-  const rollbackResult = await rollback();
-  if (!rollbackResult.ok) {
-    console.error(`Rollback warning (${rollbackContext}): ${rollbackResult.error.message}`);
-  }
-  return result;
-};
+): Effect.Effect<T, E> =>
+  operation.pipe(
+    Effect.catchAll((error) =>
+      rollback.pipe(
+        Effect.catchAll((rollbackError) =>
+          Effect.sync(() => {
+            console.error(`Rollback warning (${rollbackContext}): ${rollbackError.message}`);
+          })
+        ),
+        Effect.flatMap(() => Effect.fail(error))
+      )
+    )
+  );
 
 /**
  * Attempt cleanup, logging failures but not propagating errors.
  * Used for secondary cleanup that shouldn't fail the main operation.
  */
-const cleanupWithWarning = async (
-  cleanup: () => Promise<Result<void, DivbanError>>,
+const cleanupWithWarning = (
+  cleanup: Effect.Effect<void, SystemError | GeneralError>,
   context: string
-): Promise<void> => {
-  const result = await cleanup();
-  if (!result.ok) {
-    console.warn(`Warning: ${context}: ${result.error.message}`);
-  }
-};
-
-/**
- * Create a service user with dynamically allocated UID.
- * Username is derived from service name: divban-<service>
- * UID is allocated from range 10000-59999
- * Subuid range is allocated to avoid conflicts
- */
-export const createServiceUser = async (
-  serviceName: string,
-  settings?: UidAllocationSettings
-): Promise<Result<ServiceUser, DivbanError>> => {
-  // Derive username from service name
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
-
-  const homeDir = userHomeDir(username);
-
-  // 1. Check if user already exists (idempotent with verification)
-  if (await userExists(username)) {
-    const uidResult = await getUidByUsername(username);
-    if (!uidResult.ok) {
-      return uidResult;
-    }
-
-    // Verify existing user configuration is correct
-    const verifyResult = await verifyUserConfig(username, homeDir, uidResult.value);
-    if (!verifyResult.ok) {
-      return verifyResult;
-    }
-
-    const subuidResult = await getExistingSubuidStart(username);
-    if (!subuidResult.ok) {
-      return subuidResult;
-    }
-
-    return Ok({
-      username,
-      uid: uidResult.value,
-      gid: userIdToGroupId(uidResult.value),
-      subuidStart: subuidResult.value,
-      subuidSize: SUBUID_RANGE.size,
-      homeDir,
-    });
-  }
-
-  // 2. Get nologin shell (auto-detected per distro)
-  const shell = await getNologinShell();
-
-  // 3. Allocate UID and create user atomically with retry on conflict
-  const userResult = await retry(
-    async () => {
-      // Hold lock during entire UID allocation + user creation
-      return withLock("uid-allocation", async () => {
-        const uidResult = await allocateUidInternal(settings);
-        if (!uidResult.ok) {
-          return uidResult;
-        }
-        const uid = uidResult.value;
-
-        const createResult = await execSuccess([
-          "useradd",
-          "--uid",
-          String(uid),
-          "--home-dir",
-          homeDir,
-          "--create-home",
-          "--shell",
-          shell,
-          "--comment",
-          `divban service - ${serviceName}`,
-          username,
-        ]);
-
-        return mapResult(
-          mapErr(
-            createResult,
-            (err) =>
-              new DivbanError(
-                ErrorCode.USER_CREATE_FAILED,
-                `Failed to create user ${username}: ${err.message}`,
-                err
-              )
-          ),
-          () => uid
-        );
-      });
-    },
-    isUidConflictError,
-    { maxAttempts: 3, baseDelayMs: 50 }
+): Effect.Effect<void, never> =>
+  cleanup.pipe(
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.warn(`Warning: ${context}: ${err.message}`);
+      })
+    )
   );
-
-  if (!userResult.ok) {
-    return userResult;
-  }
-  const uid = userResult.value;
-
-  // === POINT OF NO RETURN: User created, rollback on subsequent failure ===
-  const rollbackUser = (): Promise<Result<void, DivbanError>> => deleteServiceUser(serviceName);
-
-  // 4. Dynamically allocate next available subuid range (with rollback)
-  const subuidResult = await withRollback(
-    () => allocateSubuidRange(settings?.subuidRangeSize ?? SUBUID_RANGE.size, settings),
-    rollbackUser,
-    `deleting user ${username} after subuid allocation failure`
-  );
-  if (!subuidResult.ok) {
-    return subuidResult;
-  }
-  const subuidAlloc = subuidResult.value;
-
-  // 5. Configure subuid/subgid (with rollback)
-  const subuidConfigResult = await withRollback(
-    () => configureSubordinateIds(username, subuidAlloc.start, subuidAlloc.size),
-    rollbackUser,
-    `deleting user ${username} after subuid config failure`
-  );
-  if (!subuidConfigResult.ok) {
-    return subuidConfigResult;
-  }
-
-  return Ok({
-    username,
-    uid,
-    gid: userIdToGroupId(uid),
-    subuidStart: subuidAlloc.start,
-    subuidSize: subuidAlloc.size,
-    homeDir,
-  });
-};
 
 /**
  * Atomically append entry to subuid/subgid file if not already present.
  */
-const appendSubidEntry = async (
+const appendSubidEntry = (
   file: AbsolutePath,
   username: Username,
   entry: string
-): Promise<Result<void, DivbanError>> => {
-  const content = await readFileOrEmpty(file);
+): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const content = yield* readFileOrEmpty(file);
 
-  // Already configured - return success (idempotent)
-  if (content.includes(`${username}:`)) {
-    return Ok(undefined);
-  }
+    // Already configured - return success (idempotent)
+    if (content.includes(`${username}:`)) {
+      return;
+    }
 
-  // Atomic write entire file with appended entry
-  return mapErr(
-    await atomicWrite(file, content + entry),
-    (e) => new DivbanError(ErrorCode.SUBUID_CONFIG_FAILED, `Failed to configure ${file}`, e)
-  );
-};
+    // Atomic write entire file with appended entry
+    yield* atomicWrite(file, content + entry).pipe(
+      Effect.mapError(
+        (e) =>
+          new SystemError({
+            code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
+            message: `Failed to configure ${file}`,
+            ...(e instanceof Error ? { cause: e } : {}),
+          })
+      )
+    );
+  });
 
 /**
  * Configure subordinate UIDs and GIDs for a user.
@@ -310,160 +188,241 @@ export const configureSubordinateIds = (
   username: Username,
   start: SubordinateId,
   range: number
-): Promise<Result<void, DivbanError>> => {
-  return withLock("subid-config", async () => {
-    const entry = `${username}:${start}:${range}\n`;
+): Effect.Effect<void, SystemError | GeneralError> =>
+  withLock(
+    "subid-config",
+    Effect.gen(function* () {
+      const entry = `${username}:${start}:${range}\n`;
 
-    // Re-read files after acquiring lock to ensure consistency
-    const subuidResult = await appendSubidEntry(
-      SYSTEM_PATHS.subuid as AbsolutePath,
-      username,
-      entry
-    );
-    if (!subuidResult.ok) {
-      return subuidResult;
-    }
-
-    return appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
-  });
-};
+      // Re-read files after acquiring lock to ensure consistency
+      yield* appendSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username, entry);
+      yield* appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
+    })
+  );
 
 /**
  * Remove a single user entry from a subid file.
  * Idempotent - returns Ok if entry doesn't exist.
  */
-const removeSubidEntry = async (
+const removeSubidEntry = (
   file: AbsolutePath,
   username: Username
-): Promise<Result<void, DivbanError>> => {
-  const content = await readFileOrEmpty(file);
+): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const content = yield* readFileOrEmpty(file);
 
-  // If no entry exists, success (idempotent)
-  if (!content.includes(`${username}:`)) {
-    return Ok(undefined);
-  }
+    // If no entry exists, success (idempotent)
+    if (!content.includes(`${username}:`)) {
+      return;
+    }
 
-  // Filter out the user's line(s)
-  const filtered = content
-    .split("\n")
-    .filter((line) => !line.startsWith(`${username}:`))
-    .join("\n");
+    // Filter out the user's line(s)
+    const filtered = content
+      .split("\n")
+      .filter((line) => !line.startsWith(`${username}:`))
+      .join("\n");
 
-  // Preserve trailing newline if content remains
-  const newContent = filtered.trim() ? `${filtered.trimEnd()}\n` : "";
+    // Preserve trailing newline if content remains
+    const newContent = filtered.trim() ? `${filtered.trimEnd()}\n` : "";
 
-  return mapErr(
-    await atomicWrite(file, newContent),
-    (e) =>
-      new DivbanError(
-        ErrorCode.SUBUID_CONFIG_FAILED,
-        `Failed to remove ${username} from ${file}`,
-        e
+    yield* atomicWrite(file, newContent).pipe(
+      Effect.mapError(
+        (e) =>
+          new SystemError({
+            code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
+            message: `Failed to remove ${username} from ${file}`,
+            ...(e instanceof Error ? { cause: e } : {}),
+          })
       )
-  );
-};
+    );
+  });
 
 /**
  * Remove a user's entries from /etc/subuid and /etc/subgid.
  * Used for rollback on partial failure and user deletion cleanup.
  * Idempotent - returns Ok if entries don't exist.
  */
-const removeSubordinateIds = (username: Username): Promise<Result<void, DivbanError>> => {
-  return withLock("subid-config", async () => {
-    const subuidResult = await removeSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username);
-    if (!subuidResult.ok) {
-      return subuidResult;
-    }
-
-    return removeSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username);
-  });
-};
-
-/**
- * Get user information if they exist.
- */
-export const getServiceUser = async (
-  serviceName: string
-): Promise<Result<Option<ServiceUser>, DivbanError>> => {
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
-
-  if (!(await userExists(username))) {
-    return Ok(None);
-  }
-
-  const uidResult = await getUidByUsername(username);
-  if (!uidResult.ok) {
-    return uidResult;
-  }
-
-  const subuidResult = await getExistingSubuidStart(username);
-  if (!subuidResult.ok) {
-    return subuidResult;
-  }
-  const subuidStart = subuidResult.value;
-
-  return Ok(
-    Some({
-      username,
-      uid: uidResult.value,
-      gid: userIdToGroupId(uidResult.value),
-      subuidStart,
-      subuidSize: SUBUID_RANGE.size,
-      homeDir: userHomeDir(username),
+const removeSubordinateIds = (
+  username: Username
+): Effect.Effect<void, SystemError | GeneralError> =>
+  withLock(
+    "subid-config",
+    Effect.gen(function* () {
+      yield* removeSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username);
+      yield* removeSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username);
     })
   );
-};
 
 /**
  * Delete a service user and their home directory.
  * Also cleans up /etc/subuid and /etc/subgid entries.
  * Idempotent - returns Ok if user doesn't exist.
  */
-export const deleteServiceUser = async (
+export const deleteServiceUser = (
   serviceName: string
-): Promise<Result<void, DivbanError>> => {
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
-  const username = usernameResult.value;
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
 
-  if (!(await userExists(username))) {
-    // User doesn't exist, but still clean up any orphaned subuid/subgid entries
-    await cleanupWithWarning(
-      () => removeSubordinateIds(username),
-      `Failed to clean orphaned subuid/subgid for ${username}`
-    );
-    return Ok(undefined);
-  }
+    const exists = yield* userExists(username);
+    if (!exists) {
+      // User doesn't exist, but still clean up any orphaned subuid/subgid entries
+      yield* cleanupWithWarning(
+        removeSubordinateIds(username),
+        `Failed to clean orphaned subuid/subgid for ${username}`
+      );
+      return;
+    }
 
-  // Delete the user account and home directory
-  const deleteResult = await execSuccess(["userdel", "--remove", username]);
-  const deleteMapped = mapErr(
-    deleteResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to delete user ${username}: ${err.message}`,
-        err
+    // Delete the user account and home directory
+    yield* execSuccess(["userdel", "--remove", username]).pipe(
+      Effect.mapError(
+        (err) =>
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Failed to delete user ${username}: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
       )
-  );
-  if (!deleteMapped.ok) {
-    return deleteMapped;
-  }
+    );
 
-  // Remove from subuid/subgid (userdel does NOT do this on all distros)
-  await cleanupWithWarning(
-    () => removeSubordinateIds(username),
-    `User ${username} deleted, but failed to clean subuid/subgid`
-  );
+    // Remove from subuid/subgid (userdel does NOT do this on all distros)
+    yield* cleanupWithWarning(
+      removeSubordinateIds(username),
+      `User ${username} deleted, but failed to clean subuid/subgid`
+    );
+  });
 
-  return Ok(undefined);
-};
+/**
+ * Create a service user with dynamically allocated UID.
+ * Username is derived from service name: divban-<service>
+ * UID is allocated from range 10000-59999
+ * Subuid range is allocated to avoid conflicts
+ */
+export const createServiceUser = (
+  serviceName: string,
+  settings?: UidAllocationSettings
+): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    // Derive username from service name
+    const username = yield* getServiceUsername(serviceName);
+    const homeDir = userHomeDir(username);
+
+    // 1. Check if user already exists (idempotent with verification)
+    const exists = yield* userExists(username);
+    if (exists) {
+      const uid = yield* getUidByUsername(username);
+
+      // Verify existing user configuration is correct
+      yield* verifyUserConfig(username, homeDir, uid);
+
+      const subuidStart = yield* getExistingSubuidStart(username);
+
+      return {
+        username,
+        uid,
+        gid: userIdToGroupId(uid),
+        subuidStart,
+        subuidSize: SUBUID_RANGE.size,
+        homeDir,
+      };
+    }
+
+    // 2. Get nologin shell (auto-detected per distro)
+    const shell = yield* getNologinShell();
+
+    // 3. Allocate UID and create user atomically with retry on conflict
+    const retrySchedule = Schedule.exponential(Duration.millis(50)).pipe(
+      Schedule.jittered,
+      Schedule.whileInput((err: SystemError | GeneralError) => isUidConflictError(err)),
+      Schedule.compose(Schedule.recurs(2)) // 3 total attempts
+    );
+
+    const uid = yield* withLock(
+      "uid-allocation",
+      Effect.gen(function* () {
+        const allocatedUid = yield* allocateUidInternal(settings);
+
+        yield* execSuccess([
+          "useradd",
+          "--uid",
+          String(allocatedUid),
+          "--home-dir",
+          homeDir,
+          "--create-home",
+          "--shell",
+          shell,
+          "--comment",
+          `divban service - ${serviceName}`,
+          username,
+        ]).pipe(
+          Effect.mapError(
+            (err) =>
+              new SystemError({
+                code: ErrorCode.USER_CREATE_FAILED as 20,
+                message: `Failed to create user ${username}: ${err.message}`,
+                ...(err instanceof Error ? { cause: err } : {}),
+              })
+          )
+        );
+
+        return allocatedUid;
+      })
+    ).pipe(Effect.retry(retrySchedule));
+
+    // === POINT OF NO RETURN: User created, rollback on subsequent failure ===
+    const rollbackUser = deleteServiceUser(serviceName);
+
+    // 4. Dynamically allocate next available subuid range (with rollback)
+    const subuidAlloc = yield* withRollback(
+      allocateSubuidRange(settings?.subuidRangeSize ?? SUBUID_RANGE.size, settings),
+      rollbackUser,
+      `deleting user ${username} after subuid allocation failure`
+    );
+
+    // 5. Configure subuid/subgid (with rollback)
+    yield* withRollback(
+      configureSubordinateIds(username, subuidAlloc.start, subuidAlloc.size),
+      rollbackUser,
+      `deleting user ${username} after subuid config failure`
+    );
+
+    return {
+      username,
+      uid,
+      gid: userIdToGroupId(uid),
+      subuidStart: subuidAlloc.start,
+      subuidSize: subuidAlloc.size,
+      homeDir,
+    };
+  });
+
+/**
+ * Get user information if they exist.
+ */
+export const getServiceUser = (
+  serviceName: string
+): Effect.Effect<Option.Option<ServiceUser>, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
+
+    const exists = yield* userExists(username);
+    if (!exists) {
+      return Option.none();
+    }
+
+    const uid = yield* getUidByUsername(username);
+    const subuidStart = yield* getExistingSubuidStart(username);
+
+    return Option.some({
+      username,
+      uid,
+      gid: userIdToGroupId(uid),
+      subuidStart,
+      subuidSize: SUBUID_RANGE.size,
+      homeDir: userHomeDir(username),
+    });
+  });
 
 /**
  * Get user information by username.
@@ -476,26 +435,30 @@ export interface UserInfo {
   homeDir: AbsolutePath;
 }
 
-export const getUserByName = async (username: Username): Promise<Result<UserInfo, DivbanError>> => {
-  if (!(await userExists(username))) {
-    return Err(new DivbanError(ErrorCode.SERVICE_NOT_FOUND, `User not found: ${username}`));
-  }
+export const getUserByName = (
+  username: Username
+): Effect.Effect<UserInfo, SystemError | GeneralError | ServiceError> =>
+  Effect.gen(function* () {
+    const exists = yield* userExists(username);
+    if (!exists) {
+      return yield* Effect.fail(
+        new ServiceError({
+          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          message: `User not found: ${username}`,
+        })
+      );
+    }
 
-  const uidResult = await getUidByUsername(username);
-  if (!uidResult.ok) {
-    return uidResult;
-  }
+    const uid = yield* getUidByUsername(username);
+    const homeDir = userHomeDir(username);
 
-  const uid = uidResult.value;
-  const homeDir = userHomeDir(username);
-
-  return Ok({
-    username,
-    uid,
-    gid: userIdToGroupId(uid),
-    homeDir,
+    return {
+      username,
+      uid,
+      gid: userIdToGroupId(uid),
+      homeDir,
+    };
   });
-};
 
 /**
  * Check if current process is running as root.
@@ -507,14 +470,14 @@ export const isRoot = (): boolean => {
 /**
  * Require root privileges, returning an error if not root.
  */
-export const requireRoot = (): Result<void, DivbanError> => {
+export const requireRoot = (): Effect.Effect<void, GeneralError> => {
   if (!isRoot()) {
-    return Err(
-      new DivbanError(
-        ErrorCode.ROOT_REQUIRED,
-        "This operation requires root privileges. Please run with sudo."
-      )
+    return Effect.fail(
+      new GeneralError({
+        code: ErrorCode.ROOT_REQUIRED as 3,
+        message: "This operation requires root privileges. Please run with sudo.",
+      })
     );
   }
-  return Ok(undefined);
+  return Effect.void;
 };

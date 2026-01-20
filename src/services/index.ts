@@ -6,36 +6,38 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Service registry and exports.
+ * Service registry and exports - Effect-based.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { fromUndefined, okOr } from "../lib/option";
-import type { Result } from "../lib/result";
-import type { AnyService, ServiceDefinition } from "./types";
+import { Effect } from "effect";
+import { ErrorCode, ServiceError } from "../lib/errors";
+import type { AnyServiceEffect, ServiceDefinition } from "./types";
 
 // Service registry
-const services = new Map<string, AnyService>();
+const services = new Map<string, AnyServiceEffect>();
 
 /**
  * Register a service in the registry.
  */
-export const registerService = (service: AnyService): void => {
+export const registerService = (service: AnyServiceEffect): void => {
   services.set(service.definition.name, service);
 };
 
 /**
  * Get a service by name.
  */
-export const getService = (name: string): Result<AnyService, DivbanError> => {
-  const available = [...services.keys()].join(", ");
-  return okOr(
-    fromUndefined(services.get(name)),
-    new DivbanError(
-      ErrorCode.SERVICE_NOT_FOUND,
-      `Unknown service: '${name}'. Available services: ${available || "none"}`
-    )
-  );
+export const getService = (name: string): Effect.Effect<AnyServiceEffect, ServiceError> => {
+  const service = services.get(name);
+  if (service === undefined) {
+    const available = [...services.keys()].join(", ");
+    return Effect.fail(
+      new ServiceError({
+        code: ErrorCode.SERVICE_NOT_FOUND as 30,
+        message: `Unknown service: '${name}'. Available services: ${available || "none"}`,
+      })
+    );
+  }
+  return Effect.succeed(service);
 };
 
 /**
@@ -59,13 +61,13 @@ export const getServiceNames = (): string[] => {
   return [...services.keys()];
 };
 
-// Re-export types
+// Re-export types from Effect version
 export type {
-  AnyService,
+  AnyServiceEffect,
   BackupResult,
   GeneratedFiles,
   LogOptions,
-  Service,
+  ServiceEffect,
   ServiceContext,
   ServiceDefinition,
   ServiceStatus,
@@ -73,21 +75,14 @@ export type {
 
 export { createGeneratedFiles, getFileCount, mergeGeneratedFiles } from "./types";
 
-// Import and register services
-// Note: Services are imported dynamically to avoid circular dependencies
-// and to allow lazy loading
-
 /**
  * Initialize all built-in services.
- * Call this at application startup.
  */
 export const initializeServices = async (): Promise<void> => {
-  // Import services dynamically
   const { caddyService } = await import("./caddy");
   const { immichService } = await import("./immich");
   const { actualService } = await import("./actual");
 
-  // Register services
   registerService(caddyService);
   registerService(immichService);
   registerService(actualService);

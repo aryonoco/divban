@@ -12,12 +12,13 @@
 
 import { readFileSync } from "node:fs";
 import { normalize, resolve } from "node:path";
-import { DivbanError, ErrorCode } from "./errors";
-import { Err, Ok, type Result, mapResult } from "./result";
+import { Effect } from "effect";
+import { ConfigError, ErrorCode, GeneralError } from "./errors";
 import {
   path,
   AbsolutePath,
   type AbsolutePath as AbsolutePathType,
+  type ValidationResult,
   joinPath,
   pathJoin,
 } from "./types";
@@ -109,16 +110,21 @@ export const lingerFile = (username: string): AbsolutePathType =>
 
 /**
  * Validate a path contains no null bytes (injection attack prevention).
- * FP-style: returns Result for composition with mapResult.
  */
-const validateNoNullBytes = (p: string): Result<string, DivbanError> =>
+const validateNoNullBytes = (p: string): ValidationResult<string> =>
   p.includes("\x00")
-    ? Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid path contains null byte: ${p}`))
-    : Ok(p);
+    ? {
+        ok: false,
+        error: new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid path contains null byte: ${p}`,
+        }),
+      }
+    : { ok: true, value: p };
 
 /**
  * Normalize and resolve a path to absolute.
- * Pure transformation function for use with mapResult.
+ * Pure transformation function.
  */
 const resolveToAbsolute = (p: string): AbsolutePathType => {
   const normalized = normalize(p);
@@ -131,11 +137,29 @@ const resolveToAbsolute = (p: string): AbsolutePathType => {
  * Convert a path to absolute with security validation.
  * Rejects null bytes and normalizes path traversal sequences.
  * Use for all user-provided or config-file paths.
- *
- * FP pattern: validateNoNullBytes → mapResult(resolveToAbsolute)
  */
-export const toAbsolutePath = (p: string): Result<AbsolutePathType, DivbanError> =>
-  mapResult(validateNoNullBytes(p), resolveToAbsolute);
+export const toAbsolutePath = (p: string): ValidationResult<AbsolutePathType> => {
+  const validated = validateNoNullBytes(p);
+  if (!validated.ok) {
+    return validated as ValidationResult<AbsolutePathType>;
+  }
+  return { ok: true, value: resolveToAbsolute(validated.value) };
+};
+
+/**
+ * Convert a path to absolute with security validation (Effect version).
+ * Rejects null bytes and normalizes path traversal sequences.
+ * Use for all user-provided or config-file paths.
+ */
+export const toAbsolutePathEffect = (p: string): Effect.Effect<AbsolutePathType, ConfigError> =>
+  p.includes("\x00")
+    ? Effect.fail(
+        new ConfigError({
+          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+          message: `Invalid path contains null byte: ${p}`,
+        })
+      )
+    : Effect.succeed(resolveToAbsolute(p));
 
 /**
  * Convert a path to absolute without Result wrapper.
@@ -188,8 +212,8 @@ export const TEMP_PATHS: {
   nonexistent: path("/nonexistent"),
 };
 
-export const outputQuadletDir = (outputDir: string): Result<AbsolutePathType, DivbanError> =>
+export const outputQuadletDir = (outputDir: string): ValidationResult<AbsolutePathType> =>
   joinPath(outputDir, "quadlets");
 
-export const outputConfigDir = (outputDir: string): Result<AbsolutePathType, DivbanError> =>
+export const outputConfigDir = (outputDir: string): ValidationResult<AbsolutePathType> =>
   joinPath(outputDir, "config");

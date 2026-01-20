@@ -6,21 +6,27 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Secret management CLI commands.
+ * Effect-based secret management CLI commands.
  */
 
+import { Effect } from "effect";
 import { getServiceUsername } from "../../config/schema";
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import {
+  ContainerError,
+  ErrorCode,
+  GeneralError,
+  type ServiceError,
+  type SystemError,
+} from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { Err, Ok, type Result } from "../../lib/result";
 import type { ServiceName } from "../../lib/types";
-import type { AnyService } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import { getServiceSecret, listServiceSecrets } from "../../system/secrets";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 
 export interface SecretOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -28,7 +34,9 @@ export interface SecretOptions {
 /**
  * Execute secret command (router for subcommands).
  */
-export const executeSecret = (options: SecretOptions): Promise<Result<void, DivbanError>> => {
+export const executeSecret = (
+  options: SecretOptions
+): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> => {
   const { args } = options;
 
   switch (args.subcommand) {
@@ -37,10 +45,11 @@ export const executeSecret = (options: SecretOptions): Promise<Result<void, Divb
     case "list":
       return executeSecretList(options);
     default:
-      return Promise.resolve(
-        Err(
-          new DivbanError(ErrorCode.INVALID_ARGS, `Unknown secret subcommand: ${args.subcommand}`)
-        )
+      return Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Unknown secret subcommand: ${args.subcommand}`,
+        })
       );
   }
 };
@@ -48,83 +57,81 @@ export const executeSecret = (options: SecretOptions): Promise<Result<void, Divb
 /**
  * Show a specific secret value.
  */
-const executeSecretShow = async (options: SecretOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-  const serviceName = service.definition.name as ServiceName;
-  const secretName = args.secretName;
+const executeSecretShow = (
+  options: SecretOptions
+): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+    const serviceName = service.definition.name as ServiceName;
+    const secretName = args.secretName;
 
-  if (!secretName) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Secret name is required"));
-  }
+    if (!secretName) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Secret name is required",
+        })
+      );
+    }
 
-  // Get service user
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
+    // Get service user
+    const username = yield* getServiceUsername(serviceName);
 
-  const userResult = await getUserByName(usernameResult.value);
-  if (!userResult.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.SECRET_NOT_FOUND,
-        `Service '${serviceName}' is not configured. Run setup first.`
-      )
-    );
-  }
+    const userResult = yield* Effect.either(getUserByName(username));
+    if (userResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.SECRET_NOT_FOUND as 46,
+          message: `Service '${serviceName}' is not configured. Run setup first.`,
+          container: serviceName,
+        })
+      );
+    }
 
-  const { homeDir } = userResult.value;
+    const { homeDir } = userResult.right;
 
-  // Get secret
-  const secretResult = await getServiceSecret(serviceName, secretName, homeDir);
-  if (!secretResult.ok) {
-    return secretResult;
-  }
+    // Get secret
+    const secretValue = yield* getServiceSecret(serviceName, secretName, homeDir);
 
-  // Output just the value (for scripting)
-  logger.raw(secretResult.value);
-  return Ok(undefined);
-};
+    // Output just the value (for scripting)
+    logger.raw(secretValue);
+  });
 
 /**
  * List all available secrets for a service.
  */
-const executeSecretList = async (options: SecretOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-  const serviceName = service.definition.name as ServiceName;
+const executeSecretList = (
+  options: SecretOptions
+): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+    const serviceName = service.definition.name as ServiceName;
 
-  // Get service user
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
+    // Get service user
+    const username = yield* getServiceUsername(serviceName);
 
-  const userResult = await getUserByName(usernameResult.value);
-  if (!userResult.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.SECRET_NOT_FOUND,
-        `Service '${serviceName}' is not configured. Run setup first.`
-      )
-    );
-  }
-
-  const { homeDir } = userResult.value;
-
-  // List secrets
-  const secretsResult = await listServiceSecrets(serviceName, homeDir);
-  if (!secretsResult.ok) {
-    return secretsResult;
-  }
-
-  if (args.format === "json") {
-    logger.raw(JSON.stringify({ service: serviceName, secrets: secretsResult.value }));
-  } else {
-    logger.info(`Secrets for ${serviceName}:`);
-    for (const name of secretsResult.value) {
-      logger.raw(`  - ${name}`);
+    const userResult = yield* Effect.either(getUserByName(username));
+    if (userResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.SECRET_NOT_FOUND as 46,
+          message: `Service '${serviceName}' is not configured. Run setup first.`,
+          container: serviceName,
+        })
+      );
     }
-  }
 
-  return Ok(undefined);
-};
+    const { homeDir } = userResult.right;
+
+    // List secrets
+    const secrets = yield* listServiceSecrets(serviceName, homeDir);
+
+    if (args.format === "json") {
+      logger.raw(JSON.stringify({ service: serviceName, secrets }));
+    } else {
+      logger.info(`Secrets for ${serviceName}:`);
+      for (const name of secrets) {
+        logger.raw(`  - ${name}`);
+      }
+    }
+  });

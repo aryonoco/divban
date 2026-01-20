@@ -12,7 +12,7 @@
  * Main entry point for the CLI application.
  */
 
-import { run } from "./cli";
+import { run } from "./cli/index";
 
 /**
  * Main entry point - wrapped in async function for bytecode compatibility.

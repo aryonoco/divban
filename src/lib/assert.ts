@@ -14,27 +14,28 @@
  *    const opt = fromNullable(maybeNull);
  *    const value = expect(opt, "should not be null");
  *
- * 2. Result-based (for error contexts):
- *    const result = okOr(fromNullable(maybeNull), new DivbanError(...));
- *    if (!result.ok) return result;
+ * 2. Effect-based (for error contexts):
+ *    const value = yield* Effect.fromNullable(maybeNull).pipe(
+ *      Effect.mapError(() => new ConfigError({ ... }))
+ *    );
  *
  * 3. With default:
  *    const value = getOrElse(fromNullable(maybeNull), defaultValue);
  */
 
-import { DivbanError, ErrorCode } from "./errors";
+import { ErrorCode, GeneralError, type GeneralErrorCode } from "./errors";
 
 /**
  * Assert that a condition is true at runtime.
- * Throws DivbanError if the assertion fails.
+ * Throws GeneralError if the assertion fails.
  */
 export const assert = (
   condition: boolean,
   message: string,
-  code: (typeof ErrorCode)[keyof typeof ErrorCode] = ErrorCode.GENERAL_ERROR
+  code: GeneralErrorCode = ErrorCode.GENERAL_ERROR as 1
 ): asserts condition => {
   if (!condition) {
-    throw new DivbanError(code, message);
+    throw new GeneralError({ code, message });
   }
 };
 
@@ -87,7 +88,7 @@ export const isNonEmptyArray = <T>(arr: T[]): arr is NonEmptyArray<T> => arr.len
  */
 export const assertNonEmpty = <T>(arr: T[], message: string): NonEmptyArray<T> => {
   if (!isNonEmptyArray(arr)) {
-    throw new DivbanError(ErrorCode.GENERAL_ERROR, message);
+    throw new GeneralError({ code: ErrorCode.GENERAL_ERROR as 1, message });
   }
   return arr;
 };

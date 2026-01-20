@@ -6,90 +6,167 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Filesystem operations with Result-based error handling.
- * Uses Bun.file, Bun.write, Bun.Glob, and node:fs for optimal performance.
+ * Filesystem operations using Effect for error handling.
+ * Uses Bun.file, Bun.write, Bun.Glob for optimal performance.
  */
 
 import { watch } from "node:fs";
-import { mkdir, writeFile as nodeWriteFile, rename } from "node:fs/promises";
+import { mkdir, writeFile as nodeWriteFile, rename, rm } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { None, type Option, Some } from "../lib/option";
-import {
-  Err,
-  Ok,
-  type Result,
-  asyncFlatMapResult,
-  mapResult,
-  parallel,
-  tryCatch,
-} from "../lib/result";
+import { Effect, Option } from "effect";
+import { ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
+
+/**
+ * Helper to create a SystemError for file read failures.
+ */
+const fileReadError = (path: string, e: unknown): SystemError =>
+  new SystemError({
+    code: ErrorCode.FILE_READ_FAILED as 27,
+    message: `Failed to read file: ${path}: ${errorMessage(e)}`,
+    ...(e instanceof Error ? { cause: e } : {}),
+  });
+
+/**
+ * Helper to create a SystemError for file write failures.
+ */
+const fileWriteError = (path: string, e: unknown): SystemError =>
+  new SystemError({
+    code: ErrorCode.FILE_WRITE_FAILED as 28,
+    message: `Failed to write file: ${path}: ${errorMessage(e)}`,
+    ...(e instanceof Error ? { cause: e } : {}),
+  });
+
+/**
+ * Helper to create a SystemError for directory creation failures.
+ */
+const directoryError = (path: string, e: unknown): SystemError =>
+  new SystemError({
+    code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+    message: `Failed to create directory: ${path}: ${errorMessage(e)}`,
+    ...(e instanceof Error ? { cause: e } : {}),
+  });
 
 /**
  * Read file contents as text.
  */
-export const readFile = async (path: AbsolutePath): Promise<Result<string, DivbanError>> => {
-  const file = Bun.file(path);
+export const readFile = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.tryPromise({
+      try: (): Promise<boolean> => file.exists(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
 
-  if (!(await file.exists())) {
-    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `File not found: ${path}`));
-  }
+    if (!exists) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `File not found: ${path}`,
+        })
+      );
+    }
 
-  return tryCatch(
-    () => file.text(),
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to read file: ${path}`)
-  );
-};
+    return yield* Effect.tryPromise({
+      try: (): Promise<string> => file.text(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
+  });
 
 /**
  * Read file contents as lines.
  */
-export const readLines = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
-  return mapResult(await readFile(path), (content) =>
-    content.split("\n").map((line) => line.trimEnd())
-  );
-};
+export const readLines = (path: AbsolutePath): Effect.Effect<string[], SystemError> =>
+  Effect.map(readFile(path), (content) => content.split("\n").map((line) => line.trimEnd()));
+
+/**
+ * Read file contents as bytes (Uint8Array).
+ */
+export const readBytes = (path: AbsolutePath): Effect.Effect<Uint8Array, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.tryPromise({
+      try: (): Promise<boolean> => file.exists(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
+
+    if (!exists) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `File not found: ${path}`,
+        })
+      );
+    }
+
+    return yield* Effect.tryPromise({
+      try: (): Promise<Uint8Array> => file.bytes(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
+  });
+
+/**
+ * Write binary content to a file.
+ */
+export const writeBytes = (
+  path: AbsolutePath,
+  data: Uint8Array
+): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<void> => {
+      await Bun.write(path, data);
+    },
+    catch: (e): SystemError => fileWriteError(path, e),
+  });
 
 /**
  * Write content to a file.
  */
-export const writeFile = async (
-  path: AbsolutePath,
-  content: string
-): Promise<Result<void, DivbanError>> => {
-  return tryCatch(
-    async () => {
+export const writeFile = (path: AbsolutePath, content: string): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<void> => {
       await Bun.write(path, content);
     },
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to write file: ${path}`)
-  );
-};
+    catch: (e): SystemError => fileWriteError(path, e),
+  });
 
 /**
  * Create a file exclusively - fails if file already exists.
  * Uses O_CREAT | O_EXCL via 'wx' flag for atomic check-and-create.
- * Returns Ok(Some(undefined)) if created, Ok(None) if file existed.
- * Follows Option semantics: Some = created, None = already existed.
+ * Returns Some(void) if created, None if file existed.
  */
-export const writeFileExclusive = async (
+export const writeFileExclusive = (
   path: AbsolutePath,
   content: string
-): Promise<Result<Option<void>, DivbanError>> => {
-  try {
-    await nodeWriteFile(path, content, { flag: "wx", encoding: "utf8" });
-    return Ok(Some(undefined));
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") {
-      return Ok(None); // File already exists - not an error
-    }
-    return Err(wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to create ${path}`));
-  }
-};
+): Effect.Effect<Option.Option<void>, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<Option.Option<void>> => {
+      await nodeWriteFile(path, content, { flag: "wx", encoding: "utf8" });
+      return Option.some(undefined);
+    },
+    catch: (e): SystemError | null => {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") {
+        // Return success with None - file already exists is not an error
+        return null; // Sentinel value to indicate existing file
+      }
+      return fileWriteError(path, e);
+    },
+  }).pipe(
+    Effect.flatMap((result) =>
+      result === null
+        ? Effect.succeed(Option.none())
+        : Effect.succeed(result as Option.Option<void>)
+    ),
+    Effect.catchAll((e) => {
+      if (e === null) {
+        return Effect.succeed(Option.none());
+      }
+      return Effect.fail(e as SystemError);
+    })
+  );
 
 /**
  * Create a file writer for incremental writes.
- * Uses Bun's FileSink for optimal streaming performance.
  */
 export interface FileWriter {
   writer: FileSink;
@@ -99,195 +176,193 @@ export interface FileWriter {
 export const createFileWriter = (path: AbsolutePath): FileWriter => {
   const file = Bun.file(path);
   const writer = file.writer();
-  const close = (): number | Promise<number> => writer.end();
   return {
     writer,
-    close,
+    close: (): number | Promise<number> => writer.end(),
   };
 };
 
 /**
  * Append content to a file.
- * Uses Bun's FileSink for optimal performance.
  */
-export const appendFile = async (
-  path: AbsolutePath,
-  content: string
-): Promise<Result<void, DivbanError>> => {
-  return tryCatch(
-    async () => {
+export const appendFile = (path: AbsolutePath, content: string): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<void> => {
       const file = Bun.file(path);
       const writer = file.writer();
       writer.write(content);
       await writer.end();
     },
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to append to file: ${path}`)
-  );
-};
+    catch: (e): SystemError => fileWriteError(path, e),
+  });
 
 /**
  * Check if a file exists.
  */
-export const fileExists = (path: AbsolutePath): Promise<boolean> => {
-  return Bun.file(path).exists();
-};
+export const fileExists = (path: AbsolutePath): Effect.Effect<boolean, never> =>
+  Effect.promise(() => Bun.file(path).exists());
 
 /**
  * Check if a path is a directory.
  */
-export const isDirectory = async (path: string): Promise<boolean> => {
-  try {
-    const s = await Bun.file(path).stat();
-    return s?.isDirectory() ?? false;
-  } catch {
-    return false;
-  }
-};
+export const isDirectory = (path: string): Effect.Effect<boolean, never> =>
+  Effect.promise(async () => {
+    try {
+      const s = await Bun.file(path).stat();
+      return s?.isDirectory() ?? false;
+    } catch {
+      return false;
+    }
+  });
 
 /**
  * Copy a file using kernel-level operations.
- * Uses Bun.write(dest, Bun.file(src)) which leverages:
- * - copy_file_range on Linux
- * - clonefile on macOS
  */
-export const copyFile = async (
+export const copyFile = (
   source: AbsolutePath,
   dest: AbsolutePath
-): Promise<Result<void, DivbanError>> => {
-  const sourceFile = Bun.file(source);
+): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const sourceFile = Bun.file(source);
+    const exists = yield* Effect.tryPromise({
+      try: (): Promise<boolean> => sourceFile.exists(),
+      catch: (e): SystemError => fileReadError(source, e),
+    });
 
-  if (!(await sourceFile.exists())) {
-    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `Source file not found: ${source}`));
-  }
+    if (!exists) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `Source file not found: ${source}`,
+        })
+      );
+    }
 
-  return tryCatch(
-    async () => {
-      await Bun.write(dest, sourceFile);
-    },
-    (e) =>
-      wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to copy file from ${source} to ${dest}`)
-  );
-};
+    yield* Effect.tryPromise({
+      try: (): Promise<number> => Bun.write(dest, sourceFile),
+      catch: (e): SystemError =>
+        new SystemError({
+          code: ErrorCode.FILE_WRITE_FAILED as 28,
+          message: `Failed to copy file from ${source} to ${dest}: ${errorMessage(e)}`,
+          ...(e instanceof Error ? { cause: e } : {}),
+        }),
+    });
+  });
 
 /**
  * Create a backup of a file (adds .bak extension).
  */
-export const backupFile = async (
-  filePath: AbsolutePath
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  const backupPath = pathWithSuffix(filePath, ".bak");
-  const result = await copyFile(filePath, backupPath);
-  if (!result.ok) {
-    return result;
-  }
-
-  return Ok(backupPath);
-};
+export const backupFile = (filePath: AbsolutePath): Effect.Effect<AbsolutePath, SystemError> =>
+  Effect.gen(function* () {
+    const backupPath = pathWithSuffix(filePath, ".bak");
+    yield* copyFile(filePath, backupPath);
+    return backupPath;
+  });
 
 /**
  * Read file if it exists, return empty string otherwise.
  */
-export const readFileOrEmpty = async (path: AbsolutePath): Promise<string> => {
-  const result = await readFile(path);
-  return result.ok ? result.value : "";
-};
+export const readFileOrEmpty = (path: AbsolutePath): Effect.Effect<string, never> =>
+  Effect.catchAll(readFile(path), () => Effect.succeed(""));
 
 /**
  * Atomically write a file by writing to a temp file first.
- * Uses node:fs rename for atomic move operation.
  */
-export const atomicWrite = async (
+export const atomicWrite = (
   filePath: AbsolutePath,
   content: string
-): Promise<Result<void, DivbanError>> => {
-  const tempPath = pathWithSuffix(
-    filePath,
-    `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
-  );
+): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const tempPath = pathWithSuffix(
+      filePath,
+      `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
+    );
 
-  return asyncFlatMapResult(await writeFile(tempPath, content), () =>
-    tryCatch(
-      () => rename(tempPath, filePath),
-      (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to atomically write: ${filePath}`)
-    )
-  );
-};
+    yield* writeFile(tempPath, content);
+    yield* renameFile(tempPath, filePath);
+  });
 
 /**
  * Atomically rename a file.
- * Used for lock takeover operations where atomicity is critical.
  */
-export const renameFile = async (
+export const renameFile = (
   source: AbsolutePath,
   dest: AbsolutePath
-): Promise<Result<void, DivbanError>> =>
-  tryCatch(
-    () => rename(source, dest),
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to rename ${source} to ${dest}`)
-  );
+): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: (): Promise<void> => rename(source, dest),
+    catch: (e): SystemError =>
+      new SystemError({
+        code: ErrorCode.FILE_WRITE_FAILED as 28,
+        message: `Failed to rename ${source} to ${dest}: ${errorMessage(e)}`,
+        ...(e instanceof Error ? { cause: e } : {}),
+      }),
+  });
 
 /**
  * Compare two files for equality.
  */
-export const filesEqual = async (
+export const filesEqual = (
   path1: AbsolutePath,
   path2: AbsolutePath
-): Promise<Result<boolean, DivbanError>> => {
-  const result = await parallel([readFile(path1), readFile(path2)], (e) =>
-    wrapError(e, ErrorCode.FILE_READ_FAILED, "comparing files")
-  );
-  if (!result.ok) {
-    return result;
-  }
-  const [content1, content2] = result.value;
-  return Ok(content1 === content2);
-};
+): Effect.Effect<boolean, SystemError> =>
+  Effect.gen(function* () {
+    const [content1, content2] = yield* Effect.all([readFile(path1), readFile(path2)]);
+    return content1 === content2;
+  });
 
 /**
  * Get file size in bytes.
  */
-export const getFileSize = async (path: AbsolutePath): Promise<Result<number, DivbanError>> => {
-  const file = Bun.file(path);
+export const getFileSize = (path: AbsolutePath): Effect.Effect<number, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.tryPromise({
+      try: (): Promise<boolean> => file.exists(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
 
-  if (!(await file.exists())) {
-    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `File not found: ${path}`));
-  }
+    if (!exists) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `File not found: ${path}`,
+        })
+      );
+    }
 
-  return Ok(file.size);
-};
+    return file.size;
+  });
 
 /**
  * Check if a directory exists.
- * Uses Bun.file().stat() for optimal performance.
  */
-export const directoryExists = async (path: AbsolutePath): Promise<boolean> => {
-  try {
-    const file = Bun.file(path);
-    const s = await file.stat();
-    return s?.isDirectory() ?? false;
-  } catch {
-    return false;
-  }
-};
+export const directoryExists = (path: AbsolutePath): Effect.Effect<boolean, never> =>
+  Effect.promise(async () => {
+    try {
+      const file = Bun.file(path);
+      const s = await file.stat();
+      return s?.isDirectory() ?? false;
+    } catch {
+      return false;
+    }
+  });
 
 /**
  * Ensure a directory exists (mkdir -p equivalent).
- * Uses node:fs mkdir with recursive option.
  */
-export const ensureDirectory = async (path: AbsolutePath): Promise<Result<void, DivbanError>> => {
-  return tryCatch(
-    () => mkdir(path, { recursive: true }).then(() => undefined),
-    (e) => wrapError(e, ErrorCode.DIRECTORY_CREATE_FAILED, `Failed to create directory: ${path}`)
-  );
-};
+export const ensureDirectory = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: (): Promise<void> => mkdir(path, { recursive: true }).then(() => undefined),
+    catch: (e): SystemError => directoryError(path, e),
+  });
 
 /**
  * List files in a directory.
- * Uses Bun.Glob for native file discovery.
  */
-export const listDirectory = async (path: AbsolutePath): Promise<Result<string[], DivbanError>> => {
-  return tryCatch(
-    async () => {
+export const listDirectory = (path: AbsolutePath): Effect.Effect<string[], SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<string[]> => {
       const glob = new Glob("*");
       const entries: string[] = [];
       for await (const entry of glob.scan({ cwd: path, onlyFiles: false })) {
@@ -295,30 +370,29 @@ export const listDirectory = async (path: AbsolutePath): Promise<Result<string[]
       }
       return entries;
     },
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to list directory: ${path}`)
-  );
-};
+    catch: (e): SystemError => fileReadError(path, e),
+  });
 
 /**
  * Find files matching a glob pattern.
- * Uses Bun.Glob for fast pattern matching.
  */
-export const globFiles = async (
+export const globFiles = (
   pattern: string,
   options: { cwd?: string; onlyFiles?: boolean } = {}
-): Promise<string[]> => {
-  const glob = new Glob(pattern);
-  const files: string[] = [];
+): Effect.Effect<string[], never> =>
+  Effect.promise(async () => {
+    const glob = new Glob(pattern);
+    const files: string[] = [];
 
-  for await (const file of glob.scan({
-    cwd: options.cwd ?? ".",
-    onlyFiles: options.onlyFiles ?? true,
-  })) {
-    files.push(file);
-  }
+    for await (const file of glob.scan({
+      cwd: options.cwd ?? ".",
+      onlyFiles: options.onlyFiles ?? true,
+    })) {
+      files.push(file);
+    }
 
-  return files;
-};
+    return files;
+  });
 
 /**
  * Check if a path matches a glob pattern.
@@ -329,97 +403,126 @@ export const globMatch = (pattern: string, path: string): boolean => {
 };
 
 /**
- * Delete a file using Bun's native file.delete() method.
+ * Delete a file.
  * Returns success if file was deleted or didn't exist.
  */
-export const deleteFile = async (path: AbsolutePath): Promise<Result<void, DivbanError>> => {
-  const file = Bun.file(path);
+export const deleteFile = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.promise(() => file.exists());
 
-  if (!(await file.exists())) {
-    return Ok(undefined);
-  }
+    if (!exists) {
+      return;
+    }
 
-  return tryCatch(
-    async () => {
-      await file.delete();
-    },
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to delete file: ${path}`)
-  );
-};
+    yield* Effect.tryPromise({
+      try: (): Promise<void> => file.delete(),
+      catch: (e): SystemError => fileWriteError(path, e),
+    });
+  });
 
 /**
  * Delete a file only if it exists.
  * Returns true if file was deleted, false if it didn't exist.
  */
-export const deleteFileIfExists = async (
-  path: AbsolutePath
-): Promise<Result<boolean, DivbanError>> => {
-  const file = Bun.file(path);
+export const deleteFileIfExists = (path: AbsolutePath): Effect.Effect<boolean, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.promise(() => file.exists());
 
-  if (!(await file.exists())) {
-    return Ok(false);
-  }
+    if (!exists) {
+      return false;
+    }
 
-  const result = await tryCatch(
-    async () => {
-      await file.delete();
-    },
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to delete file: ${path}`)
-  );
+    yield* Effect.tryPromise({
+      try: (): Promise<void> => file.delete(),
+      catch: (e): SystemError => fileWriteError(path, e),
+    });
 
-  if (!result.ok) {
-    return result;
-  }
-  return Ok(true);
-};
+    return true;
+  });
+
+/**
+ * Delete a directory recursively.
+ */
+export const deleteDirectory = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
+  Effect.tryPromise({
+    try: (): Promise<void> => rm(path, { recursive: true, force: true }),
+    catch: (e): SystemError =>
+      new SystemError({
+        code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+        message: `Failed to delete directory: ${path}: ${errorMessage(e)}`,
+        ...(e instanceof Error ? { cause: e } : {}),
+      }),
+  });
 
 /**
  * Hash file contents using Bun.hash() for fast non-cryptographic hashing.
- * Useful for change detection. Returns bigint for xxhash64 (default) or number for xxhash32.
  */
-export const hashFile = async (
-  path: AbsolutePath
-): Promise<Result<number | bigint, DivbanError>> => {
-  return mapResult(await readFile(path), Bun.hash);
-};
+export const hashFile = (path: AbsolutePath): Effect.Effect<number | bigint, SystemError> =>
+  Effect.map(readFile(path), Bun.hash);
 
 /**
  * Hash content using Bun.hash() for fast non-cryptographic hashing.
- * Returns bigint for xxhash64 (default) or number for xxhash32.
  */
-export const hashContent = (content: string | Uint8Array): number | bigint => {
-  return Bun.hash(content);
-};
+export const hashContent = (content: string | Uint8Array): number | bigint => Bun.hash(content);
 
 /**
- * Compute SHA-256 hash of a file using Bun.CryptoHasher.
- * Useful for cryptographic verification (e.g., backup integrity).
+ * Compute SHA-256 hash of a file.
  */
-export const sha256File = async (path: AbsolutePath): Promise<Result<string, DivbanError>> => {
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    return Err(new DivbanError(ErrorCode.FILE_READ_FAILED, `File not found: ${path}`));
-  }
+export const sha256File = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
+  Effect.gen(function* () {
+    const file = Bun.file(path);
+    const exists = yield* Effect.tryPromise({
+      try: (): Promise<boolean> => file.exists(),
+      catch: (e): SystemError => fileReadError(path, e),
+    });
 
-  return tryCatch(
-    async () => {
-      const hasher = new Bun.CryptoHasher("sha256");
-      hasher.update(await file.arrayBuffer());
-      return hasher.digest("hex");
-    },
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to hash file: ${path}`)
-  );
-};
+    if (!exists) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `File not found: ${path}`,
+        })
+      );
+    }
+
+    return yield* Effect.tryPromise({
+      try: async (): Promise<string> => {
+        const hasher = new Bun.CryptoHasher("sha256");
+        hasher.update(await file.arrayBuffer());
+        return hasher.digest("hex");
+      },
+      catch: (e): SystemError => fileReadError(path, e),
+    });
+  });
 
 /**
  * Deep equality comparison using Bun.deepEquals.
  */
-export const objectsEqual = <T>(a: T, b: NoInfer<T>, strict = false): boolean => {
-  return Bun.deepEquals(a, b, strict);
+export const objectsEqual = <T>(a: T, b: NoInfer<T>, strict = false): boolean =>
+  Bun.deepEquals(a, b, strict);
+
+/**
+ * Supported hash algorithms for hashContentWith.
+ */
+export type HashAlgorithm = "sha256" | "sha512" | "sha1" | "md5" | "blake2b256" | "blake2b512";
+
+/**
+ * Hash content with a specified algorithm.
+ */
+export const hashContentWith = (
+  content: string | Uint8Array | ArrayBuffer,
+  algorithm: HashAlgorithm,
+  encoding: "hex" | "base64" = "hex"
+): string => {
+  const hasher = new Bun.CryptoHasher(algorithm);
+  hasher.update(content);
+  return hasher.digest(encoding);
 };
 
 /**
- * Watch a file for changes using node:fs file watcher.
+ * Watch a file for changes.
  * Returns a cleanup function to stop watching.
  */
 export const watchFile = (
@@ -433,27 +536,4 @@ export const watchFile = (
     watcher.close();
   };
   return cleanup;
-};
-
-/**
- * Supported hash algorithms for hashContentWith.
- */
-export type HashAlgorithm = "sha256" | "sha512" | "sha1" | "md5" | "blake2b256" | "blake2b512";
-
-/**
- * Hash content with a specified algorithm using Bun.CryptoHasher.
- * Supports multiple algorithms for different use cases.
- *
- * @example
- * hashContentWith("hello", "sha256") // "2cf24dba..."
- * hashContentWith(data, "blake2b256") // faster alternative
- */
-export const hashContentWith = (
-  content: string | Uint8Array | ArrayBuffer,
-  algorithm: HashAlgorithm,
-  encoding: "hex" | "base64" = "hex"
-): string => {
-  const hasher = new Bun.CryptoHasher(algorithm);
-  hasher.update(content);
-  return hasher.digest(encoding);
 };

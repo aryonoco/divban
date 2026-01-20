@@ -6,93 +6,104 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration file loading and parsing.
+ * Configuration file loading using Effect for error handling.
  * Supports TOML format with Effect Schema validation.
  * Uses Bun's native TOML parser for optimal performance.
  */
 
-import type { Schema } from "effect";
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { toAbsolutePath } from "../lib/paths";
-import { Err, Ok, type Result, tryCatch } from "../lib/result";
-import { decodeOrThrow, decodeToResult } from "../lib/schema-utils";
+import { Effect, type Schema } from "effect";
+import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
+import { toAbsolutePathEffect } from "../lib/paths";
+import { decodeOrThrow, decodeToEffect } from "../lib/schema-utils";
 import type { AbsolutePath } from "../lib/types";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
 
 /**
  * Load and parse a TOML file.
  */
-export const loadTomlFile = async <A, I = A>(
+export const loadTomlFile = <A, I = A>(
   filePath: AbsolutePath,
   schema: Schema.Schema<A, I, never>
-): Promise<Result<A, DivbanError>> => {
-  // Check if file exists
-  const file = Bun.file(filePath);
-  const exists = await file.exists();
+): Effect.Effect<A, ConfigError | SystemError> =>
+  Effect.gen(function* () {
+    // Check if file exists
+    const file = Bun.file(filePath);
+    const exists = yield* Effect.promise(() => file.exists());
 
-  if (!exists) {
-    return Err(
-      new DivbanError(ErrorCode.CONFIG_NOT_FOUND, `Configuration file not found: ${filePath}`)
-    );
-  }
+    if (!exists) {
+      return yield* Effect.fail(
+        new ConfigError({
+          code: ErrorCode.CONFIG_NOT_FOUND as 10,
+          message: `Configuration file not found: ${filePath}`,
+          path: filePath,
+        })
+      );
+    }
 
-  // Read file content
-  const contentResult = await tryCatch(
-    () => file.text(),
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to read ${filePath}`)
-  );
+    // Read file content
+    const content = yield* Effect.tryPromise({
+      try: (): Promise<string> => file.text(),
+      catch: (e): SystemError =>
+        new SystemError({
+          code: ErrorCode.FILE_READ_FAILED as 27,
+          message: `Failed to read ${filePath}: ${errorMessage(e)}`,
+          ...(e instanceof Error ? { cause: e } : {}),
+        }),
+    });
 
-  if (!contentResult.ok) {
-    return contentResult;
-  }
+    // Parse TOML using Bun's native parser
+    let parsed: unknown;
+    try {
+      parsed = Bun.TOML.parse(content);
+    } catch (e) {
+      return yield* Effect.fail(
+        new ConfigError({
+          code: ErrorCode.CONFIG_PARSE_ERROR as 11,
+          message: `Failed to parse TOML in ${filePath}: ${errorMessage(e)}`,
+          path: filePath,
+          ...(e instanceof Error ? { cause: e } : {}),
+        })
+      );
+    }
 
-  // Parse TOML using Bun's native parser
-  let parsed: unknown;
-  try {
-    parsed = Bun.TOML.parse(contentResult.value);
-  } catch (e) {
-    return Err(wrapError(e, ErrorCode.CONFIG_PARSE_ERROR, `Failed to parse TOML in ${filePath}`));
-  }
-
-  // Validate with Effect Schema
-  return decodeToResult(schema, parsed, filePath);
-};
+    // Validate with Effect Schema
+    return yield* decodeToEffect(schema, parsed, filePath);
+  });
 
 /**
  * Load global configuration from divban.toml.
  * Returns default values if file doesn't exist.
  */
-export const loadGlobalConfig = async (
+export const loadGlobalConfig = (
   configPath?: AbsolutePath
-): Promise<Result<GlobalConfig, DivbanError>> => {
-  // Try default paths if not specified
-  // Search paths are plain strings (may be relative), converted at boundary
-  const paths: string[] = configPath
-    ? [configPath]
-    : [
-        "/etc/divban/divban.toml",
-        `${Bun.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
-        "./divban.toml",
-      ];
+): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
+  Effect.gen(function* () {
+    // Try default paths if not specified
+    // Search paths are plain strings (may be relative), converted at boundary
+    const paths: string[] = configPath
+      ? [configPath]
+      : [
+          "/etc/divban/divban.toml",
+          `${Bun.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
+          "./divban.toml",
+        ];
 
-  for (const p of paths) {
-    const file = Bun.file(p);
-    if (await file.exists()) {
-      const absoluteResult = toAbsolutePath(p);
-      if (!absoluteResult.ok) {
-        return absoluteResult;
+    for (const p of paths) {
+      const file = Bun.file(p);
+      const exists = yield* Effect.promise(() => file.exists());
+
+      if (exists) {
+        const absolutePath = yield* toAbsolutePathEffect(p);
+        // Use explicit type assertion due to Effect Schema's input/output type inference
+        // with exactOptionalPropertyTypes. The schema has defaults on all
+        // nested objects, so the output type always has defined properties.
+        return (yield* loadTomlFile(absolutePath, globalConfigSchema)) as GlobalConfig;
       }
-      // Use explicit type assertion due to Effect Schema's input/output type inference
-      // with exactOptionalPropertyTypes. The schema has defaults on all
-      // nested objects, so the output type always has defined properties.
-      const result = await loadTomlFile(absoluteResult.value, globalConfigSchema);
-      return result as Result<GlobalConfig, DivbanError>;
     }
-  }
 
-  // Return defaults if no config file found
-  return Ok(decodeOrThrow(globalConfigSchema, {}) as GlobalConfig);
-};
+    // Return defaults if no config file found
+    return decodeOrThrow(globalConfigSchema, {}) as GlobalConfig;
+  });
 
 /**
  * Load service-specific configuration.
@@ -100,38 +111,39 @@ export const loadGlobalConfig = async (
 export const loadServiceConfig = <A, I = A>(
   filePath: AbsolutePath,
   schema: Schema.Schema<A, I, never>
-): Promise<Result<A, DivbanError>> => {
-  return loadTomlFile(filePath, schema);
-};
+): Effect.Effect<A, ConfigError | SystemError> => loadTomlFile(filePath, schema);
 
 /**
  * Find service config file using common patterns.
  * Search paths are plain strings (may be relative).
  * Returns AbsolutePath once found.
  */
-export const findServiceConfig = async (
+export const findServiceConfig = (
   serviceName: string,
   searchPaths?: string[]
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  const defaultPaths: string[] = [
-    `./divban-${serviceName}.toml`,
-    `./${serviceName}/divban-${serviceName}.toml`,
-    `/etc/divban/divban-${serviceName}.toml`,
-  ];
+): Effect.Effect<AbsolutePath, ConfigError> =>
+  Effect.gen(function* () {
+    const defaultPaths: string[] = [
+      `./divban-${serviceName}.toml`,
+      `./${serviceName}/divban-${serviceName}.toml`,
+      `/etc/divban/divban-${serviceName}.toml`,
+    ];
 
-  const paths = searchPaths ?? defaultPaths;
+    const paths = searchPaths ?? defaultPaths;
 
-  for (const p of paths) {
-    const file = Bun.file(p);
-    if (await file.exists()) {
-      return toAbsolutePath(p);
+    for (const p of paths) {
+      const file = Bun.file(p);
+      const exists = yield* Effect.promise(() => file.exists());
+
+      if (exists) {
+        return yield* toAbsolutePathEffect(p);
+      }
     }
-  }
 
-  return Err(
-    new DivbanError(
-      ErrorCode.CONFIG_NOT_FOUND,
-      `No configuration found for service '${serviceName}'. Searched: ${paths.join(", ")}`
-    )
-  );
-};
+    return yield* Effect.fail(
+      new ConfigError({
+        code: ErrorCode.CONFIG_NOT_FOUND as 10,
+        message: `No configuration found for service '${serviceName}'. Searched: ${paths.join(", ")}`,
+      })
+    );
+  });

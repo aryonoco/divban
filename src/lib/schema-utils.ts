@@ -10,27 +10,27 @@
  * Provides error formatting, decode helpers, and validation predicates.
  */
 
-import { Either, ParseResult, Schema } from "effect";
-import { DivbanError, ErrorCode } from "./errors";
-import { Err, Ok, type Result } from "./result";
+import { Effect, Either, ParseResult, Schema } from "effect";
+import { ConfigError, ErrorCode } from "./errors";
 
 // ============================================================================
 // Error Formatting
 // ============================================================================
 
 /**
- * Format Effect Schema parse error to match existing Zod error format.
+ * Format Effect Schema parse error to a ConfigError.
  * Output format:
  *   Configuration validation failed for /path/to/file.toml:
  *     - field.path: error message
  *     - other.field: another error
  */
-export const formatSchemaError = (error: ParseResult.ParseError, context: string): DivbanError => {
+export const formatSchemaError = (error: ParseResult.ParseError, context: string): ConfigError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
-  return new DivbanError(
-    ErrorCode.CONFIG_VALIDATION_ERROR,
-    `Configuration validation failed for ${context}:\n${formatted}`
-  );
+  return new ConfigError({
+    code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+    message: `Configuration validation failed for ${context}:\n${formatted}`,
+    path: context,
+  });
 };
 
 // ============================================================================
@@ -38,27 +38,36 @@ export const formatSchemaError = (error: ParseResult.ParseError, context: string
 // ============================================================================
 
 /**
- * Decode unknown data with a schema, returning Result.
- * Equivalent to Zod's safeParse() - never throws.
- */
-export const decodeToResult = <A, I = A>(
-  schema: Schema.Schema<A, I, never>,
-  data: unknown,
-  context: string
-): Result<A, DivbanError> => {
-  const result = Schema.decodeUnknownEither(schema)(data);
-  return Either.match(result, {
-    onLeft: (error): Result<A, DivbanError> => Err(formatSchemaError(error, context)),
-    onRight: (value): Result<A, DivbanError> => Ok(value),
-  });
-};
-
-/**
  * Decode unknown data synchronously, throwing on error.
  * Use only when input is known valid (e.g., empty object with defaults).
  */
 export const decodeOrThrow = <A, I = A>(schema: Schema.Schema<A, I, never>, data: unknown): A => {
   return Schema.decodeUnknownSync(schema)(data);
+};
+
+/**
+ * Decode unknown data with a schema, returning Effect.
+ * Effect version for use in Effect pipelines.
+ */
+export const decodeToEffect = <A, I = A>(
+  schema: Schema.Schema<A, I, never>,
+  data: unknown,
+  context: string
+): Effect.Effect<A, ConfigError> => {
+  const result = Schema.decodeUnknownEither(schema)(data);
+  return Either.match(result, {
+    onLeft: (error): Effect.Effect<A, ConfigError> => {
+      const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
+      return Effect.fail(
+        new ConfigError({
+          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+          message: `Configuration validation failed for ${context}:\n${formatted}`,
+          path: context,
+        })
+      );
+    },
+    onRight: (value): Effect.Effect<A, ConfigError> => Effect.succeed(value),
+  });
 };
 
 // ============================================================================

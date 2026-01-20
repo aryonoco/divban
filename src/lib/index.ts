@@ -41,27 +41,9 @@ export type {
   SubordinateId as SubordinateIdType,
   UserId as UserIdType,
   Username as UsernameType,
+  ValidationResult,
   VolumeName as VolumeNameType,
 } from "./types";
-
-// Result - Functional error handling
-export {
-  collectResults,
-  Err,
-  flatMapResult,
-  isErr,
-  isOk,
-  mapErr,
-  mapResult,
-  Ok,
-  parallel,
-  sequence,
-  tryCatch,
-  tryCatchSync,
-  unwrap,
-  unwrapOr,
-} from "./result";
-export type { Result } from "./result";
 
 // Option - Explicit nullable value handling
 export {
@@ -80,10 +62,6 @@ export {
   getOrElseLazy,
   unwrap as unwrapOption,
   expect as expectOption,
-  // Result conversion
-  okOr,
-  okOrElse,
-  transpose as transposeOption,
   // Map with default
   mapOr,
   mapOrElse,
@@ -105,16 +83,20 @@ export {
 } from "./option";
 export type { Option } from "./option";
 
-// Errors - Error codes and DivbanError class
+// Errors - Tagged error classes for Effect-based error handling
 export {
-  DivbanError,
+  BackupError,
+  ConfigError,
+  ContainerError,
   ErrorCode,
   errorMessage,
+  GeneralError,
   getErrorCodeName,
+  ServiceError,
+  SystemError,
   toExitCode,
-  wrapError,
 } from "./errors";
-export type { ErrorCodeValue } from "./errors";
+export type { DivbanEffectError, ErrorCodeValue } from "./errors";
 
 // Logger - Structured logging
 export { createLogger, getLogger, setDefaultLogger } from "./logger";

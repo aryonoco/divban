@@ -6,32 +6,29 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * CLI command router and main entry point.
+ * Effect-based CLI command router and main entry point.
  */
 
+import { Effect, Option } from "effect";
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { type LogLevel, type Logger, createLogger } from "../lib/logger";
 import {
-  None,
-  type Option,
-  Some,
-  fromUndefined,
-  getOrElse,
-  isNone,
-  mapOption,
-  transpose,
-} from "../lib/option";
-import { toAbsolutePath } from "../lib/paths";
-import type { Result } from "../lib/result";
-import { Err, Ok } from "../lib/result";
+  type BackupError,
+  type ConfigError,
+  type ContainerError,
+  ErrorCode,
+  GeneralError,
+  type ServiceError,
+  type SystemError,
+} from "../lib/errors";
+import { type LogLevel, type Logger, createLogger } from "../lib/logger";
+import { toAbsolutePathEffect } from "../lib/paths";
 import { getService, initializeServices, listServices } from "../services";
-import type { AnyService, ServiceDefinition } from "../services/types";
+import type { AnyServiceEffect, ServiceDefinition } from "../services/types";
 import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
-// Import command handlers
+// Import Effect-based command handlers
 import { executeBackup } from "./commands/backup";
 import { executeBackupConfig } from "./commands/backup-config";
 import { executeDiff } from "./commands/diff";
@@ -49,6 +46,14 @@ import { executeStop } from "./commands/stop";
 import { executeUpdate } from "./commands/update";
 import { executeValidate } from "./commands/validate";
 
+type DivbanEffectError =
+  | GeneralError
+  | ConfigError
+  | SystemError
+  | ServiceError
+  | ContainerError
+  | BackupError;
+
 /**
  * Run the CLI with the given arguments.
  */
@@ -56,112 +61,106 @@ export const run = async (argv: string[]): Promise<number> => {
   // Initialize services registry
   await initializeServices();
 
-  // Parse arguments
-  const argsResult = parseArgs(argv);
-  if (!argsResult.ok) {
-    console.error(`Error: ${argsResult.error.message}`);
-    return argsResult.error.code;
-  }
+  const program = Effect.gen(function* () {
+    // Parse arguments
+    const args = yield* parseArgs(argv);
 
-  const args = argsResult.value;
+    // Handle version flag early
+    if (args.version) {
+      const pkg = yield* Effect.promise(() => import("../../package.json"));
+      console.info(`divban ${pkg.version}`);
+      return 0;
+    }
 
-  // Handle version flag early
-  if (args.version) {
-    const pkg = await import("../../package.json");
-    console.info(`divban ${pkg.version}`);
+    // Validate global config path if provided
+    const validatedPath = Option.isSome(Option.fromNullable(args.globalConfigPath))
+      ? yield* toAbsolutePathEffect(args.globalConfigPath as string)
+      : undefined;
+
+    // Load global configuration (always loads, returns defaults if no file)
+    const globalConfig = yield* loadGlobalConfig(validatedPath);
+
+    // Apply logging settings: CLI args override global config
+    const loggingSettings = getLoggingSettings(globalConfig);
+    let effectiveLogLevel: LogLevel;
+    if (args.verbose) {
+      effectiveLogLevel = "debug";
+    } else if (args.logLevel !== "info") {
+      effectiveLogLevel = args.logLevel;
+    } else {
+      effectiveLogLevel = loggingSettings.level;
+    }
+    const effectiveFormat = args.format !== "pretty" ? args.format : loggingSettings.format;
+
+    // Create logger with effective settings
+    const logger = createLogger({
+      level: effectiveLogLevel,
+      format: effectiveFormat,
+    });
+
+    // Handle help
+    if (args.help || args.command === "help") {
+      const { getMainHelp } = yield* Effect.promise(() => import("./help"));
+      console.info(getMainHelp());
+      return 0;
+    }
+
+    // Handle "all" service (run command on all services)
+    if (args.service === "all") {
+      return yield* runAllServices(args, logger, globalConfig);
+    }
+
+    // Get the service
+    const service = yield* getService(args.service);
+
+    // Validate arguments for specific command
+    yield* validateArgs(args);
+
+    // Execute command
+    const result = yield* Effect.either(executeCommand(service, args, logger, globalConfig));
+
+    if (result._tag === "Left") {
+      if (args.format === "json") {
+        logger.raw(
+          JSON.stringify({
+            error: result.left.message,
+            code: (result.left as DivbanEffectError & { code: number }).code,
+          })
+        );
+      } else {
+        logger.fail(result.left.message);
+      }
+      return (result.left as DivbanEffectError & { code: number }).code;
+    }
+
     return 0;
-  }
-
-  // Validate global config path if provided using Option → Result transformation
-  const globalConfigPathOpt = fromUndefined(args.globalConfigPath);
-  const validatedPathResult = transpose(mapOption(globalConfigPathOpt, toAbsolutePath));
-  if (!validatedPathResult.ok) {
-    console.error(`Error: ${validatedPathResult.error.message}`);
-    return validatedPathResult.error.code;
-  }
-  // Extract Option<AbsolutePath> to AbsolutePath | undefined for loadGlobalConfig
-  const validatedPath = validatedPathResult.value.isSome
-    ? validatedPathResult.value.value
-    : undefined;
-
-  // Load global configuration (always loads, returns defaults if no file)
-  const globalConfigResult = await loadGlobalConfig(validatedPath);
-  if (!globalConfigResult.ok) {
-    console.error(`Error loading global config: ${globalConfigResult.error.message}`);
-    return globalConfigResult.error.code;
-  }
-  const globalConfig = globalConfigResult.value;
-
-  // Apply logging settings: CLI args override global config
-  const loggingSettings = getLoggingSettings(globalConfig);
-  let effectiveLogLevel: LogLevel;
-  if (args.verbose) {
-    effectiveLogLevel = "debug";
-  } else if (args.logLevel !== "info") {
-    effectiveLogLevel = args.logLevel;
-  } else {
-    effectiveLogLevel = loggingSettings.level;
-  }
-  const effectiveFormat = args.format !== "pretty" ? args.format : loggingSettings.format;
-
-  // Create logger with effective settings
-  const logger = createLogger({
-    level: effectiveLogLevel,
-    format: effectiveFormat,
   });
 
-  // Handle help
-  if (args.help || args.command === "help") {
-    const { getMainHelp } = await import("./help");
-    console.info(getMainHelp());
-    return 0;
-  }
-
-  // Handle "all" service (run command on all services)
-  if (args.service === "all") {
-    return runAllServices(args, logger, globalConfig);
-  }
-
-  // Get the service
-  const serviceResult = getService(args.service);
-  if (!serviceResult.ok) {
-    console.error(`Error: ${serviceResult.error.message}`);
-    return serviceResult.error.code;
-  }
-
-  const service = serviceResult.value;
-
-  // Validate arguments for specific command
-  const validateResult = validateArgs(args);
-  if (!validateResult.ok) {
-    console.error(`Error: ${validateResult.error.message}`);
-    return validateResult.error.code;
-  }
-
-  // Execute command
-  const result = await executeCommand(service, args, logger, globalConfig);
-
-  if (!result.ok) {
-    if (args.format === "json") {
-      logger.raw(JSON.stringify({ error: result.error.message, code: result.error.code }));
-    } else {
-      logger.fail(result.error.message);
+  const exit = await Effect.runPromiseExit(program);
+  if (exit._tag === "Failure") {
+    const error = exit.cause;
+    if ("_tag" in error && error._tag === "Fail") {
+      const err = error.error as DivbanEffectError & { code: number };
+      console.error(`Error: ${err.message}`);
+      return err.code;
     }
-    return result.error.code;
+    // Unexpected error
+    console.error("Unexpected error:", error);
+    return 1;
   }
 
-  return 0;
+  return exit.value;
 };
 
 /**
  * Execute a command on a single service.
  */
 const executeCommand = (
-  service: AnyService,
+  service: AnyServiceEffect,
   args: ParsedArgs,
   logger: Logger,
   globalConfig: GlobalConfig
-): Promise<Result<void, DivbanError>> => {
+): Effect.Effect<void, DivbanEffectError> => {
   switch (args.command) {
     case "validate":
       return executeValidate({ service, args, logger });
@@ -211,13 +210,15 @@ const executeCommand = (
     case "secret":
       return executeSecret({ service, args, logger });
 
-    case "help": {
-      return Promise.resolve(Ok(undefined));
-    }
+    case "help":
+      return Effect.void;
 
     default:
-      return Promise.resolve(
-        Err(new DivbanError(ErrorCode.INVALID_ARGS, `Unknown command: ${args.command}`))
+      return Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Unknown command: ${args.command}`,
+        })
       );
   }
 };
@@ -225,75 +226,79 @@ const executeCommand = (
 /**
  * Run command on single service, returning Option<errorCode> for first-error tracking.
  */
-const runServiceCommand = async (
+const runServiceCommand = (
   serviceDef: ServiceDefinition,
   args: ParsedArgs,
   logger: Logger,
   globalConfig: GlobalConfig
-): Promise<Option<number>> => {
-  const serviceResult = getService(serviceDef.name);
-  if (!serviceResult.ok) {
-    logger.warn(`Skipping ${serviceDef.name}: ${serviceResult.error.message}`);
-    return None; // Skip doesn't count as error
-  }
+): Effect.Effect<Option.Option<number>, never> =>
+  Effect.gen(function* () {
+    const serviceResult = yield* Effect.either(getService(serviceDef.name));
+    if (serviceResult._tag === "Left") {
+      logger.warn(`Skipping ${serviceDef.name}: ${serviceResult.left.message}`);
+      return Option.none(); // Skip doesn't count as error
+    }
 
-  logger.info(`\n=== ${serviceDef.name} ===`);
-  const result = await executeCommand(serviceResult.value, args, logger, globalConfig);
+    logger.info(`\n=== ${serviceDef.name} ===`);
+    const result = yield* Effect.either(
+      executeCommand(serviceResult.right, args, logger, globalConfig)
+    );
 
-  if (!result.ok) {
-    logger.fail(`${serviceDef.name}: ${result.error.message}`);
-    return Some(result.error.code);
-  }
+    if (result._tag === "Left") {
+      logger.fail(`${serviceDef.name}: ${result.left.message}`);
+      return Option.some((result.left as DivbanEffectError & { code: number }).code);
+    }
 
-  return None;
-};
+    return Option.none();
+  });
 
 /**
  * Run a command on all services, preserving first error code.
- * Uses sequential reduce to maintain order while tracking first error via Option.
  */
-const runAllServices = async (
+const runAllServices = (
   args: ParsedArgs,
   logger: Logger,
   globalConfig: GlobalConfig
-): Promise<number> => {
-  const services = listServices();
+): Effect.Effect<number, GeneralError> =>
+  Effect.gen(function* () {
+    const services = listServices();
 
-  if (services.length === 0) {
-    logger.warn("No services registered");
-    return 0;
-  }
+    if (services.length === 0) {
+      logger.warn("No services registered");
+      return 0;
+    }
 
-  // Only certain commands make sense for "all"
-  const allowedCommands = [
-    "status",
-    "start",
-    "stop",
-    "restart",
-    "update",
-    "backup",
-    "backup-config",
-  ];
-  if (!allowedCommands.includes(args.command)) {
-    console.error(
-      `Error: Command '${args.command}' is not supported for 'all'. Allowed: ${allowedCommands.join(", ")}`
-    );
-    return ErrorCode.INVALID_ARGS;
-  }
+    // Only certain commands make sense for "all"
+    const allowedCommands = [
+      "status",
+      "start",
+      "stop",
+      "restart",
+      "update",
+      "backup",
+      "backup-config",
+    ];
+    if (!allowedCommands.includes(args.command)) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Command '${args.command}' is not supported for 'all'. Allowed: ${allowedCommands.join(", ")}`,
+        })
+      );
+    }
 
-  // Sequential reduce: run all services, track first error via Option
-  const firstError = await services.reduce(
-    async (accPromise, serviceDef) => {
-      const acc = await accPromise;
-      const errorOpt = await runServiceCommand(serviceDef, args, logger, globalConfig);
-      // Keep first error (acc), ignore subsequent errors
-      return isNone(acc) ? errorOpt : acc;
-    },
-    Promise.resolve(None as Option<number>)
-  );
+    // Sequential execution: run all services, track first error via Option
+    let firstError: Option.Option<number> = Option.none();
+    for (const serviceDef of services) {
+      const errorOpt = yield* runServiceCommand(serviceDef, args, logger, globalConfig);
+      // Keep first error, ignore subsequent errors
+      if (Option.isNone(firstError) && Option.isSome(errorOpt)) {
+        firstError = errorOpt;
+      }
+    }
 
-  return getOrElse(firstError, 0);
-};
+    return Option.getOrElse(firstError, () => 0);
+  });
 
 // Re-export for testing
 export { parseArgs, validateArgs } from "./parser";

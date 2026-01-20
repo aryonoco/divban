@@ -24,11 +24,8 @@ import {
   mapOption,
   mapOr,
   mapOrElse,
-  okOr,
-  okOrElse,
   or,
   toArray,
-  transpose,
   unwrap,
   xor,
   zip,
@@ -223,44 +220,6 @@ describe("Option", () => {
     });
   });
 
-  describe("okOr", () => {
-    test("converts Some to Ok", () => {
-      const result = okOr(Some(42), "error");
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe(42);
-      }
-    });
-
-    test("converts None to Err", () => {
-      const result = okOr(None, "error");
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("error");
-      }
-    });
-  });
-
-  describe("okOrElse", () => {
-    test("converts Some to Ok without calling fn", () => {
-      let called = false;
-      const result = okOrElse(Some(42), () => {
-        called = true;
-        return "error";
-      });
-      expect(result.ok).toBe(true);
-      expect(called).toBe(false);
-    });
-
-    test("converts None to Err by calling fn", () => {
-      const result = okOrElse(None, () => "computed error");
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("computed error");
-      }
-    });
-  });
-
   describe("mapOr", () => {
     test("maps Some value", () => {
       const result = mapOr(Some(5), 0, (x) => x * 2);
@@ -445,35 +404,6 @@ describe("Option", () => {
 
     test("returns empty array for None", () => {
       expect(toArray(None)).toEqual([]);
-    });
-  });
-
-  describe("transpose", () => {
-    test("transposes Some(Ok) to Ok(Some)", () => {
-      const result = transpose(Some({ ok: true as const, value: 42 }));
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.isSome).toBe(true);
-        if (result.value.isSome) {
-          expect(result.value.value).toBe(42);
-        }
-      }
-    });
-
-    test("transposes Some(Err) to Err", () => {
-      const result = transpose(Some({ ok: false as const, error: "error" }));
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error).toBe("error");
-      }
-    });
-
-    test("transposes None to Ok(None)", () => {
-      const result = transpose(None);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.isSome).toBe(false);
-      }
     });
   });
 

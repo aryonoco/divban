@@ -6,33 +6,36 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Logs command - view service logs.
+ * Effect-based logs command - view service logs.
  */
 
-import type { DivbanError } from "../../lib/errors";
+import { Effect } from "effect";
+import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { type Result, asyncFlatMapResult } from "../../lib/result";
-import type { AnyService } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 import { buildServiceContext } from "./utils";
 
 export interface LogsCommandOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
 
 /**
  * Execute the logs command.
- * Uses buildServiceContext for FP-friendly context resolution.
  */
-export const executeLogs = async (
-  options: LogsCommandOptions
-): Promise<Result<void, DivbanError>> =>
-  asyncFlatMapResult(await buildServiceContext(options), ({ ctx }) =>
-    options.service.logs(ctx, {
-      follow: options.args.follow,
-      lines: options.args.lines,
-      ...(options.args.container && { container: options.args.container }),
-    })
+export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, DivbanEffectError> =>
+  Effect.flatMap(
+    buildServiceContext({
+      service: options.service,
+      args: options.args,
+      logger: options.logger,
+    }),
+    ({ ctx }) =>
+      options.service.logs(ctx, {
+        follow: options.args.follow,
+        lines: options.args.lines,
+        ...(options.args.container && { container: options.args.container }),
+      })
   );

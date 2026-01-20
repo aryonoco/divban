@@ -6,18 +6,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Validate command - validate a service configuration file.
+ * Effect-based validate command - validate a service configuration file.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Effect } from "effect";
+import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { toAbsolutePath } from "../../lib/paths";
-import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
-import type { AnyService } from "../../services/types";
+import { toAbsolutePathEffect } from "../../lib/paths";
+import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 
 export interface ValidateOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -25,28 +25,29 @@ export interface ValidateOptions {
 /**
  * Execute the validate command.
  */
-export const executeValidate = (options: ValidateOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-  const configPath = args.configPath;
+export const executeValidate = (options: ValidateOptions): Effect.Effect<void, DivbanEffectError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+    const configPath = args.configPath;
 
-  if (!configPath) {
-    return Promise.resolve(
-      Err(new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for validate command"))
-    );
-  }
+    if (!configPath) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Config path is required for validate command",
+        })
+      );
+    }
 
-  // Chain: validate path → validate config → log result
-  return asyncFlatMapResult(toAbsolutePath(configPath), async (validPath) => {
+    const validPath = yield* toAbsolutePathEffect(configPath);
     logger.info(`Validating configuration: ${validPath}`);
 
-    const result = await service.validate(validPath);
+    const result = yield* Effect.either(service.validate(validPath));
 
-    if (!result.ok) {
-      logger.fail(`Validation failed: ${result.error.message}`);
-      return result;
+    if (result._tag === "Left") {
+      logger.fail(`Validation failed: ${result.left.message}`);
+      return yield* Effect.fail(result.left);
     }
 
     logger.success("Configuration is valid");
-    return Ok(undefined);
   });
-};

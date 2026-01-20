@@ -6,13 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Dependency resolution for multi-container stacks.
+ * Effect-based dependency resolution for multi-container stacks.
  * Uses topological sort to determine correct start/stop order.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { None, type Option, Some, fromUndefined, getOrElse, isNone } from "../lib/option";
-import { Err, Ok, type Result, mapResult } from "../lib/result";
+import { Effect, Option } from "effect";
+import { ErrorCode, GeneralError } from "../lib/errors";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
 /**
@@ -29,145 +28,145 @@ export const buildDependencyGraph = (containers: StackContainer[]): DependencyNo
 /**
  * Validate that all dependencies exist in the stack.
  */
-export const validateDependencies = (nodes: DependencyNode[]): Result<void, DivbanError> => {
+export const validateDependencies = (
+  nodes: DependencyNode[]
+): Effect.Effect<void, GeneralError> => {
   const names = new Set(nodes.map((n) => n.name));
 
   for (const node of nodes) {
     for (const dep of [...node.requires, ...node.wants]) {
       if (!names.has(dep)) {
-        return Err(
-          new DivbanError(
-            ErrorCode.GENERAL_ERROR,
-            `Container '${node.name}' depends on unknown container '${dep}'`
-          )
+        return Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Container '${node.name}' depends on unknown container '${dep}'`,
+          })
         );
       }
     }
   }
 
-  return Ok(undefined);
+  return Effect.void;
 };
 
 /**
  * Detect cycles in the dependency graph.
  */
-export const detectCycles = (nodes: DependencyNode[]): Result<void, DivbanError> => {
+export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, GeneralError> => {
   const visited = new Set<string>();
   const recursionStack = new Set<string>();
   const nodeMap = new Map(nodes.map((n) => [n.name, n]));
 
-  const hasCycle = (name: string, path: string[]): Option<string[]> => {
+  const hasCycle = (name: string, path: string[]): Option.Option<string[]> => {
     if (recursionStack.has(name)) {
-      return Some([...path, name]);
+      return Option.some([...path, name]);
     }
     if (visited.has(name)) {
-      return None;
+      return Option.none();
     }
 
     visited.add(name);
     recursionStack.add(name);
 
-    const nodeOpt = fromUndefined(nodeMap.get(name));
-    if (nodeOpt.isSome) {
+    const nodeOpt = Option.fromNullable(nodeMap.get(name));
+    if (Option.isSome(nodeOpt)) {
       for (const dep of [...nodeOpt.value.requires, ...nodeOpt.value.wants]) {
         const cycle = hasCycle(dep, [...path, name]);
-        if (cycle.isSome) {
+        if (Option.isSome(cycle)) {
           return cycle;
         }
       }
     }
 
     recursionStack.delete(name);
-    return None;
+    return Option.none();
   };
 
   for (const node of nodes) {
     const cycle = hasCycle(node.name, []);
-    if (cycle.isSome) {
-      return Err(
-        new DivbanError(
-          ErrorCode.GENERAL_ERROR,
-          `Circular dependency detected: ${cycle.value.join(" -> ")}`
-        )
+    if (Option.isSome(cycle)) {
+      return Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `Circular dependency detected: ${cycle.value.join(" -> ")}`,
+        })
       );
     }
   }
 
-  return Ok(undefined);
+  return Effect.void;
 };
 
 /**
  * Topological sort using Kahn's algorithm.
  * Returns containers in order of startup (dependencies first).
  */
-export const topologicalSort = (nodes: DependencyNode[]): Result<string[], DivbanError> => {
-  // Validate first
-  const validationResult = validateDependencies(nodes);
-  if (!validationResult.ok) {
-    return validationResult;
-  }
+export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[], GeneralError> =>
+  Effect.gen(function* () {
+    // Validate first
+    yield* validateDependencies(nodes);
+    yield* detectCycles(nodes);
 
-  const cycleResult = detectCycles(nodes);
-  if (!cycleResult.ok) {
-    return cycleResult;
-  }
+    // Build adjacency list and in-degree count
+    const inDegree = new Map<string, number>();
+    const adjacency = new Map<string, string[]>();
 
-  // Build adjacency list and in-degree count
-  const inDegree = new Map<string, number>();
-  const adjacency = new Map<string, string[]>();
-
-  for (const node of nodes) {
-    inDegree.set(node.name, 0);
-    adjacency.set(node.name, []);
-  }
-
-  // Add edges (dependency -> dependent)
-  for (const node of nodes) {
-    for (const dep of [...node.requires, ...node.wants]) {
-      adjacency.get(dep)?.push(node.name);
-      inDegree.set(node.name, (inDegree.get(node.name) ?? 0) + 1);
+    for (const node of nodes) {
+      inDegree.set(node.name, 0);
+      adjacency.set(node.name, []);
     }
-  }
 
-  // Find nodes with no dependencies
-  const queue: string[] = [];
-  for (const [name, degree] of inDegree) {
-    if (degree === 0) {
-      queue.push(name);
-    }
-  }
-
-  // Process queue
-  const sorted: string[] = [];
-  while (queue.length > 0) {
-    const nameOpt = fromUndefined(queue.shift());
-    if (isNone(nameOpt)) {
-      break;
-    }
-    const name = nameOpt.value;
-    sorted.push(name);
-
-    for (const dependent of getOrElse(fromUndefined(adjacency.get(name)), [])) {
-      const newDegree = getOrElse(fromUndefined(inDegree.get(dependent)), 1) - 1;
-      inDegree.set(dependent, newDegree);
-      if (newDegree === 0) {
-        queue.push(dependent);
+    // Add edges (dependency -> dependent)
+    for (const node of nodes) {
+      for (const dep of [...node.requires, ...node.wants]) {
+        adjacency.get(dep)?.push(node.name);
+        inDegree.set(node.name, (inDegree.get(node.name) ?? 0) + 1);
       }
     }
-  }
 
-  // Check if all nodes were processed
-  if (sorted.length !== nodes.length) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        "Dependency resolution failed - possible cycle or missing node"
-      )
-    );
-  }
+    // Find nodes with no dependencies
+    const queue: string[] = [];
+    for (const [name, degree] of inDegree) {
+      if (degree === 0) {
+        queue.push(name);
+      }
+    }
 
-  return Ok(sorted);
-};
+    // Process queue
+    const sorted: string[] = [];
+    while (queue.length > 0) {
+      const nameOpt = Option.fromNullable(queue.shift());
+      if (Option.isNone(nameOpt)) {
+        break;
+      }
+      const name = nameOpt.value;
+      sorted.push(name);
+
+      for (const dependent of Option.getOrElse(
+        Option.fromNullable(adjacency.get(name)),
+        () => []
+      )) {
+        const newDegree =
+          Option.getOrElse(Option.fromNullable(inDegree.get(dependent)), () => 1) - 1;
+        inDegree.set(dependent, newDegree);
+        if (newDegree === 0) {
+          queue.push(dependent);
+        }
+      }
+    }
+
+    // Check if all nodes were processed
+    if (sorted.length !== nodes.length) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: "Dependency resolution failed - possible cycle or missing node",
+        })
+      );
+    }
+
+    return sorted;
+  });
 
 /**
  * Resolve start order with parallelization levels.
@@ -175,69 +174,66 @@ export const topologicalSort = (nodes: DependencyNode[]): Result<string[], Divba
  */
 export const resolveStartOrder = (
   containers: StackContainer[]
-): Result<StartOrder, DivbanError> => {
-  const nodes = buildDependencyGraph(containers);
-  const sortResult = topologicalSort(nodes);
+): Effect.Effect<StartOrder, GeneralError> =>
+  Effect.gen(function* () {
+    const nodes = buildDependencyGraph(containers);
+    const sorted = yield* topologicalSort(nodes);
 
-  if (!sortResult.ok) {
-    return sortResult;
-  }
+    const nodeMap = new Map(nodes.map((n) => [n.name, n]));
 
-  const sorted = sortResult.value;
-  const nodeMap = new Map(nodes.map((n) => [n.name, n]));
+    // Group by levels (containers at same level have all deps satisfied)
+    const levels: string[][] = [];
+    const placed = new Set<string>();
 
-  // Group by levels (containers at same level have all deps satisfied)
-  const levels: string[][] = [];
-  const placed = new Set<string>();
+    while (placed.size < sorted.length) {
+      const level: string[] = [];
 
-  while (placed.size < sorted.length) {
-    const level: string[] = [];
+      for (const name of sorted) {
+        if (placed.has(name)) {
+          continue;
+        }
 
-    for (const name of sorted) {
-      if (placed.has(name)) {
-        continue;
+        const nodeOpt = Option.fromNullable(nodeMap.get(name));
+        if (Option.isNone(nodeOpt)) {
+          continue;
+        }
+        const node = nodeOpt.value;
+
+        // Check if all dependencies are placed
+        const allDepsPlaced = [...node.requires, ...node.wants].every((dep) => placed.has(dep));
+
+        if (allDepsPlaced) {
+          level.push(name);
+        }
       }
 
-      const nodeOpt = fromUndefined(nodeMap.get(name));
-      if (isNone(nodeOpt)) {
-        continue;
+      if (level.length === 0) {
+        // Should not happen if topological sort succeeded
+        break;
       }
-      const node = nodeOpt.value;
 
-      // Check if all dependencies are placed
-      const allDepsPlaced = [...node.requires, ...node.wants].every((dep) => placed.has(dep));
-
-      if (allDepsPlaced) {
-        level.push(name);
+      for (const name of level) {
+        placed.add(name);
       }
+      levels.push(level);
     }
 
-    if (level.length === 0) {
-      // Should not happen if topological sort succeeded
-      break;
-    }
-
-    for (const name of level) {
-      placed.add(name);
-    }
-    levels.push(level);
-  }
-
-  return Ok({
-    order: sorted,
-    levels,
+    return {
+      order: sorted,
+      levels,
+    };
   });
-};
 
 /**
  * Resolve stop order (reverse of start order).
  */
-export const resolveStopOrder = (containers: StackContainer[]): Result<StartOrder, DivbanError> => {
-  return mapResult(resolveStartOrder(containers), (start) => ({
+export const resolveStopOrder = (
+  containers: StackContainer[]
+): Effect.Effect<StartOrder, GeneralError> =>
+  Effect.map(resolveStartOrder(containers), (start) => ({
     order: [...start.order].reverse(),
     levels: [...start.levels].reverse(),
   }));
-};
 
 /**
  * Get all containers that depend on a given container.
@@ -260,13 +256,13 @@ export const getAllDependencies = (
   const queue = [containerName];
 
   while (queue.length > 0) {
-    const nameOpt = fromUndefined(queue.shift());
-    if (isNone(nameOpt)) {
+    const nameOpt = Option.fromNullable(queue.shift());
+    if (Option.isNone(nameOpt)) {
       break;
     }
     const name = nameOpt.value;
-    const containerOpt = fromUndefined(containerMap.get(name));
-    if (isNone(containerOpt)) {
+    const containerOpt = Option.fromNullable(containerMap.get(name));
+    if (Option.isNone(containerOpt)) {
       continue;
     }
     const container = containerOpt.value;

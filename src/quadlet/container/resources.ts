@@ -9,8 +9,8 @@
  * Container resource limits configuration for quadlet files.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result } from "../../lib/result";
+import { ErrorCode, GeneralError } from "../../lib/errors";
+import type { ValidationResult } from "../../lib/types";
 import { addEntry } from "../format";
 
 /**
@@ -63,15 +63,16 @@ export const addResourceEntries = (
 /**
  * Parse a memory size string to bytes.
  */
-export const parseMemorySize = (size: string): Result<number, DivbanError> => {
+export const parseMemorySize = (size: string): ValidationResult<number> => {
   const match = size.match(MEMORY_SIZE_REGEX);
   if (!match) {
-    return Err(
-      new DivbanError(
-        ErrorCode.CONFIG_VALIDATION_ERROR,
-        `Invalid memory size: ${size}. Expected format: <number>[k|m|g|t][b] (e.g., "512m", "2g")`
-      )
-    );
+    return {
+      ok: false,
+      error: new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid memory size: ${size}. Expected format: <number>[k|m|g|t][b] (e.g., "512m", "2g")`,
+      }),
+    };
   }
 
   const value = Number.parseFloat(match[1] ?? "0");
@@ -85,7 +86,7 @@ export const parseMemorySize = (size: string): Result<number, DivbanError> => {
     t: 1024 * 1024 * 1024 * 1024,
   };
 
-  return Ok(Math.floor(value * (multipliers[unit] ?? 1)));
+  return { ok: true, value: Math.floor(value * (multipliers[unit] ?? 1)) };
 };
 
 /**

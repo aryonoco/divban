@@ -6,38 +6,38 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Backup-config command - create a backup of configuration files.
- * Uses fs.ts wrappers for idiomatic Result-based error handling,
- * and Bun APIs directly where wrappers don't exist.
+ * Effect-based backup-config command - create a backup of configuration files.
  */
 
 import { Glob } from "bun";
+import { Effect, Option } from "effect";
 import { getServiceUsername } from "../../config/schema";
-import { DivbanError, ErrorCode, wrapError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
-import { fromUndefined, mapOption, transpose } from "../../lib/option";
-import { toAbsolutePath, userConfigDir } from "../../lib/paths";
 import {
-  Err,
-  Ok,
-  type Result,
-  asyncFlatMapResult,
-  mapErr,
-  mapResult,
-  parallel,
-  tryCatch,
-} from "../../lib/result";
+  type ConfigError,
+  ErrorCode,
+  GeneralError,
+  ServiceError,
+  type SystemError,
+} from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
+import { toAbsolutePathEffect, userConfigDir } from "../../lib/paths";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { pathJoin } from "../../lib/types";
-import type { AnyService } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import { type ArchiveMetadata, createArchive } from "../../system/archive";
-import { directoryExists, ensureDirectory, fileExists } from "../../system/fs";
+import {
+  directoryExists,
+  ensureDirectory,
+  fileExists,
+  readBytes,
+  writeBytes,
+} from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { formatBytes } from "./utils";
 
 export interface BackupConfigOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -46,134 +46,109 @@ export interface BackupConfigOptions {
 type FileEntry = readonly [string, Uint8Array];
 
 // ============================================================================
-// Binary I/O Helpers - Bun APIs with Result wrapping
-// (fs.ts only provides text-based read/write, we need binary)
-// ============================================================================
-
-/**
- * Safely read file bytes using Bun.file().bytes().
- * Wraps potential errors in Result for idiomatic error handling.
- */
-const readBytes = (path: AbsolutePath): Promise<Result<Uint8Array, DivbanError>> =>
-  tryCatch(
-    () => Bun.file(path).bytes(),
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to read file: ${path}`)
-  );
-
-/**
- * Write bytes to disk using Bun.write().
- * Uses kernel-level optimizations (copy_file_range on Linux, clonefile on macOS).
- */
-const writeBytes = (path: AbsolutePath, data: Uint8Array): Promise<Result<void, DivbanError>> =>
-  tryCatch(
-    async () => {
-      await Bun.write(path, data);
-    },
-    (e) => wrapError(e, ErrorCode.FILE_WRITE_FAILED, `Failed to write file: ${path}`)
-  );
-
-// ============================================================================
-// File Collection - Parallel I/O with Result aggregation
+// File Collection - Parallel I/O with Effect
 // ============================================================================
 
 /**
  * Read a file if it exists, returning the entry or null.
- * Uses fs.ts fileExists for consistency with codebase patterns.
  */
-const readFileIfExists = async (
+const readFileIfExists = (
   path: AbsolutePath,
   archiveName: string
-): Promise<Result<FileEntry | null, DivbanError>> => {
-  if (!(await fileExists(path))) {
-    return Ok(null);
-  }
-  return mapResult(await readBytes(path), (bytes) => [archiveName, bytes] as const);
-};
+): Effect.Effect<FileEntry | null, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    if (!(yield* fileExists(path))) {
+      return null;
+    }
+    const bytes = yield* readBytes(path);
+    return [archiveName, bytes] as const;
+  });
 
 /**
  * Collect config files for a single service.
- * Reads all candidate files in parallel with Result collection.
  */
-const collectServiceConfigFiles = async (
+const collectServiceConfigFiles = (
   configDir: AbsolutePath,
   serviceName: string
-): Promise<Result<Record<string, Uint8Array>, DivbanError>> => {
-  const candidates = [
-    [pathJoin(configDir, `${serviceName}.toml`), `${serviceName}.toml`],
-    [pathJoin(configDir, ".age", `${serviceName}.key`), `.age/${serviceName}.key`],
-    [pathJoin(configDir, `${serviceName}.secrets.age`), `${serviceName}.secrets.age`],
-  ] as const;
+): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const candidates = [
+      [pathJoin(configDir, `${serviceName}.toml`), `${serviceName}.toml`],
+      [pathJoin(configDir, ".age", `${serviceName}.key`), `.age/${serviceName}.key`],
+      [pathJoin(configDir, `${serviceName}.secrets.age`), `${serviceName}.secrets.age`],
+    ] as const;
 
-  // Parallel reads with Result collection - handles both errors and rejections
-  const result = await parallel(
-    candidates.map(([path, name]) => readFileIfExists(path, name)),
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, "Failed to read config file")
-  );
+    const results = yield* Effect.all(
+      candidates.map(([path, name]) => readFileIfExists(path, name)),
+      { concurrency: "unbounded" }
+    );
 
-  return mapResult(result, (entries) =>
-    Object.fromEntries(entries.filter((entry): entry is FileEntry => entry !== null))
-  );
-};
+    return Object.fromEntries(results.filter((entry): entry is FileEntry => entry !== null));
+  });
 
 /**
  * Read a file and return as a FileEntry.
  */
-const readFileAsEntry = async (
+const readFileAsEntry = (
   filePath: AbsolutePath,
   archiveName: string
-): Promise<Result<FileEntry, DivbanError>> =>
-  mapResult(await readBytes(filePath), (bytes) => [archiveName, bytes] as const);
+): Effect.Effect<FileEntry, SystemError | GeneralError> =>
+  Effect.map(readBytes(filePath), (bytes) => [archiveName, bytes] as const);
 
 /**
  * Scan directory with glob pattern, reading all matching files.
- * Uses Bun.Glob.scan() for fast native file discovery.
  */
-const scanAndReadFiles = async (
+const scanAndReadFiles = (
   baseDir: AbsolutePath,
   pattern: string,
   archivePrefix = ""
-): Promise<Result<FileEntry[], DivbanError>> => {
-  const glob = new Glob(pattern);
-  const readPromises: Promise<Result<FileEntry, DivbanError>>[] = [];
+): Effect.Effect<FileEntry[], SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const glob = new Glob(pattern);
 
-  // Collect all file paths first, then read in parallel
-  for await (const file of glob.scan({ cwd: baseDir, onlyFiles: true })) {
-    const filePath = pathJoin(baseDir, file);
-    const archiveName = archivePrefix ? `${archivePrefix}${file}` : file;
-    readPromises.push(readFileAsEntry(filePath, archiveName));
-  }
+    // Collect all file paths first (using Effect.promise to wrap async iteration)
+    const files = yield* Effect.promise(async () => {
+      const result: string[] = [];
+      for await (const file of glob.scan({ cwd: baseDir, onlyFiles: true })) {
+        result.push(file);
+      }
+      return result;
+    });
 
-  return parallel(readPromises, (e) =>
-    wrapError(e, ErrorCode.FILE_READ_FAILED, `Failed to scan ${baseDir}`)
-  );
-};
+    // Read all files in parallel
+    const results = yield* Effect.all(
+      files.map((file) => {
+        const filePath = pathJoin(baseDir, file);
+        const archiveName = archivePrefix ? `${archivePrefix}${file}` : file;
+        return readFileAsEntry(filePath, archiveName);
+      }),
+      { concurrency: "unbounded" }
+    );
+
+    return results;
+  });
 
 /**
  * Collect all config files (for "all" service).
- * Scans multiple patterns in parallel for TOML, age keys, and secrets.
- * Uses fs.ts directoryExists for consistency.
  */
-const collectAllConfigFiles = async (
+const collectAllConfigFiles = (
   configDir: AbsolutePath
-): Promise<Result<Record<string, Uint8Array>, DivbanError>> => {
-  const ageDir = pathJoin(configDir, ".age");
-  const hasAgeDir = await directoryExists(ageDir);
+): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const ageDir = pathJoin(configDir, ".age");
+    const hasAgeDir = yield* directoryExists(ageDir);
 
-  // Parallel scans across different patterns - handles both errors and rejections
-  const scanResults = await parallel(
-    [
-      scanAndReadFiles(configDir, "*.toml"),
-      scanAndReadFiles(configDir, "*.secrets.age"),
-      hasAgeDir
-        ? scanAndReadFiles(ageDir, "*.key", ".age/")
-        : Promise.resolve(Ok([] as FileEntry[])),
-    ],
-    (e) => wrapError(e, ErrorCode.FILE_READ_FAILED, "Failed to scan config files")
-  );
+    const [tomlFiles, secretFiles, ageFiles] = yield* Effect.all(
+      [
+        scanAndReadFiles(configDir, "*.toml"),
+        scanAndReadFiles(configDir, "*.secrets.age"),
+        hasAgeDir ? scanAndReadFiles(ageDir, "*.key", ".age/") : Effect.succeed([] as FileEntry[]),
+      ],
+      { concurrency: "unbounded" }
+    );
 
-  // Combine all file entries if successful
-  return mapResult(scanResults, (results) => Object.fromEntries(results.flat()));
-};
+    return Object.fromEntries([...tomlFiles, ...secretFiles, ...ageFiles]);
+  });
 
 // ============================================================================
 // Config Directory Resolution
@@ -181,66 +156,71 @@ const collectAllConfigFiles = async (
 
 /**
  * Get config directory for a service by looking up its system user.
- * Uses asyncFlatMapResult for clean async chaining.
- * Uses fs.ts directoryExists for consistency.
  */
-const getServiceConfigDir = async (
+const getServiceConfigDir = (
   serviceName: ServiceName
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  const usernameResult = getServiceUsername(serviceName);
-  if (!usernameResult.ok) {
-    return usernameResult;
-  }
+): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
 
-  return asyncFlatMapResult(
-    mapErr(
-      await getUserByName(usernameResult.value),
-      () => new DivbanError(ErrorCode.SERVICE_NOT_FOUND, `Service '${serviceName}' not set up`)
-    ),
-    async (user) => {
-      const configDir = userConfigDir(user.homeDir);
-      return (await directoryExists(configDir))
-        ? Ok(configDir)
-        : Err(
-            new DivbanError(
-              ErrorCode.SERVICE_NOT_FOUND,
-              `Config directory not found for ${serviceName}`
-            )
-          );
+    const userResult = yield* Effect.either(getUserByName(username));
+    if (userResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ServiceError({
+          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          message: `Service '${serviceName}' not set up`,
+          service: serviceName,
+        })
+      );
     }
-  );
-};
+
+    const configDir = userConfigDir(userResult.right.homeDir);
+    if (!(yield* directoryExists(configDir))) {
+      return yield* Effect.fail(
+        new ServiceError({
+          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          message: `Config directory not found for ${serviceName}`,
+          service: serviceName,
+        })
+      );
+    }
+
+    return configDir;
+  });
 
 /**
  * Find first valid config directory from known services.
- * Tries each sequentially until one succeeds.
  */
-const findConfigDir = async (): Promise<Result<AbsolutePath, DivbanError>> => {
-  const knownServices: ServiceName[] = [
-    "immich" as ServiceName,
-    "caddy" as ServiceName,
-    "actual" as ServiceName,
-  ];
+const findConfigDir = (): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const knownServices: ServiceName[] = [
+      "immich" as ServiceName,
+      "caddy" as ServiceName,
+      "actual" as ServiceName,
+    ];
 
-  for (const svc of knownServices) {
-    const result = await getServiceConfigDir(svc);
-    if (result.ok) {
-      return result;
+    for (const svc of knownServices) {
+      const result = yield* Effect.either(getServiceConfigDir(svc));
+      if (result._tag === "Right") {
+        return result.right;
+      }
     }
-  }
 
-  return Err(
-    new DivbanError(
-      ErrorCode.SERVICE_NOT_FOUND,
-      "No configured services found. Run 'divban <service> setup' first."
-    )
-  );
-};
+    return yield* Effect.fail(
+      new ServiceError({
+        code: ErrorCode.SERVICE_NOT_FOUND as 30,
+        message: "No configured services found. Run 'divban <service> setup' first.",
+        service: "all",
+      })
+    );
+  });
 
 /**
  * Resolve config directory based on service (single or "all").
  */
-const resolveConfigDir = (serviceName: string): Promise<Result<AbsolutePath, DivbanError>> =>
+const resolveConfigDir = (
+  serviceName: string
+): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError | ConfigError> =>
   serviceName === "all" ? findConfigDir() : getServiceConfigDir(serviceName as ServiceName);
 
 // ============================================================================
@@ -249,35 +229,27 @@ const resolveConfigDir = (serviceName: string): Promise<Result<AbsolutePath, Div
 
 /**
  * Build archive output path and ensure directory exists.
- * Uses Option pattern for handling optional custom path.
- * Uses fs.ts ensureDirectory for Result-based error handling.
  */
-const prepareOutputPath = async (
+const prepareOutputPath = (
   configDir: AbsolutePath,
   serviceName: string,
   customPath: string | undefined
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  // Option pattern: validate custom path if provided, using transpose for Option<Result> → Result<Option>
-  const customOpt = fromUndefined(customPath);
-  const validatedOpt = transpose(mapOption(customOpt, toAbsolutePath));
+): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
+  Effect.gen(function* () {
+    // If custom path provided, validate and use it
+    const customOpt = Option.fromNullable(customPath);
+    if (Option.isSome(customOpt)) {
+      return yield* toAbsolutePathEffect(customOpt.value);
+    }
 
-  // If validation failed, return the error
-  if (!validatedOpt.ok) {
-    return validatedOpt;
-  }
+    // Generate timestamped default path
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
+    const backupDir = pathJoin(configDir, "backups");
 
-  // If custom path was provided and valid, use it
-  if (validatedOpt.value.isSome) {
-    return Ok(validatedOpt.value.value);
-  }
-
-  // Generate timestamped default path
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
-  const backupDir = pathJoin(configDir, "backups");
-
-  return mapResult(await ensureDirectory(backupDir), () => pathJoin(backupDir, filename));
-};
+    yield* ensureDirectory(backupDir);
+    return pathJoin(backupDir, filename);
+  });
 
 // ============================================================================
 // Main Command Execution
@@ -285,93 +257,78 @@ const prepareOutputPath = async (
 
 /**
  * Execute backup-config command.
- * Creates a compressed archive of configuration files for a service.
  */
-export const executeBackupConfig = async (
+export const executeBackupConfig = (
   options: BackupConfigOptions
-): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-  const serviceName = service.definition.name;
-  const isAll = serviceName === "all";
+): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+    const serviceName = service.definition.name;
+    const isAll = serviceName === "all";
 
-  // Step 1: Resolve config directory
-  const configDirResult = await resolveConfigDir(serviceName);
-  if (!configDirResult.ok) {
-    return configDirResult;
-  }
-  const configDir = configDirResult.value;
+    // Step 1: Resolve config directory
+    const configDir = yield* resolveConfigDir(serviceName);
 
-  // Step 2: Collect files (parallel I/O)
-  logger.info("Collecting configuration files...");
-  const filesResult = isAll
-    ? await collectAllConfigFiles(configDir)
-    : await collectServiceConfigFiles(configDir, serviceName);
+    // Step 2: Collect files (parallel I/O)
+    logger.info("Collecting configuration files...");
+    const files = isAll
+      ? yield* collectAllConfigFiles(configDir)
+      : yield* collectServiceConfigFiles(configDir, serviceName);
 
-  if (!filesResult.ok) {
-    return filesResult;
-  }
-  const files = filesResult.value;
-
-  const fileNames = Object.keys(files);
-  if (fileNames.length === 0) {
-    return Err(
-      new DivbanError(ErrorCode.GENERAL_ERROR, `No configuration files found for ${serviceName}`)
-    );
-  }
-
-  // Step 3: Prepare output path
-  const outputPathResult = await prepareOutputPath(configDir, serviceName, args.configPath);
-  if (!outputPathResult.ok) {
-    return outputPathResult;
-  }
-  const outputPath = outputPathResult.value;
-
-  // Step 4: Handle dry run
-  if (args.dryRun) {
-    logger.info(`Dry run - would create backup at: ${outputPath}`);
-    logger.info("Files to include:");
-    for (const file of fileNames) {
-      logger.info(`  - ${file}`);
+    const fileNames = Object.keys(files);
+    if (fileNames.length === 0) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `No configuration files found for ${serviceName}`,
+        })
+      );
     }
-    return Ok(undefined);
-  }
 
-  // Step 5: Warn about sensitive content
-  logger.warn("WARNING: This backup contains encryption keys and secrets.");
-  logger.warn("Treat this file like a password - store it securely and do not share it.");
+    // Step 3: Prepare output path
+    const outputPath = yield* prepareOutputPath(configDir, serviceName, args.configPath);
 
-  // Step 6: Create archive with metadata
-  const metadata: ArchiveMetadata = {
-    version: "1.0",
-    service: serviceName,
-    timestamp: new Date().toISOString(),
-    files: fileNames,
-  };
+    // Step 4: Handle dry run
+    if (args.dryRun) {
+      logger.info(`Dry run - would create backup at: ${outputPath}`);
+      logger.info("Files to include:");
+      for (const file of fileNames) {
+        logger.info(`  - ${file}`);
+      }
+      return;
+    }
 
-  logger.info("Creating archive...");
-  const archiveData = await createArchive(files, { compress: "gzip", metadata });
+    // Step 5: Warn about sensitive content
+    logger.warn("WARNING: This backup contains encryption keys and secrets.");
+    logger.warn("Treat this file like a password - store it securely and do not share it.");
 
-  // Step 7: Write archive to disk
-  const writeResult = await writeBytes(outputPath, archiveData);
-  if (!writeResult.ok) {
-    return writeResult;
-  }
+    // Step 6: Create archive with metadata
+    const metadata: ArchiveMetadata = {
+      version: "1.0",
+      service: serviceName,
+      timestamp: new Date().toISOString(),
+      files: fileNames,
+    };
 
-  // Step 8: Output result
-  if (args.format === "json") {
-    logger.raw(
-      JSON.stringify({
-        path: outputPath,
-        size: archiveData.length,
-        files: fileNames,
-        timestamp: metadata.timestamp,
-      })
-    );
-  } else {
-    logger.success(`Configuration backup created: ${outputPath}`);
-    logger.info(`  Size: ${formatBytes(archiveData.length)}`);
-    logger.info(`  Files: ${fileNames.length}`);
-  }
+    logger.info("Creating archive...");
+    const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
 
-  return Ok(undefined);
-};
+    // Step 7: Write archive to disk
+    yield* writeBytes(outputPath, archiveData);
+
+    // Step 8: Output result
+    if (args.format === "json") {
+      logger.raw(
+        JSON.stringify({
+          path: outputPath,
+          size: archiveData.length,
+          files: fileNames,
+          timestamp: metadata.timestamp,
+        })
+      );
+    } else {
+      logger.success(`Configuration backup created: ${outputPath}`);
+      logger.info(`  Size: ${formatBytes(archiveData.length)}`);
+      logger.info(`  Files: ${fileNames.length}`);
+    }
+  });

@@ -10,9 +10,17 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
-import { DivbanError, ErrorCode } from "./errors";
+import { ErrorCode, GeneralError } from "./errors";
 import { type Option, fromUndefined } from "./option";
-import { Err, Ok, type Result } from "./result";
+
+/**
+ * Simple Result type for validation functions.
+ * This is a minimal implementation kept for type constructor compatibility.
+ */
+export type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: GeneralError };
+
+const Ok = <T>(value: T): ValidationResult<T> => ({ ok: true, value });
+const Err = (error: GeneralError): ValidationResult<never> => ({ ok: false, error });
 
 /** User ID (1000-65534 range for regular users) */
 export type UserId = number & { readonly __brand: "UserId" };
@@ -55,91 +63,118 @@ const IPV6_HEX_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
  * These provide both type safety and runtime checks.
  */
 
-export const UserId = (n: number): Result<UserId, DivbanError> => {
+export const UserId = (n: number): ValidationResult<UserId> => {
   if (!Number.isInteger(n) || n < 0 || n > 65534) {
     return Err(
-      new DivbanError(ErrorCode.INVALID_ARGS, `Invalid UserId: ${n}. Must be integer 0-65534.`)
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid UserId: ${n}. Must be integer 0-65534.`,
+      })
     );
   }
   return Ok(n as UserId);
 };
 
-export const GroupId = (n: number): Result<GroupId, DivbanError> => {
+export const GroupId = (n: number): ValidationResult<GroupId> => {
   if (!Number.isInteger(n) || n < 0 || n > 65534) {
     return Err(
-      new DivbanError(ErrorCode.INVALID_ARGS, `Invalid GroupId: ${n}. Must be integer 0-65534.`)
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid GroupId: ${n}. Must be integer 0-65534.`,
+      })
     );
   }
   return Ok(n as GroupId);
 };
 
-export const SubordinateId = (n: number): Result<SubordinateId, DivbanError> => {
+export const SubordinateId = (n: number): ValidationResult<SubordinateId> => {
   if (!Number.isInteger(n) || n < 100000 || n > 4294967294) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid SubordinateId: ${n}. Must be integer 100000-4294967294.`
-      )
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid SubordinateId: ${n}. Must be integer 100000-4294967294.`,
+      })
     );
   }
   return Ok(n as SubordinateId);
 };
 
-export const AbsolutePath = (s: string): Result<AbsolutePath, DivbanError> => {
+export const AbsolutePath = (s: string): ValidationResult<AbsolutePath> => {
   if (!s.startsWith("/")) {
     return Err(
-      new DivbanError(ErrorCode.INVALID_ARGS, `Not an absolute path: ${s}. Must start with /.`)
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Not an absolute path: ${s}. Must start with /.`,
+      })
     );
   }
   return Ok(s as AbsolutePath);
 };
 
-export const Username = (s: string): Result<Username, DivbanError> => {
+export const Username = (s: string): ValidationResult<Username> => {
   if (!USERNAME_REGEX.test(s)) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`
-      )
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`,
+      })
     );
   }
   if (s.length > 32) {
     return Err(
-      new DivbanError(ErrorCode.INVALID_ARGS, `Username too long: ${s}. Max 32 characters.`)
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Username too long: ${s}. Max 32 characters.`,
+      })
     );
   }
   return Ok(s as Username);
 };
 
-export const ServiceName = (s: string): Result<ServiceName, DivbanError> => {
+export const ServiceName = (s: string): ValidationResult<ServiceName> => {
   if (!SERVICE_NAME_REGEX.test(s)) {
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`
-      )
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`,
+      })
     );
   }
   return Ok(s as ServiceName);
 };
 
-export const ContainerName = (s: string): Result<ContainerName, DivbanError> => {
+export const ContainerName = (s: string): ValidationResult<ContainerName> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid container name: ${s}.`));
+    return Err(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid container name: ${s}.`,
+      })
+    );
   }
   return Ok(s as ContainerName);
 };
 
-export const NetworkName = (s: string): Result<NetworkName, DivbanError> => {
+export const NetworkName = (s: string): ValidationResult<NetworkName> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid network name: ${s}.`));
+    return Err(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid network name: ${s}.`,
+      })
+    );
   }
   return Ok(s as NetworkName);
 };
 
-export const VolumeName = (s: string): Result<VolumeName, DivbanError> => {
+export const VolumeName = (s: string): ValidationResult<VolumeName> => {
   if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, `Invalid volume name: ${s}.`));
+    return Err(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid volume name: ${s}.`,
+      })
+    );
   }
   return Ok(s as VolumeName);
 };
@@ -154,9 +189,14 @@ export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX
 /** Private IPv4 (RFC 1918) or IPv6 (RFC 4193 ULA) address */
 export type PrivateIP = string & { readonly __brand: "PrivateIP" };
 
-export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
+export const PrivateIP = (s: string): ValidationResult<PrivateIP> => {
   if (typeof s !== "string" || s.length === 0) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Invalid PrivateIP: empty or not a string"));
+    return Err(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: "Invalid PrivateIP: empty or not a string",
+      })
+    );
   }
 
   const trimmed = s.trim();
@@ -169,7 +209,10 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
 
     if ([a, b, c, d].some((n) => n > 255)) {
       return Err(
-        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid octet value`)
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". Invalid octet value`,
+        })
       );
     }
 
@@ -180,10 +223,10 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
 
     if (!isPrivate) {
       return Err(
-        new DivbanError(
-          ErrorCode.INVALID_ARGS,
-          `Invalid PrivateIP: "${s}". IPv4 must be RFC 1918 (10.x.x.x, 172.16-31.x.x, 192.168.x.x)`
-        )
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". IPv4 must be RFC 1918 (10.x.x.x, 172.16-31.x.x, 192.168.x.x)`,
+        })
       );
     }
 
@@ -196,10 +239,10 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
     const groups = trimmed.split("::");
     if (groups.length > 2) {
       return Err(
-        new DivbanError(
-          ErrorCode.INVALID_ARGS,
-          `Invalid PrivateIP: "${s}". Invalid IPv6 format (multiple ::)`
-        )
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". Invalid IPv6 format (multiple ::)`,
+        })
       );
     }
 
@@ -208,14 +251,20 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
 
     if (!allGroups.every(isValidHex)) {
       return Err(
-        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid IPv6 hex group`)
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". Invalid IPv6 hex group`,
+        })
       );
     }
 
     const maxGroups = groups.length === 2 ? 7 : 8; // :: means at least one group elided
     if (allGroups.length > maxGroups) {
       return Err(
-        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Too many IPv6 groups`)
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". Too many IPv6 groups`,
+        })
       );
     }
 
@@ -223,7 +272,10 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
     const firstGroup = trimmed.split(":")[0];
     if (!firstGroup) {
       return Err(
-        new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Invalid IPv6 format`)
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid PrivateIP: "${s}". Invalid IPv6 format`,
+        })
       );
     }
     const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
@@ -233,15 +285,18 @@ export const PrivateIP = (s: string): Result<PrivateIP, DivbanError> => {
     }
 
     return Err(
-      new DivbanError(
-        ErrorCode.INVALID_ARGS,
-        `Invalid PrivateIP: "${s}". IPv6 must be RFC 4193 ULA (fc00::/7)`
-      )
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: `Invalid PrivateIP: "${s}". IPv6 must be RFC 4193 ULA (fc00::/7)`,
+      })
     );
   }
 
   return Err(
-    new DivbanError(ErrorCode.INVALID_ARGS, `Invalid PrivateIP: "${s}". Not a valid IP format`)
+    new GeneralError({
+      code: ErrorCode.INVALID_ARGS as 2,
+      message: `Invalid PrivateIP: "${s}". Not a valid IP format`,
+    })
   );
 };
 
@@ -279,7 +334,7 @@ type AbsolutePathLiteral = `/${string}`;
  * - Known config locations: path("/etc/divban")
  *
  * For dynamic paths (variables, user input), use:
- * - AbsolutePath(str) for runtime validation returning Result
+ * - AbsolutePath(str) for runtime validation returning ValidationResult
  * - pathJoin(base, ...segments) for path concatenation
  *
  * @example
@@ -351,9 +406,14 @@ export function pathWithSuffix(base: string, suffix: string): string {
  * Join path segments into an AbsolutePath.
  * First segment must start with /.
  */
-export const joinPath = (...segments: string[]): Result<AbsolutePath, DivbanError> => {
+export const joinPath = (...segments: string[]): ValidationResult<AbsolutePath> => {
   if (segments.length === 0) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "No path segments provided"));
+    return Err(
+      new GeneralError({
+        code: ErrorCode.INVALID_ARGS as 2,
+        message: "No path segments provided",
+      })
+    );
   }
   const joined = segments.join("/").replace(/\/+/g, "/");
   return AbsolutePath(joined);
@@ -395,8 +455,5 @@ export const getEnvOrDefault = (key: string, defaultValue: string): string => {
  * };
  */
 export const assertNever = (x: never, message?: string): never => {
-  throw new DivbanError(
-    ErrorCode.GENERAL_ERROR,
-    message ?? `Unexpected value: ${JSON.stringify(x)}`
-  );
+  throw new Error(message ?? `Unexpected value: ${JSON.stringify(x)}`);
 };

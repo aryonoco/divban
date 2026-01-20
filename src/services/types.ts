@@ -10,10 +10,16 @@
  * All services implement this interface for consistent behavior.
  */
 
-import type { Schema } from "effect";
-import type { DivbanError } from "../lib/errors";
+import type { Effect, Schema } from "effect";
+import type {
+  BackupError,
+  ConfigError,
+  ContainerError,
+  GeneralError,
+  ServiceError,
+  SystemError,
+} from "../lib/errors";
 import type { Logger } from "../lib/logger";
-import type { Result } from "../lib/result";
 import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
 
 /**
@@ -193,11 +199,11 @@ export interface BackupResult {
 }
 
 /**
- * Service interface.
+ * Effect-based service interface.
  * All services must implement these methods.
  * @template C - Service-specific configuration type
  */
-export interface Service<C> {
+export interface ServiceEffect<C> {
   /** Service definition (metadata) */
   readonly definition: ServiceDefinition;
 
@@ -207,19 +213,21 @@ export interface Service<C> {
    * Validate a configuration file.
    * @param configPath Path to configuration file
    */
-  validate(configPath: AbsolutePath): Promise<Result<void, DivbanError>>;
+  validate(configPath: AbsolutePath): Effect.Effect<void, ConfigError | SystemError>;
 
   /**
    * Generate all files for the service.
    * @param ctx Service context
    */
-  generate(ctx: ServiceContext<C>): Promise<Result<GeneratedFiles, DivbanError>>;
+  generate(ctx: ServiceContext<C>): Effect.Effect<GeneratedFiles, ServiceError | GeneralError>;
 
   /**
    * Full setup: create user, directories, generate files, install quadlets.
    * @param ctx Service context
    */
-  setup(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
+  setup(
+    ctx: ServiceContext<C>
+  ): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError>;
 
   // === Runtime Methods ===
 
@@ -227,32 +235,37 @@ export interface Service<C> {
    * Start the service.
    * @param ctx Service context
    */
-  start(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
+  start(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
 
   /**
    * Stop the service.
    * @param ctx Service context
    */
-  stop(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
+  stop(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
 
   /**
    * Restart the service.
    * @param ctx Service context
    */
-  restart(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
+  restart(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
 
   /**
    * Get service status.
    * @param ctx Service context
    */
-  status(ctx: ServiceContext<C>): Promise<Result<ServiceStatus, DivbanError>>;
+  status(
+    ctx: ServiceContext<C>
+  ): Effect.Effect<ServiceStatus, ServiceError | SystemError | GeneralError>;
 
   /**
    * View service logs.
    * @param ctx Service context
    * @param options Log viewing options
    */
-  logs(ctx: ServiceContext<C>, options: LogOptions): Promise<Result<void, DivbanError>>;
+  logs(
+    ctx: ServiceContext<C>,
+    options: LogOptions
+  ): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
 
   // === Optional Methods ===
 
@@ -260,24 +273,31 @@ export interface Service<C> {
    * Reload configuration without restart (if supported).
    * @param ctx Service context
    */
-  reload?(ctx: ServiceContext<C>): Promise<Result<void, DivbanError>>;
+  reload?(
+    ctx: ServiceContext<C>
+  ): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError>;
 
   /**
    * Create a backup (if supported).
    * @param ctx Service context
    */
-  backup?(ctx: ServiceContext<C>): Promise<Result<BackupResult, DivbanError>>;
+  backup?(
+    ctx: ServiceContext<C>
+  ): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError>;
 
   /**
    * Restore from backup (if supported).
    * @param ctx Service context
    * @param backupPath Path to backup file
    */
-  restore?(ctx: ServiceContext<C>, backupPath: AbsolutePath): Promise<Result<void, DivbanError>>;
+  restore?(
+    ctx: ServiceContext<C>,
+    backupPath: AbsolutePath
+  ): Effect.Effect<void, BackupError | SystemError | GeneralError>;
 }
 
 /** Type-erased service for registry and CLI usage */
-export type AnyService = Service<unknown>;
+export type AnyServiceEffect = ServiceEffect<unknown>;
 
 /**
  * Create an empty GeneratedFiles object.

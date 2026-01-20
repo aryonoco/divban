@@ -6,30 +6,27 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Shared utilities for CLI commands.
+ * Effect-based shared utilities for CLI commands.
  */
 
+import { Effect } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import {
+  ConfigError,
+  ErrorCode,
+  type GeneralError,
+  ServiceError,
+  type SystemError,
+} from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import {
   buildServicePaths,
-  toAbsolutePath,
+  toAbsolutePathEffect,
   userConfigDir,
   userDataDir,
   userQuadletDir,
 } from "../../lib/paths";
-import {
-  Err,
-  Ok,
-  type Result,
-  asyncFlatMapResult,
-  mapErr,
-  mapResult,
-  orElse,
-  unwrapOr,
-} from "../../lib/result";
 import {
   AbsolutePath,
   type AbsolutePath as AbsolutePathType,
@@ -39,7 +36,7 @@ import {
   pathJoin,
   userIdToGroupId,
 } from "../../lib/types";
-import type { AnyService, ServiceContext, SystemCapabilities } from "../../services/types";
+import type { AnyServiceEffect, ServiceContext, SystemCapabilities } from "../../services/types";
 import { isSELinuxEnforcing } from "../../system/selinux";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
@@ -57,7 +54,7 @@ export const getContextOptions = (args: ParsedArgs): ServiceContext<unknown>["op
  * Common config file locations for a service.
  * Search paths are plain strings (may be relative).
  */
-const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): string[] => [
+const getConfigPaths = (serviceName: string, homeDir: AbsolutePathType): string[] => [
   pathJoin(homeDir, ".config", "divban", `${serviceName}.toml`),
   `/etc/divban/${serviceName}.toml`,
   `./divban-${serviceName}.toml`,
@@ -67,38 +64,38 @@ const getConfigPaths = (serviceName: string, homeDir: AbsolutePath): string[] =>
  * Find and load a service configuration file.
  * Searches in common locations if no explicit path is provided.
  */
-export const resolveServiceConfig = async (
-  service: AnyService,
-  homeDir: AbsolutePath,
+export const resolveServiceConfig = (
+  service: AnyServiceEffect,
+  homeDir: AbsolutePathType,
   explicitPath?: string
-): Promise<Result<unknown, DivbanError>> => {
-  // If explicit path provided, use it
-  if (explicitPath) {
-    return asyncFlatMapResult(toAbsolutePath(explicitPath), (path) =>
-      loadServiceConfig(path, service.definition.configSchema)
-    );
-  }
-
-  // Search common locations
-  const searchPaths = getConfigPaths(service.definition.name, homeDir);
-
-  for (const p of searchPaths) {
-    const file = Bun.file(p);
-    if (await file.exists()) {
-      return asyncFlatMapResult(toAbsolutePath(p), (path) =>
-        loadServiceConfig(path, service.definition.configSchema)
-      );
+): Effect.Effect<unknown, ConfigError | SystemError> =>
+  Effect.gen(function* () {
+    // If explicit path provided, use it
+    if (explicitPath) {
+      const path = yield* toAbsolutePathEffect(explicitPath);
+      return yield* loadServiceConfig(path, service.definition.configSchema);
     }
-  }
 
-  // No config found - this might be OK for some operations
-  return Err(
-    new DivbanError(
-      ErrorCode.CONFIG_NOT_FOUND,
-      `No configuration file found for ${service.definition.name}. Searched: ${searchPaths.join(", ")}`
-    )
-  );
-};
+    // Search common locations
+    const searchPaths = getConfigPaths(service.definition.name, homeDir);
+
+    for (const p of searchPaths) {
+      const file = Bun.file(p);
+      const exists = yield* Effect.promise(() => file.exists());
+      if (exists) {
+        const path = yield* toAbsolutePathEffect(p);
+        return yield* loadServiceConfig(path, service.definition.configSchema);
+      }
+    }
+
+    // No config found
+    return yield* Effect.fail(
+      new ConfigError({
+        code: ErrorCode.CONFIG_NOT_FOUND as 10,
+        message: `No configuration file found for ${service.definition.name}. Searched: ${searchPaths.join(", ")}`,
+      })
+    );
+  });
 
 /**
  * Format duration for display.
@@ -149,14 +146,15 @@ export const getDataDirFromConfig = (
     typeof config.paths.dataDir === "string"
   ) {
     // Validate the path, falling back to default if invalid
-    return unwrapOr(AbsolutePath(config.paths.dataDir), fallback);
+    const pathResult = AbsolutePath(config.paths.dataDir);
+    return pathResult.ok ? pathResult.value : fallback;
   }
   return fallback;
 };
 
 /**
  * Pad text to a specific display width using Bun.stringWidth().
- * Handles Unicode and emoji correctly (6,756x faster than npm packages).
+ * Handles Unicode and emoji correctly.
  */
 export const padToWidth = (text: string, width: number): string => {
   const currentWidth = Bun.stringWidth(text);
@@ -185,9 +183,14 @@ export const truncateToWidth = (text: string, maxWidth: number): string => {
  * Detect system capabilities at runtime.
  * Used to determine SELinux status for volume relabeling.
  */
-export const detectSystemCapabilities = async (): Promise<SystemCapabilities> => ({
-  selinuxEnforcing: await isSELinuxEnforcing(),
-});
+export const detectSystemCapabilities = (): Effect.Effect<
+  SystemCapabilities,
+  SystemError | GeneralError
+> =>
+  Effect.gen(function* () {
+    const selinuxEnforcing = yield* isSELinuxEnforcing();
+    return { selinuxEnforcing };
+  });
 
 // ============================================================================
 // Service Context Builder
@@ -200,14 +203,14 @@ export interface ServiceUser {
   name: Username;
   uid: UserId;
   gid: GroupId;
-  homeDir: AbsolutePath;
+  homeDir: AbsolutePathType;
 }
 
 /**
  * Options for building a service context.
  */
 export interface BuildContextOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
   /** If true, returns error when config not found. Default: false */
@@ -227,59 +230,68 @@ export interface ContextWithUser<C> {
 /**
  * Resolve service user from system.
  * Returns error if user doesn't exist.
- *
- * Uses asyncFlatMapResult to chain: getServiceUsername → getUserByName → transform
  */
 export const resolveServiceUser = (
   serviceName: string
-): Promise<Result<ServiceUser, DivbanError>> =>
-  asyncFlatMapResult(getServiceUsername(serviceName), async (username) =>
-    mapResult(
-      mapErr(
-        await getUserByName(username),
-        () =>
-          new DivbanError(
-            ErrorCode.SERVICE_NOT_FOUND,
-            `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`
-          )
-      ),
-      ({ uid, homeDir }) => ({
-        name: username,
-        uid,
-        gid: userIdToGroupId(uid),
-        homeDir,
-      })
-    )
-  );
+): Effect.Effect<ServiceUser, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const username = yield* getServiceUsername(serviceName);
+    const userInfoResult = yield* Effect.either(getUserByName(username));
+
+    if (userInfoResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ServiceError({
+          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          message: `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`,
+          service: serviceName,
+        })
+      );
+    }
+
+    const { uid, homeDir } = userInfoResult.right;
+    return {
+      name: username,
+      uid,
+      gid: userIdToGroupId(uid),
+      homeDir,
+    };
+  });
 
 /**
  * Build ServiceContext for commands that need an existing user.
  * Patterns A & B: User must exist, config may be optional or required.
- *
- * Uses asyncFlatMapResult for the main chain, orElse for config fallback.
  */
-export const buildServiceContext = async <C = unknown>(
+export const buildServiceContext = <C = unknown>(
   options: BuildContextOptions
-): Promise<Result<ContextWithUser<C>, DivbanError>> => {
-  const { service, args, logger, requireConfig = false, configPath } = options;
+): Effect.Effect<ContextWithUser<C>, ServiceError | ConfigError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { service, args, logger, requireConfig = false, configPath } = options;
 
-  // Chain: resolveUser → resolveConfig → buildContext
-  return asyncFlatMapResult(await resolveServiceUser(service.definition.name), async (user) => {
-    const configResult = await resolveServiceConfig(service, user.homeDir, configPath);
+    // Resolve user first
+    const user = yield* resolveServiceUser(service.definition.name);
 
-    // Use orElse for optional config fallback (Pattern A)
-    // For requireConfig (Pattern B), propagate error
-    const config = requireConfig ? configResult : orElse(configResult, () => Ok({} as C));
+    // Resolve config (may fail if not found)
+    const configResult = yield* Effect.either(
+      resolveServiceConfig(service, user.homeDir, configPath)
+    );
 
-    if (!config.ok) {
-      return config;
+    // Handle config based on requireConfig flag
+    let config: C;
+    if (configResult._tag === "Left") {
+      if (requireConfig) {
+        return yield* Effect.fail(configResult.left);
+      }
+      config = {} as C;
+    } else {
+      config = configResult.right as C;
     }
 
     // Build paths - dataDir depends on config
     const baseDataDir = userDataDir(user.homeDir);
-    const dataDir = configResult.ok
-      ? getDataDirFromConfig(configResult.value, baseDataDir)
-      : baseDataDir;
+    const dataDir =
+      configResult._tag === "Right"
+        ? getDataDirFromConfig(configResult.right, baseDataDir)
+        : baseDataDir;
 
     // Use buildServicePaths for simple pattern, manual for config-required pattern
     const paths = requireConfig
@@ -291,9 +303,12 @@ export const buildServiceContext = async <C = unknown>(
         }
       : buildServicePaths(user.homeDir, dataDir);
 
+    // Detect system capabilities
+    const system = yield* detectSystemCapabilities();
+
     // Build final context
     const ctx: ServiceContext<C> = {
-      config: config.value as C,
+      config,
       logger,
       paths,
       user: {
@@ -302,9 +317,8 @@ export const buildServiceContext = async <C = unknown>(
         gid: user.gid,
       },
       options: getContextOptions(args),
-      system: await detectSystemCapabilities(),
+      system,
     };
 
-    return Ok({ ctx, user });
+    return { ctx, user };
   });
-};

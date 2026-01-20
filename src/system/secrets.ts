@@ -6,15 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Secret management for divban services.
+ * Secret management using Effect for error handling.
  * Handles generation, podman secret creation, and encrypted backup.
  */
 
+import { Effect } from "effect";
 import { generatePassword } from "../lib/crypto";
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { fromUndefined } from "../lib/option";
+import { ContainerError, ErrorCode, type GeneralError, type SystemError } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
-import { Err, Ok, type Result, flatMapResult, mapResult } from "../lib/result";
 import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
 import { pathJoin } from "../lib/types";
 import {
@@ -79,13 +78,13 @@ export const getPodmanSecretName = (serviceName: ServiceName, secretName: string
 /**
  * Check if a podman secret exists.
  */
-export const podmanSecretExists = async (
+export const podmanSecretExists = (
   secretName: string,
   user: Username,
   uid: number
-): Promise<Result<boolean, DivbanError>> =>
-  mapResult(
-    await execAsUser(user, uid, ["podman", "secret", "exists", secretName]),
+): Effect.Effect<boolean, SystemError | GeneralError> =>
+  Effect.map(
+    execAsUser(user, uid, ["podman", "secret", "exists", secretName]),
     (r) => r.exitCode === 0
   );
 
@@ -99,42 +98,38 @@ const isSecretExistsError = (stderr: string): boolean => stderr.includes("alread
  * Uses shell piping to pass secret value through stdin.
  * Treats "already exists" as success (idempotent).
  */
-const createPodmanSecret = async (
+const createPodmanSecret = (
   secretName: string,
   value: string,
   user: Username,
   uid: number
-): Promise<Result<void, DivbanError>> => {
-  // Use printf and pipe to pass secret value - more reliable than stdin option with sudo
-  const escapedValue = shellEscape(value);
-  const escapedName = shellEscape(secretName);
-  const result = await shellAsUser(
-    user,
-    uid,
-    `printf '%s' ${escapedValue} | podman secret create ${escapedName} -`
-  );
+): Effect.Effect<void, SystemError | ContainerError> =>
+  Effect.gen(function* () {
+    // Use printf and pipe to pass secret value - more reliable than stdin option with sudo
+    const escapedValue = shellEscape(value);
+    const escapedName = shellEscape(secretName);
+    const result = yield* shellAsUser(
+      user,
+      uid,
+      `printf '%s' ${escapedValue} | podman secret create ${escapedName} -`
+    );
 
-  if (!result.ok) {
-    return result;
-  }
-
-  // Use flatMapResult for clean recovery logic
-  return flatMapResult(result, (output) => {
-    if (output.exitCode === 0) {
-      return Ok(undefined);
+    if (result.exitCode === 0) {
+      return;
     }
+
     // Recover if secret already exists (idempotent)
-    if (isSecretExistsError(output.stderr)) {
-      return Ok(undefined);
+    if (isSecretExistsError(result.stderr)) {
+      return;
     }
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Failed to create podman secret ${secretName}: ${output.stderr}`
-      )
+
+    return yield* Effect.fail(
+      new ContainerError({
+        code: ErrorCode.SECRET_ERROR as 45,
+        message: `Failed to create podman secret ${secretName}: ${result.stderr}`,
+      })
     );
   });
-};
 
 /**
  * Ensure all secrets exist for a service.
@@ -143,142 +138,134 @@ const createPodmanSecret = async (
  * - Creates age-encrypted backup
  * - Creates podman secrets
  */
-export const ensureServiceSecrets = async (
+export const ensureServiceSecrets = (
   serviceName: ServiceName,
   definitions: readonly SecretDefinition[],
   homeDir: AbsolutePath,
   user: Username,
   uid: number,
   gid: number
-): Promise<Result<ServiceSecrets, DivbanError>> => {
-  const paths = getSecretPaths(homeDir, serviceName);
-  const owner = { uid: uid as UserId, gid: gid as GroupId };
+): Effect.Effect<ServiceSecrets, SystemError | GeneralError | ContainerError> =>
+  Effect.gen(function* () {
+    const paths = getSecretPaths(homeDir, serviceName);
+    const owner = { uid: uid as UserId, gid: gid as GroupId };
 
-  // Ensure age key directory exists
-  const dirResult = await ensureDirectory(paths.ageKeyDir, owner, "0700");
-  if (!dirResult.ok) {
-    return dirResult;
-  }
+    // Ensure age key directory exists
+    yield* ensureDirectory(paths.ageKeyDir, owner, "0700");
 
-  // Ensure age keypair exists
-  const keypairResult = await ensureKeypair(paths.ageKeyPath);
-  if (!keypairResult.ok) {
-    return keypairResult;
-  }
-  const keypair = keypairResult.value;
+    // Ensure age keypair exists
+    const keypair = yield* ensureKeypair(paths.ageKeyPath);
 
-  // Check if we have existing encrypted secrets
-  const hasBackup = await fileExists(paths.secretsBackupPath);
-  let existingSecrets: Record<string, string> = {};
+    // Check if we have existing encrypted secrets
+    const hasBackup = yield* fileExists(paths.secretsBackupPath);
+    let existingSecrets: Record<string, string> = {};
 
-  if (hasBackup) {
-    const decryptResult = await decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey);
-    if (decryptResult.ok) {
-      existingSecrets = decryptResult.value;
-    }
-    // If decryption fails, we'll regenerate secrets
-  }
-
-  // Generate or reuse secrets
-  const secrets: Record<string, string> = {};
-  for (const def of definitions) {
-    const podmanName = getPodmanSecretName(serviceName, def.name);
-
-    // Check if podman secret already exists
-    const existsResult = await podmanSecretExists(podmanName, user, uid);
-    if (!existsResult.ok) {
-      return existsResult;
+    if (hasBackup) {
+      const decryptResult = yield* Effect.either(
+        decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey)
+      );
+      if (decryptResult._tag === "Right") {
+        existingSecrets = decryptResult.right;
+      }
+      // If decryption fails, we'll regenerate secrets
     }
 
-    const existingValueOpt = fromUndefined(existingSecrets[def.name]);
-    if (existsResult.value && existingValueOpt.isSome) {
-      // Reuse existing secret
-      secrets[def.name] = existingValueOpt.value;
-    } else {
-      // Generate new secret
-      const value = existingValueOpt.isSome
-        ? existingValueOpt.value
-        : generatePassword(def.length ?? 32);
-      secrets[def.name] = value;
+    // Generate or reuse secrets
+    const secrets: Record<string, string> = {};
+    for (const def of definitions) {
+      const podmanName = getPodmanSecretName(serviceName, def.name);
 
-      // Create podman secret if it doesn't exist
-      if (!existsResult.value) {
-        const createResult = await createPodmanSecret(podmanName, value, user, uid);
-        if (!createResult.ok) {
-          return createResult;
+      // Check if podman secret already exists
+      const secretExists = yield* podmanSecretExists(podmanName, user, uid);
+
+      const existingValue = existingSecrets[def.name];
+      if (secretExists && existingValue !== undefined) {
+        // Reuse existing secret
+        secrets[def.name] = existingValue;
+      } else {
+        // Generate new secret or use existing backup value
+        const value = existingValue ?? generatePassword(def.length ?? 32);
+        secrets[def.name] = value;
+
+        // Create podman secret if it doesn't exist
+        if (!secretExists) {
+          yield* createPodmanSecret(podmanName, value, user, uid);
         }
       }
     }
-  }
 
-  // Write encrypted backup
-  const backupResult = await encryptSecretsToFile(
-    secrets,
-    keypair.publicKey,
-    paths.secretsBackupPath
-  );
-  if (!backupResult.ok) {
-    return backupResult;
-  }
+    // Write encrypted backup
+    yield* encryptSecretsToFile(secrets, keypair.publicKey, paths.secretsBackupPath);
 
-  return Ok({ values: secrets, keypair });
-};
+    return { values: secrets, keypair };
+  });
 
 /**
  * Get a secret value for display.
  * Decrypts from the backup file.
  */
-export const getServiceSecret = async (
+export const getServiceSecret = (
   serviceName: ServiceName,
   secretName: string,
   homeDir: AbsolutePath
-): Promise<Result<string, DivbanError>> => {
-  const paths = getSecretPaths(homeDir, serviceName);
+): Effect.Effect<string, SystemError | GeneralError | ContainerError> =>
+  Effect.gen(function* () {
+    const paths = getSecretPaths(homeDir, serviceName);
 
-  // Read secret key
-  const keypairResult = await ensureKeypair(paths.ageKeyPath);
-  if (!keypairResult.ok) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `No secrets found for ${serviceName}`));
-  }
+    // Read secret key
+    const keypairResult = yield* Effect.either(ensureKeypair(paths.ageKeyPath));
+    if (keypairResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.SECRET_NOT_FOUND as 46,
+          message: `No secrets found for ${serviceName}`,
+        })
+      );
+    }
 
-  // Decrypt secrets
-  const secretsResult = await decryptSecretsFromFile(
-    paths.secretsBackupPath,
-    keypairResult.value.secretKey
-  );
-  if (!secretsResult.ok) {
-    return secretsResult;
-  }
+    // Decrypt secrets
+    const secrets = yield* decryptSecretsFromFile(
+      paths.secretsBackupPath,
+      keypairResult.right.secretKey
+    );
 
-  const value = secretsResult.value[secretName];
-  if (!value) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `Secret '${secretName}' not found`));
-  }
+    const value = secrets[secretName];
+    if (value === undefined) {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.SECRET_NOT_FOUND as 46,
+          message: `Secret '${secretName}' not found`,
+        })
+      );
+    }
 
-  return Ok(value);
-};
+    return value;
+  });
 
 /**
  * List available secrets for a service.
  */
-export const listServiceSecrets = async (
+export const listServiceSecrets = (
   serviceName: ServiceName,
   homeDir: AbsolutePath
-): Promise<Result<string[], DivbanError>> => {
-  const paths = getSecretPaths(homeDir, serviceName);
+): Effect.Effect<string[], SystemError | GeneralError | ContainerError> =>
+  Effect.gen(function* () {
+    const paths = getSecretPaths(homeDir, serviceName);
 
-  const keypairResult = await ensureKeypair(paths.ageKeyPath);
-  if (!keypairResult.ok) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `No secrets found for ${serviceName}`));
-  }
+    const keypairResult = yield* Effect.either(ensureKeypair(paths.ageKeyPath));
+    if (keypairResult._tag === "Left") {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.SECRET_NOT_FOUND as 46,
+          message: `No secrets found for ${serviceName}`,
+        })
+      );
+    }
 
-  const secretsResult = await decryptSecretsFromFile(
-    paths.secretsBackupPath,
-    keypairResult.value.secretKey
-  );
-  if (!secretsResult.ok) {
-    return secretsResult;
-  }
+    const secrets = yield* decryptSecretsFromFile(
+      paths.secretsBackupPath,
+      keypairResult.right.secretKey
+    );
 
-  return Ok(Object.keys(secretsResult.value));
-};
+    return Object.keys(secrets);
+  });

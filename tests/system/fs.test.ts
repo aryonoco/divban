@@ -7,7 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { isSome } from "../../src/lib/option.ts";
+import { Effect, Exit, Option } from "effect";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import {
   atomicWrite,
@@ -27,7 +27,7 @@ const TEST_FILE = pathJoin(TEST_DIR, "test.txt");
 
 describe("fs", () => {
   beforeAll(async () => {
-    await ensureDirectory(TEST_DIR);
+    await Effect.runPromise(ensureDirectory(TEST_DIR));
   });
 
   afterAll(async () => {
@@ -40,121 +40,116 @@ describe("fs", () => {
 
   describe("writeFile and readFile", () => {
     test("writes and reads text file correctly", async () => {
-      const writeResult = await writeFile(TEST_FILE, "Hello, Bun!");
-      expect(writeResult.ok).toBe(true);
+      await Effect.runPromise(writeFile(TEST_FILE, "Hello, Bun!"));
 
-      const readResult = await readFile(TEST_FILE);
-      expect(readResult.ok).toBe(true);
-      if (readResult.ok) {
-        expect(readResult.value).toBe("Hello, Bun!");
-      }
+      const content = await Effect.runPromise(readFile(TEST_FILE));
+      expect(content).toBe("Hello, Bun!");
     });
 
     test("handles unicode content", async () => {
       const content = "Hello 世界 🌍";
       const unicodePath = pathJoin(TEST_DIR, "unicode.txt");
 
-      await writeFile(unicodePath, content);
-      const result = await readFile(unicodePath);
+      await Effect.runPromise(writeFile(unicodePath, content));
+      const result = await Effect.runPromise(readFile(unicodePath));
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toBe(content);
-      }
+      expect(result).toBe(content);
     });
 
     test("readFile returns error for non-existent file", async () => {
-      const result = await readFile(path("/tmp/divban-nonexistent.txt"));
-      expect(result.ok).toBe(false);
+      const exit = await Effect.runPromiseExit(readFile(path("/tmp/divban-nonexistent.txt")));
+      expect(Exit.isFailure(exit)).toBe(true);
     });
   });
 
   describe("fileExists", () => {
     test("returns true for existing file", async () => {
-      await writeFile(TEST_FILE, "test");
-      expect(await fileExists(TEST_FILE)).toBe(true);
+      await Effect.runPromise(writeFile(TEST_FILE, "test"));
+      const exists = await Effect.runPromise(fileExists(TEST_FILE));
+      expect(exists).toBe(true);
     });
 
     test("returns false for non-existent file", async () => {
-      expect(await fileExists(path("/tmp/divban-nonexistent.txt"))).toBe(false);
+      const exists = await Effect.runPromise(fileExists(path("/tmp/divban-nonexistent.txt")));
+      expect(exists).toBe(false);
     });
   });
 
   describe("directoryExists", () => {
     test("returns true for existing directory", async () => {
-      expect(await directoryExists(TEST_DIR)).toBe(true);
+      const exists = await Effect.runPromise(directoryExists(TEST_DIR));
+      expect(exists).toBe(true);
     });
 
     test("returns false for non-existent directory", async () => {
-      expect(await directoryExists(path("/tmp/divban-nonexistent-dir"))).toBe(false);
+      const exists = await Effect.runPromise(directoryExists(path("/tmp/divban-nonexistent-dir")));
+      expect(exists).toBe(false);
     });
 
     test("returns false for file path", async () => {
-      await writeFile(TEST_FILE, "test");
-      expect(await directoryExists(TEST_FILE)).toBe(false);
+      await Effect.runPromise(writeFile(TEST_FILE, "test"));
+      const exists = await Effect.runPromise(directoryExists(TEST_FILE));
+      expect(exists).toBe(false);
     });
   });
 
   describe("ensureDirectory", () => {
     test("creates new directory", async () => {
       const newDir = pathJoin(TEST_DIR, "new-dir");
-      const result = await ensureDirectory(newDir);
+      await Effect.runPromise(ensureDirectory(newDir));
 
-      expect(result.ok).toBe(true);
-      expect(await directoryExists(newDir)).toBe(true);
+      const exists = await Effect.runPromise(directoryExists(newDir));
+      expect(exists).toBe(true);
     });
 
     test("creates nested directories", async () => {
       const nestedDir = pathJoin(TEST_DIR, "a", "b", "c");
-      const result = await ensureDirectory(nestedDir);
+      await Effect.runPromise(ensureDirectory(nestedDir));
 
-      expect(result.ok).toBe(true);
-      expect(await directoryExists(nestedDir)).toBe(true);
+      const exists = await Effect.runPromise(directoryExists(nestedDir));
+      expect(exists).toBe(true);
     });
 
     test("succeeds if directory already exists", async () => {
-      const result = await ensureDirectory(TEST_DIR);
-      expect(result.ok).toBe(true);
+      // Should not throw
+      await Effect.runPromise(ensureDirectory(TEST_DIR));
     });
   });
 
   describe("listDirectory", () => {
     test("lists files in directory", async () => {
       const listDir = pathJoin(TEST_DIR, "list-test");
-      await ensureDirectory(listDir);
-      await writeFile(pathJoin(listDir, "file1.txt"), "1");
-      await writeFile(pathJoin(listDir, "file2.txt"), "2");
+      await Effect.runPromise(ensureDirectory(listDir));
+      await Effect.runPromise(writeFile(pathJoin(listDir, "file1.txt"), "1"));
+      await Effect.runPromise(writeFile(pathJoin(listDir, "file2.txt"), "2"));
 
-      const result = await listDirectory(listDir);
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toContain("file1.txt");
-        expect(result.value).toContain("file2.txt");
-      }
+      const files = await Effect.runPromise(listDirectory(listDir));
+      expect(files).toContain("file1.txt");
+      expect(files).toContain("file2.txt");
     });
 
     test("returns error for non-existent directory", async () => {
-      const result = await listDirectory(path("/tmp/divban-nonexistent"));
-      expect(result.ok).toBe(false);
+      const exit = await Effect.runPromiseExit(listDirectory(path("/tmp/divban-nonexistent")));
+      expect(Exit.isFailure(exit)).toBe(true);
     });
   });
 
   describe("globFiles", () => {
     test("finds files matching pattern", async () => {
       const globDir = pathJoin(TEST_DIR, "glob-test");
-      await ensureDirectory(globDir);
-      await writeFile(pathJoin(globDir, "test1.ts"), "");
-      await writeFile(pathJoin(globDir, "test2.ts"), "");
-      await writeFile(pathJoin(globDir, "other.js"), "");
+      await Effect.runPromise(ensureDirectory(globDir));
+      await Effect.runPromise(writeFile(pathJoin(globDir, "test1.ts"), ""));
+      await Effect.runPromise(writeFile(pathJoin(globDir, "test2.ts"), ""));
+      await Effect.runPromise(writeFile(pathJoin(globDir, "other.js"), ""));
 
-      const files = await globFiles("*.ts", { cwd: globDir });
+      const files = await Effect.runPromise(globFiles("*.ts", { cwd: globDir }));
       expect(files).toContain("test1.ts");
       expect(files).toContain("test2.ts");
       expect(files).not.toContain("other.js");
     });
 
     test("returns empty array when no matches", async () => {
-      const files = await globFiles("*.xyz", { cwd: TEST_DIR });
+      const files = await Effect.runPromise(globFiles("*.xyz", { cwd: TEST_DIR }));
       expect(files).toEqual([]);
     });
   });
@@ -170,58 +165,43 @@ describe("fs", () => {
   describe("atomicWrite", () => {
     test("writes file atomically", async () => {
       const atomicPath = pathJoin(TEST_DIR, "atomic.txt");
-      const result = await atomicWrite(atomicPath, "atomic content");
+      await Effect.runPromise(atomicWrite(atomicPath, "atomic content"));
 
-      expect(result.ok).toBe(true);
-
-      const readResult = await readFile(atomicPath);
-      expect(readResult.ok).toBe(true);
-      if (readResult.ok) {
-        expect(readResult.value).toBe("atomic content");
-      }
+      const content = await Effect.runPromise(readFile(atomicPath));
+      expect(content).toBe("atomic content");
     });
   });
 
   describe("writeFileExclusive", () => {
     test("creates new file and returns Some", async () => {
       const exclusivePath = pathJoin(TEST_DIR, "exclusive-new.txt");
-      const result = await writeFileExclusive(exclusivePath, "exclusive content");
+      const result = await Effect.runPromise(
+        writeFileExclusive(exclusivePath, "exclusive content")
+      );
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(isSome(result.value)).toBe(true);
-      }
+      expect(Option.isSome(result)).toBe(true);
 
-      const readResult = await readFile(exclusivePath);
-      expect(readResult.ok).toBe(true);
-      if (readResult.ok) {
-        expect(readResult.value).toBe("exclusive content");
-      }
+      const content = await Effect.runPromise(readFile(exclusivePath));
+      expect(content).toBe("exclusive content");
     });
 
     test("returns None if file already exists", async () => {
       const existingPath = pathJoin(TEST_DIR, "exclusive-existing.txt");
-      await writeFile(existingPath, "original content");
+      await Effect.runPromise(writeFile(existingPath, "original content"));
 
-      const result = await writeFileExclusive(existingPath, "new content");
+      const result = await Effect.runPromise(writeFileExclusive(existingPath, "new content"));
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(isSome(result.value)).toBe(false);
-      }
+      expect(Option.isNone(result)).toBe(true);
 
       // Verify original content unchanged
-      const readResult = await readFile(existingPath);
-      expect(readResult.ok).toBe(true);
-      if (readResult.ok) {
-        expect(readResult.value).toBe("original content");
-      }
+      const content = await Effect.runPromise(readFile(existingPath));
+      expect(content).toBe("original content");
     });
 
     test("returns Err for other errors (e.g., invalid path)", async () => {
       const invalidPath = path("/nonexistent-dir/file.txt");
-      const result = await writeFileExclusive(invalidPath, "content");
-      expect(result.ok).toBe(false);
+      const exit = await Effect.runPromiseExit(writeFileExclusive(invalidPath, "content"));
+      expect(Exit.isFailure(exit)).toBe(true);
     });
   });
 });

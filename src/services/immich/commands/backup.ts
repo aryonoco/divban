@@ -10,20 +10,24 @@
  * Uses Bun.Archive for native tar operations with metadata support.
  */
 
+import { Glob } from "bun";
+import { Effect } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
-import {
-  createBackupMetadata,
-  createBackupTimestamp,
-  ensureBackupDirectory,
-  listBackupFiles,
-  writeBackupArchive,
-} from "../../../lib/backup-utils";
-import { DivbanError, ErrorCode } from "../../../lib/errors";
+import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
-import { Err, Ok, type Result } from "../../../lib/result";
-import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
+import {
+  type AbsolutePath,
+  type GroupId,
+  type UserId,
+  type Username,
+  pathJoin,
+} from "../../../lib/types";
+import type { ArchiveMetadata } from "../../../system/archive";
+import { createArchive } from "../../../system/archive";
+import { ensureDirectory } from "../../../system/directories";
 import { execAsUser } from "../../../system/exec";
+import { directoryExists, writeBytes } from "../../../system/fs";
 import { CONTAINERS } from "../constants";
 
 /**
@@ -39,6 +43,21 @@ export type CompressionMethod = "zstd" | "gzip";
 const getCompressionExtension = (method: CompressionMethod): string => {
   return method === "zstd" ? ".zst" : ".gz";
 };
+
+/**
+ * Create a backup-safe timestamp string.
+ */
+const createBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
+
+/**
+ * Create archive metadata for a backup.
+ */
+const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
+  version: "1.0",
+  service,
+  timestamp: new Date().toISOString(),
+  files,
+});
 
 export interface BackupOptions {
   /** Data directory */
@@ -63,75 +82,107 @@ export interface BackupOptions {
  * Create a PostgreSQL database backup.
  * Uses Bun.Archive to create a tar archive containing SQL dump and metadata.
  */
-export const backupDatabase = async (
+export const backupDatabase = (
   options: BackupOptions
-): Promise<Result<AbsolutePath, DivbanError>> => {
-  const {
-    dataDir,
-    user,
-    uid,
-    logger,
-    containerName = CONTAINERS.postgres,
-    dbUser = "immich",
-    compression = "zstd",
-  } = options;
+): Effect.Effect<AbsolutePath, BackupError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const {
+      dataDir,
+      user,
+      uid,
+      logger,
+      containerName = CONTAINERS.postgres,
+      dbUser = "immich",
+      compression = "zstd",
+    } = options;
 
-  const timestamp = createBackupTimestamp();
-  const ext = getCompressionExtension(compression);
-  const backupFilename = `immich-db-backup-${timestamp}.tar${ext}`;
-  const backupDir = pathJoin(dataDir, "backups");
-  const backupPath = pathJoin(backupDir, backupFilename);
+    const timestamp = createBackupTimestamp();
+    const ext = getCompressionExtension(compression);
+    const backupFilename = `immich-db-backup-${timestamp}.tar${ext}`;
+    const backupDir = pathJoin(dataDir, "backups");
+    const backupPath = pathJoin(backupDir, backupFilename);
 
-  logger.info(`Creating database backup: ${backupFilename}`);
+    logger.info(`Creating database backup: ${backupFilename}`);
 
-  // Ensure backup directory exists
-  const mkdirResult = await ensureBackupDirectory(backupDir);
-  if (!mkdirResult.ok) {
-    return mkdirResult;
-  }
+    // Ensure backup directory exists
+    yield* ensureDirectory(backupDir, { uid, gid: uid as unknown as GroupId });
 
-  // Run pg_dumpall inside the postgres container
-  const dumpResult = await execAsUser(
-    user,
-    uid,
-    ["podman", "exec", containerName, "pg_dumpall", "-U", dbUser, "--clean", "--if-exists"],
-    {
-      timeout: DEFAULT_TIMEOUTS.backup,
-      captureStdout: true,
-      captureStderr: true,
+    // Run pg_dumpall inside the postgres container
+    const dumpResult = yield* execAsUser(
+      user,
+      uid,
+      ["podman", "exec", containerName, "pg_dumpall", "-U", dbUser, "--clean", "--if-exists"],
+      {
+        timeout: DEFAULT_TIMEOUTS.backup,
+        captureStdout: true,
+        captureStderr: true,
+      }
+    );
+
+    if (dumpResult.exitCode !== 0) {
+      return yield* Effect.fail(
+        new BackupError({
+          code: ErrorCode.BACKUP_FAILED as 50,
+          message: `Database dump failed: ${dumpResult.stderr}`,
+        })
+      );
     }
-  );
 
-  if (!dumpResult.ok || dumpResult.value.exitCode !== 0) {
-    const stderr = dumpResult.ok ? dumpResult.value.stderr : "";
-    return Err(new DivbanError(ErrorCode.BACKUP_FAILED, `Database dump failed: ${stderr}`));
-  }
+    // Create metadata and archive
+    const metadata = createBackupMetadata("immich", ["database.sql"]);
+    const files: Record<string, string | Uint8Array> = {
+      "database.sql": dumpResult.stdout,
+    };
 
-  // Create metadata and archive
-  const metadata = createBackupMetadata("immich", ["database.sql"]);
-  const files: Record<string, string | Uint8Array> = {
-    "database.sql": dumpResult.value.stdout,
-  };
+    const archiveData = yield* createArchive(files, {
+      compress: compression,
+      metadata,
+    });
 
-  const archiveResult = await writeBackupArchive(backupPath, files, {
-    compress: compression,
-    metadata,
+    yield* writeBytes(backupPath, archiveData);
+
+    // Get backup size using stat for accuracy
+    const stat = yield* Effect.promise(() => Bun.file(backupPath).stat());
+    const size = stat?.size ?? 0;
+
+    logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
+    return backupPath;
   });
-  if (!archiveResult.ok) {
-    return archiveResult;
-  }
-
-  // Get backup size using stat for accuracy
-  const stat = await Bun.file(backupPath).stat();
-  const size = stat?.size ?? 0;
-
-  logger.success(`Backup created: ${backupPath} (${formatBytes(size)})`);
-  return Ok(backupPath);
-};
 
 /**
  * List available backups.
- * Re-exported from backup-utils for service-specific usage.
  */
-export const listBackups = (dataDir: AbsolutePath): Promise<Result<string[], DivbanError>> =>
-  listBackupFiles(pathJoin(dataDir, "backups"));
+export const listBackups = (
+  dataDir: AbsolutePath,
+  pattern = "*.tar.{gz,zst}"
+): Effect.Effect<string[], never> =>
+  Effect.gen(function* () {
+    const backupDir = pathJoin(dataDir, "backups");
+
+    const exists = yield* directoryExists(backupDir);
+    if (!exists) {
+      return [];
+    }
+
+    const glob = new Glob(pattern);
+    const files = yield* Effect.promise(async () => {
+      const result: string[] = [];
+      for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
+        result.push(file);
+      }
+      return result;
+    });
+
+    // Sort by modification time (newest first)
+    const withStats = yield* Effect.promise(() =>
+      Promise.all(
+        files.map(async (f) => ({
+          name: f,
+          mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
+        }))
+      )
+    );
+
+    withStats.sort((a, b) => b.mtime - a.mtime);
+    return withStats.map((f) => f.name);
+  });

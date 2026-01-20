@@ -6,69 +6,60 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Backup command - create a service backup.
+ * Effect-based backup command - create a service backup.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import { Effect } from "effect";
+import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { Err, Ok, type Result, asyncFlatMapResult } from "../../lib/result";
-import type { AnyService } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 import { buildServiceContext, formatBytes } from "./utils";
 
 export interface BackupOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
 
 /**
  * Execute the backup command.
- * Uses buildServiceContext with requireConfig: true.
  */
-export const executeBackup = async (options: BackupOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
+export const executeBackup = (options: BackupOptions): Effect.Effect<void, DivbanEffectError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
 
-  // Check if service supports backup (must be done before context resolution)
-  if (!(service.definition.capabilities.hasBackup && service.backup)) {
-    return Err(
-      new DivbanError(
-        ErrorCode.GENERAL_ERROR,
-        `Service '${service.definition.name}' does not support backup`
-      )
-    );
-  }
-
-  if (args.dryRun) {
-    logger.info("Dry run - would create backup");
-    return Ok(undefined);
-  }
-
-  logger.info(`Creating backup for ${service.definition.name}...`);
-
-  // Chain: buildContext → backup → log success
-  return asyncFlatMapResult(
-    await buildServiceContext({ ...options, requireConfig: true }),
-    async ({ ctx }) => {
-      // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
-      const backupResult = await service.backup!(ctx);
-
-      if (!backupResult.ok) {
-        return backupResult;
-      }
-
-      const result = backupResult.value;
-
-      if (args.format === "json") {
-        logger.info(
-          JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
-        );
-      } else {
-        logger.success(`Backup created: ${result.path}`);
-        logger.info(`Size: ${formatBytes(result.size)}`);
-      }
-
-      return Ok(undefined);
+    // Check if service supports backup (must be done before context resolution)
+    if (!(service.definition.capabilities.hasBackup && service.backup)) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `Service '${service.definition.name}' does not support backup`,
+        })
+      );
     }
-  );
-};
+
+    if (args.dryRun) {
+      logger.info("Dry run - would create backup");
+      return;
+    }
+
+    logger.info(`Creating backup for ${service.definition.name}...`);
+
+    const { ctx } = yield* buildServiceContext({
+      ...options,
+      requireConfig: true,
+    });
+
+    // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
+    const result = yield* service.backup!(ctx);
+
+    if (args.format === "json") {
+      logger.info(
+        JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
+      );
+    } else {
+      logger.success(`Backup created: ${result.path}`);
+      logger.info(`Size: ${formatBytes(result.size)}`);
+    }
+  });

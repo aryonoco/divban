@@ -6,12 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Systemd systemctl wrapper for user services.
+ * Systemd systemctl wrapper using Effect for error handling.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { fromUndefined } from "../lib/option";
-import { Err, Ok, type Result, mapErr } from "../lib/result";
+import { Effect, Option } from "effect";
+import { ErrorCode, type GeneralError, ServiceError, SystemError } from "../lib/errors";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
 
@@ -34,188 +33,199 @@ export interface SystemctlOptions {
 
 /**
  * Check if a systemd unit is generated (e.g., by Quadlet).
- * Generated units cannot be enabled/disabled - they're auto-managed.
  */
-const isGeneratedUnit = async (unit: string, options: SystemctlOptions): Promise<boolean> => {
-  const result = await execAsUser(
-    options.user,
-    options.uid,
-    ["systemctl", "--user", "show", unit, "--property=FragmentPath"],
-    { captureStdout: true }
-  );
+const isGeneratedUnit = (unit: string, options: SystemctlOptions): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(
+      execAsUser(options.user, options.uid, [
+        "systemctl",
+        "--user",
+        "show",
+        unit,
+        "--property=FragmentPath",
+      ])
+    );
 
-  if (!result.ok || result.value.exitCode !== 0) {
-    return false;
-  }
+    if (result._tag === "Left") {
+      return false;
+    }
 
-  // Generated units have FragmentPath in /run/user/{uid}/systemd/generator/
-  const output = result.value.stdout.trim();
-  return output.includes("/generator/") || output.includes("/run/");
-};
+    if (result.right.exitCode !== 0) {
+      return false;
+    }
+
+    const output = result.right.stdout.trim();
+    return output.includes("/generator/") || output.includes("/run/");
+  });
 
 /**
  * Run a systemctl --user command as a service user.
  */
-export const systemctl = async (
+export const systemctl = (
   cmd: SystemctlCommand,
   unit: string | null,
   options: SystemctlOptions
-): Promise<Result<string, DivbanError>> => {
-  const args = unit ? ["systemctl", "--user", cmd, unit] : ["systemctl", "--user", cmd];
+): Effect.Effect<string, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const args = unit ? ["systemctl", "--user", cmd, unit] : ["systemctl", "--user", cmd];
 
-  const result = await execAsUser(options.user, options.uid, args, {
-    captureStdout: true,
-    captureStderr: true,
+    const result = yield* execAsUser(options.user, options.uid, args, {
+      captureStdout: true,
+      captureStderr: true,
+    });
+
+    // For commands like is-active, non-zero exit code is informational, not an error
+    if (cmd === "is-active" || cmd === "is-enabled" || cmd === "status") {
+      return result.stdout.trim();
+    }
+
+    if (result.exitCode !== 0) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `systemctl ${cmd} ${unit ?? ""} failed: ${result.stderr.trim()}`,
+        })
+      );
+    }
+
+    return result.stdout.trim();
   });
-
-  if (!result.ok) {
-    return result;
-  }
-
-  // For commands like is-active, non-zero exit code is informational, not an error
-  if (cmd === "is-active" || cmd === "is-enabled" || cmd === "status") {
-    return Ok(result.value.stdout.trim());
-  }
-
-  if (result.value.exitCode !== 0) {
-    return Err(
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `systemctl ${cmd} ${unit ?? ""} failed: ${result.value.stderr.trim()}`
-      )
-    );
-  }
-
-  return Ok(result.value.stdout.trim());
-};
 
 /**
  * Start a systemd user service.
  */
-export const startService = async (
+export const startService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("start", unit, options);
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.SERVICE_START_FAILED,
-        `Failed to start ${unit}: ${err.message}`,
-        err
-      )
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("start", unit, options);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_START_FAILED as 31,
+          message: `Failed to start ${unit}: ${err.message}`,
+          service: unit,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Stop a systemd user service.
  */
-export const stopService = async (
+export const stopService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("stop", unit, options);
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(ErrorCode.SERVICE_STOP_FAILED, `Failed to stop ${unit}: ${err.message}`, err)
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("stop", unit, options);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_STOP_FAILED as 32,
+          message: `Failed to stop ${unit}: ${err.message}`,
+          service: unit,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Restart a systemd user service.
  */
-export const restartService = async (
+export const restartService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("restart", unit, options);
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(ErrorCode.GENERAL_ERROR, `Failed to restart ${unit}: ${err.message}`, err)
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("restart", unit, options);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_START_FAILED as 31, // No RESTART_FAILED code, using START
+          message: `Failed to restart ${unit}: ${err.message}`,
+          service: unit,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Reload a systemd user service (if supported).
  */
-export const reloadService = async (
+export const reloadService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("reload", unit, options);
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.SERVICE_RELOAD_FAILED,
-        `Failed to reload ${unit}: ${err.message}`,
-        err
-      )
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("reload", unit, options);
+  }).pipe(
+    Effect.mapError(
+      (err) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
+          message: `Failed to reload ${unit}: ${err.message}`,
+          service: unit,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
-  return mapped.ok ? Ok(undefined) : mapped;
-};
 
 /**
  * Enable a systemd user service.
  * Skips generated units (Quadlet) as they're auto-enabled.
  */
-export const enableService = async (
+export const enableService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  // Generated units (Quadlet) cannot and don't need to be enabled
-  if (await isGeneratedUnit(unit, options)) {
-    return Ok(undefined);
-  }
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const isGenerated = yield* isGeneratedUnit(unit, options);
+    if (isGenerated) {
+      return;
+    }
 
-  const result = await systemctl("enable", unit, options);
-  if (!result.ok) {
-    return Err(result.error);
-  }
-  return Ok(undefined);
-};
+    yield* systemctl("enable", unit, options);
+  });
 
 /**
  * Disable a systemd user service.
  */
-export const disableService = async (
+export const disableService = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("disable", unit, options);
-  if (!result.ok) {
-    return Err(result.error);
-  }
-  return Ok(undefined);
-};
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("disable", unit, options);
+  });
 
 /**
  * Check if a service is active.
  */
-export const isServiceActive = async (
+export const isServiceActive = (
   unit: string,
   options: SystemctlOptions
-): Promise<boolean> => {
-  const result = await systemctl("is-active", unit, options);
-  return result.ok && result.value === "active";
-};
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(systemctl("is-active", unit, options));
+    return result._tag === "Right" && result.right === "active";
+  });
 
 /**
  * Check if a service is enabled.
  */
-export const isServiceEnabled = async (
+export const isServiceEnabled = (
   unit: string,
   options: SystemctlOptions
-): Promise<boolean> => {
-  const result = await systemctl("is-enabled", unit, options);
-  return result.ok && result.value === "enabled";
-};
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(systemctl("is-enabled", unit, options));
+    return result._tag === "Right" && result.right === "enabled";
+  });
 
 /**
  * Get service status output.
@@ -223,52 +233,46 @@ export const isServiceEnabled = async (
 export const getServiceStatus = (
   unit: string,
   options: SystemctlOptions
-): Promise<Result<string, DivbanError>> => {
-  return systemctl("status", unit, options);
-};
+): Effect.Effect<string, SystemError | GeneralError> => systemctl("status", unit, options);
 
 /**
  * Reload systemd daemon to pick up new unit files.
  */
-export const daemonReload = async (
+export const daemonReload = (
   options: SystemctlOptions
-): Promise<Result<void, DivbanError>> => {
-  const result = await systemctl("daemon-reload", null, options);
-  if (!result.ok) {
-    return Err(result.error);
-  }
-  return Ok(undefined);
-};
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    yield* systemctl("daemon-reload", null, options);
+  });
 
 /**
  * Stream logs from journalctl.
  */
-export const journalctl = async (
+export const journalctl = (
   unit: string,
   options: SystemctlOptions & { follow?: boolean; lines?: number }
-): Promise<Result<void, DivbanError>> => {
-  const args = ["journalctl", "--user", "-u", unit];
+): Effect.Effect<void, never> =>
+  Effect.promise(async () => {
+    const args = ["journalctl", "--user", "-u", unit];
 
-  const linesOpt = fromUndefined(options.lines);
-  if (linesOpt.isSome) {
-    args.push("-n", String(linesOpt.value));
-  }
+    const lines = Option.fromNullable(options.lines);
+    if (Option.isSome(lines)) {
+      args.push("-n", String(lines.value));
+    }
 
-  if (options.follow) {
-    args.push("-f");
-  }
+    if (options.follow) {
+      args.push("-f");
+    }
 
-  // For follow mode, we run interactively
-  const proc = Bun.spawn(["sudo", "-u", options.user, ...args], {
-    env: {
-      ...Bun.env,
-      XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
-    },
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
+    const proc = Bun.spawn(["sudo", "-u", options.user, ...args], {
+      env: {
+        ...Bun.env,
+        XDG_RUNTIME_DIR: `/run/user/${options.uid}`,
+      },
+      stdout: "inherit",
+      stderr: "inherit",
+      stdin: "inherit",
+    });
+
+    await proc.exited;
   });
-
-  await proc.exited;
-  return Ok(undefined);
-};

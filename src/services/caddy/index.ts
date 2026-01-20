@@ -9,8 +9,14 @@
  * Caddy reverse proxy service implementation.
  */
 
-import { DivbanError, ErrorCode } from "../../lib/errors";
-import { Err, Ok, type Result, mapResult } from "../../lib/result";
+import { Effect } from "effect";
+import {
+  type ConfigError,
+  ErrorCode,
+  GeneralError,
+  ServiceError,
+  type SystemError,
+} from "../../lib/errors";
 import type { PrivateIP, ServiceName } from "../../lib/types";
 import { PrivateIP as validatePrivateIP } from "../../lib/types";
 import {
@@ -21,15 +27,15 @@ import {
   processVolumes,
 } from "../../quadlet";
 import {
-  type SetupStep,
-  type SetupStepResult,
+  type SetupStepEffect,
+  type SetupStepResultEffect,
   createConfigValidator,
   createSingleContainerOps,
   executeSetupSteps,
   reloadAndEnableServices,
   writeGeneratedFiles,
 } from "../helpers";
-import type { GeneratedFiles, Service, ServiceContext, ServiceDefinition } from "../types";
+import type { GeneratedFiles, ServiceContext, ServiceDefinition, ServiceEffect } from "../types";
 import { createGeneratedFiles } from "../types";
 import { generateCaddyfile } from "./caddyfile";
 import { reloadCaddy } from "./commands/reload";
@@ -72,91 +78,97 @@ const validate = createConfigValidator(caddyConfigSchema);
  */
 const generate = (
   ctx: ServiceContext<CaddyConfig>
-): Promise<Result<GeneratedFiles, DivbanError>> => {
-  const { config } = ctx;
-  const files = createGeneratedFiles();
+): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
+  Effect.gen(function* () {
+    const { config } = ctx;
+    const files = createGeneratedFiles();
 
-  // Validate mapHostLoopback if provided
-  let mapHostLoopback: PrivateIP | undefined;
-  if (config.network?.mapHostLoopback) {
-    const ipResult = validatePrivateIP(config.network.mapHostLoopback);
-    if (!ipResult.ok) {
-      return Promise.resolve(ipResult);
-    }
-    mapHostLoopback = ipResult.value;
-  }
-
-  // Generate Caddyfile
-  const caddyfileContent = generateCaddyfile(config.caddyfile);
-  files.other.set("Caddyfile", caddyfileContent);
-
-  // Generate volume quadlet for caddy data
-  const dataVolume = generateVolumeQuadlet({
-    name: "caddy-data",
-    description: "Caddy data volume (certificates, etc.)",
-  });
-  files.volumes.set(dataVolume.filename, dataVolume.content);
-
-  // Generate volume quadlet for caddy config
-  const configVolume = generateVolumeQuadlet({
-    name: "caddy-config",
-    description: "Caddy configuration volume",
-  });
-  files.volumes.set(configVolume.filename, configVolume.content);
-
-  // Generate container quadlet
-  const containerQuadlet = generateContainerQuadlet({
-    name: "caddy",
-    containerName: "caddy",
-    description: "Caddy reverse proxy",
-    image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
-    networkMode: "pasta",
-    mapHostLoopback,
-    ports: config.container?.ports ?? [
-      { hostIp: "0.0.0.0", host: 80, container: 80, protocol: "tcp" },
-      { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
-      { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "udp" },
-    ],
-    volumes: processVolumes(
-      [
-        {
-          source: `${ctx.paths.configDir}/Caddyfile`,
-          target: "/etc/caddy/Caddyfile",
-          options: "ro",
-        },
-        { source: "caddy-data.volume", target: "/data" },
-        { source: "caddy-config.volume", target: "/config" },
-      ],
-      {
-        selinuxEnforcing: ctx.system.selinuxEnforcing,
-        applyOwnership: true,
+    // Validate mapHostLoopback if provided
+    let mapHostLoopback: PrivateIP | undefined;
+    if (config.network?.mapHostLoopback) {
+      const ipResult = validatePrivateIP(config.network.mapHostLoopback);
+      if (!ipResult.ok) {
+        return yield* Effect.fail(
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Invalid mapHostLoopback IP: ${ipResult.error.message}`,
+          })
+        );
       }
-    ),
-    userNs: createRootMappedNs(),
-    healthCheck: createHttpHealthCheck("http://localhost:2019/reverse_proxy/upstreams", {
-      interval: "30s",
-      timeout: "10s",
-      startPeriod: "10s",
-      onFailure: "restart",
-    }),
-    noNewPrivileges: true,
-    autoUpdate: config.container?.autoUpdate ?? "registry",
-    // Allow binding to privileged ports (80, 443) in rootless container
-    sysctl: {
-      "net.ipv4.ip_unprivileged_port_start": 70,
-    },
-    service: {
-      restart: config.container?.restart ?? "always",
-      restartSec: 10,
-      timeoutStartSec: 120,
-      timeoutStopSec: 30,
-    },
+      mapHostLoopback = ipResult.value;
+    }
+
+    // Generate Caddyfile
+    const caddyfileContent = generateCaddyfile(config.caddyfile);
+    files.other.set("Caddyfile", caddyfileContent);
+
+    // Generate volume quadlet for caddy data
+    const dataVolume = generateVolumeQuadlet({
+      name: "caddy-data",
+      description: "Caddy data volume (certificates, etc.)",
+    });
+    files.volumes.set(dataVolume.filename, dataVolume.content);
+
+    // Generate volume quadlet for caddy config
+    const configVolume = generateVolumeQuadlet({
+      name: "caddy-config",
+      description: "Caddy configuration volume",
+    });
+    files.volumes.set(configVolume.filename, configVolume.content);
+
+    // Generate container quadlet
+    const containerQuadlet = generateContainerQuadlet({
+      name: "caddy",
+      containerName: "caddy",
+      description: "Caddy reverse proxy",
+      image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
+      networkMode: "pasta",
+      mapHostLoopback,
+      ports: config.container?.ports ?? [
+        { hostIp: "0.0.0.0", host: 80, container: 80, protocol: "tcp" },
+        { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
+        { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "udp" },
+      ],
+      volumes: processVolumes(
+        [
+          {
+            source: `${ctx.paths.configDir}/Caddyfile`,
+            target: "/etc/caddy/Caddyfile",
+            options: "ro",
+          },
+          { source: "caddy-data.volume", target: "/data" },
+          { source: "caddy-config.volume", target: "/config" },
+        ],
+        {
+          selinuxEnforcing: ctx.system.selinuxEnforcing,
+          applyOwnership: true,
+        }
+      ),
+      userNs: createRootMappedNs(),
+      healthCheck: createHttpHealthCheck("http://localhost:2019/reverse_proxy/upstreams", {
+        interval: "30s",
+        timeout: "10s",
+        startPeriod: "10s",
+        onFailure: "restart",
+      }),
+      noNewPrivileges: true,
+      autoUpdate: config.container?.autoUpdate ?? "registry",
+      // Allow binding to privileged ports (80, 443) in rootless container
+      sysctl: {
+        "net.ipv4.ip_unprivileged_port_start": 70,
+      },
+      service: {
+        restart: config.container?.restart ?? "always",
+        restartSec: 10,
+        timeoutStartSec: 120,
+        timeoutStopSec: 30,
+      },
+    });
+
+    files.quadlets.set(containerQuadlet.filename, containerQuadlet.content);
+
+    return files;
   });
-
-  files.quadlets.set(containerQuadlet.filename, containerQuadlet.content);
-
-  return Promise.resolve(Ok(files));
-};
 
 /**
  * Setup state for Caddy - tracks data passed between steps.
@@ -169,23 +181,36 @@ interface CaddySetupState {
  * Full setup for Caddy service.
  * Uses executeSetupSteps for clean sequential execution with state threading.
  */
-const setup = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
-  const steps: SetupStep<CaddyConfig, CaddySetupState>[] = [
+const setup = (
+  ctx: ServiceContext<CaddyConfig>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
+  const steps: SetupStepEffect<CaddyConfig, CaddySetupState>[] = [
     {
       message: "Generating configuration files...",
-      execute: async (ctx): SetupStepResult<CaddySetupState> =>
-        mapResult(await generate(ctx), (files) => ({ files })),
+      execute: (ctx): SetupStepResultEffect<CaddySetupState, ServiceError | GeneralError> =>
+        Effect.map(generate(ctx), (files) => ({ files })),
     },
     {
       message: "Writing configuration files...",
-      execute: (ctx, state): SetupStepResult<CaddySetupState> =>
+      execute: (
+        ctx,
+        state
+      ): SetupStepResultEffect<CaddySetupState, ServiceError | SystemError | GeneralError> =>
         state.files
           ? writeGeneratedFiles(state.files, ctx)
-          : Promise.resolve(Err(new DivbanError(ErrorCode.GENERAL_ERROR, "No files generated"))),
+          : Effect.fail(
+              new GeneralError({
+                code: ErrorCode.GENERAL_ERROR as 1,
+                message: "No files generated",
+              })
+            ),
     },
     {
       message: "Enabling and starting service...",
-      execute: (ctx): SetupStepResult<CaddySetupState> => reloadAndEnableServices(ctx, ["caddy"]),
+      execute: (
+        ctx
+      ): SetupStepResultEffect<CaddySetupState, ServiceError | SystemError | GeneralError> =>
+        reloadAndEnableServices(ctx, ["caddy"]),
     },
   ];
 
@@ -195,19 +220,20 @@ const setup = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanErr
 /**
  * Reload Caddy configuration.
  */
-const reload = (ctx: ServiceContext<CaddyConfig>): Promise<Result<void, DivbanError>> => {
-  return reloadCaddy({
+const reload = (
+  ctx: ServiceContext<CaddyConfig>
+): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError> =>
+  reloadCaddy({
     user: ctx.user.name,
     uid: ctx.user.uid,
     logger: ctx.logger,
     containerName: "caddy",
   });
-};
 
 /**
  * Caddy service implementation.
  */
-export const caddyService: Service<CaddyConfig> = {
+export const caddyService: ServiceEffect<CaddyConfig> = {
   definition,
   validate,
   generate,

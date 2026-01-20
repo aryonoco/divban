@@ -6,13 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Sysctl configuration for rootless container privileged port binding.
+ * Sysctl configuration using Effect for error handling.
  * Enables unprivileged users to bind to ports >= configured threshold.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
+import { Effect } from "effect";
+import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
-import { Err, Ok, type Result, mapErr } from "../lib/result";
 import { execOutput, execSuccess } from "./exec";
 import { writeFile } from "./fs";
 
@@ -25,103 +25,106 @@ const SYSCTL_KEY = "net.ipv4.ip_unprivileged_port_start";
 /**
  * Get current value of net.ipv4.ip_unprivileged_port_start.
  */
-export const getUnprivilegedPortStart = async (): Promise<Result<number, DivbanError>> => {
-  const result = await execOutput(["sysctl", "-n", SYSCTL_KEY]);
-  if (!result.ok) {
-    return Err(
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `Failed to read sysctl ${SYSCTL_KEY}: ${result.error.message}`,
-        result.error
+export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const output = yield* execOutput(["sysctl", "-n", SYSCTL_KEY]).pipe(
+      Effect.mapError(
+        (err) =>
+          new SystemError({
+            code: ErrorCode.EXEC_FAILED as 26,
+            message: `Failed to read sysctl ${SYSCTL_KEY}: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
       )
     );
-  }
-  const value = Number.parseInt(result.value.trim(), 10);
-  if (Number.isNaN(value)) {
-    return Err(
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `Invalid sysctl value for ${SYSCTL_KEY}: ${result.value}`
-      )
-    );
-  }
-  return Ok(value);
-};
+
+    const value = Number.parseInt(output.trim(), 10);
+    if (Number.isNaN(value)) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `Invalid sysctl value for ${SYSCTL_KEY}: ${output}`,
+        })
+      );
+    }
+
+    return value;
+  });
 
 /**
  * Check if unprivileged port binding is enabled for the given threshold.
  */
-export const isUnprivilegedPortEnabled = async (
+export const isUnprivilegedPortEnabled = (
   threshold: number = DEFAULT_UNPRIVILEGED_PORT_START
-): Promise<boolean> => {
-  const result = await getUnprivilegedPortStart();
-  if (!result.ok) {
-    return false;
-  }
-  return result.value <= threshold;
-};
+): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(getUnprivilegedPortStart());
+    if (result._tag === "Left") {
+      return false;
+    }
+    return result.right <= threshold;
+  });
 
 /**
  * Configure unprivileged port start persistently.
  * Writes to /etc/sysctl.d/ and applies immediately. Idempotent.
  */
-export const configureUnprivilegedPorts = async (
+export const configureUnprivilegedPorts = (
   threshold: number = DEFAULT_UNPRIVILEGED_PORT_START
-): Promise<Result<void, DivbanError>> => {
-  // Check if already configured
-  if (await isUnprivilegedPortEnabled(threshold)) {
-    return Ok(undefined);
-  }
+): Effect.Effect<void, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    // Check if already configured
+    const alreadyEnabled = yield* isUnprivilegedPortEnabled(threshold);
+    if (alreadyEnabled) {
+      return;
+    }
 
-  const configContent = `# Configured by divban for rootless container privileged port binding
+    const configContent = `# Configured by divban for rootless container privileged port binding
 # Allows unprivileged users to bind to ports >= ${threshold}
 ${SYSCTL_KEY} = ${threshold}
 `;
 
-  // Write persistent configuration
-  const writeResult = await writeFile(SYSTEM_PATHS.sysctlUnprivilegedPorts, configContent);
-  const writeMapped = mapErr(
-    writeResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.FILE_WRITE_FAILED,
-        `Failed to write sysctl configuration: ${err.message}`,
-        err
+    // Write persistent configuration
+    yield* writeFile(SYSTEM_PATHS.sysctlUnprivilegedPorts, configContent).pipe(
+      Effect.mapError(
+        (err) =>
+          new SystemError({
+            code: ErrorCode.FILE_WRITE_FAILED as 28,
+            message: `Failed to write sysctl configuration: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
       )
-  );
-  if (!writeMapped.ok) {
-    return writeMapped;
-  }
+    );
 
-  // Apply immediately
-  const applyResult = await execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]);
-  const applyMapped = mapErr(
-    applyResult,
-    (err) =>
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
-        err
+    // Apply immediately
+    yield* execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]).pipe(
+      Effect.mapError(
+        (err) =>
+          new SystemError({
+            code: ErrorCode.EXEC_FAILED as 26,
+            message: `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
+            ...(err instanceof Error ? { cause: err } : {}),
+          })
       )
-  );
-  return applyMapped.ok ? Ok(undefined) : applyMapped;
-};
+    );
+  });
 
 /**
  * Ensure unprivileged port binding is configured for a service.
  */
-export const ensureUnprivilegedPorts = async (
+export const ensureUnprivilegedPorts = (
   threshold: number = DEFAULT_UNPRIVILEGED_PORT_START,
   serviceName?: string
-): Promise<Result<void, DivbanError>> => {
+): Effect.Effect<void, SystemError | GeneralError> => {
   const context = serviceName ? ` for service ${serviceName}` : "";
-  return mapErr(
-    await configureUnprivilegedPorts(threshold),
-    (err) =>
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `Failed to configure unprivileged port binding${context}`,
-        err
-      )
+  return configureUnprivilegedPorts(threshold).pipe(
+    Effect.mapError(
+      (err) =>
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `Failed to configure unprivileged port binding${context}`,
+          ...(err instanceof Error ? { cause: err } : {}),
+        })
+    )
   );
 };

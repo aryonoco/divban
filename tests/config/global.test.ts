@@ -7,6 +7,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
+import { Effect, Exit } from "effect";
 import { loadGlobalConfig } from "../../src/config/loader.ts";
 import { getLoggingSettings, getUserAllocationSettings } from "../../src/config/merge.ts";
 import { path, pathJoin } from "../../src/lib/types.ts";
@@ -16,7 +17,7 @@ const TEST_DIR = path("/tmp/divban-config-test");
 
 describe("global config", () => {
   beforeAll(async () => {
-    await ensureDirectory(TEST_DIR);
+    await Effect.runPromise(ensureDirectory(TEST_DIR));
   });
 
   afterAll(async () => {
@@ -29,21 +30,19 @@ describe("global config", () => {
 
   describe("loadGlobalConfig", () => {
     test("returns defaults when no config file exists", async () => {
-      const result = await loadGlobalConfig(path("/nonexistent/divban.toml"));
+      const config = await Effect.runPromise(loadGlobalConfig(path("/nonexistent/divban.toml")));
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.users.uidRangeStart).toBe(10000);
-        expect(result.value.users.uidRangeEnd).toBe(59999);
-        expect(result.value.logging.level).toBe("info");
-      }
+      expect(config.users.uidRangeStart).toBe(10000);
+      expect(config.users.uidRangeEnd).toBe(59999);
+      expect(config.logging.level).toBe("info");
     });
 
     test("loads and parses valid TOML config", async () => {
       const configPath = pathJoin(TEST_DIR, "divban.toml");
-      const writeResult = await writeFile(
-        configPath,
-        `
+      await Effect.runPromise(
+        writeFile(
+          configPath,
+          `
 [users]
 uidRangeStart = 15000
 uidRangeEnd = 20000
@@ -51,129 +50,113 @@ uidRangeEnd = 20000
 [logging]
 level = "debug"
 `
+        )
       );
-      expect(writeResult.ok).toBe(true);
 
-      const result = await loadGlobalConfig(configPath);
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value.users.uidRangeStart).toBe(15000);
-        expect(result.value.users.uidRangeEnd).toBe(20000);
-        expect(result.value.logging.level).toBe("debug");
-        // Defaults for unspecified fields
-        expect(result.value.users.subuidRangeStart).toBe(100000);
-      }
+      expect(config.users.uidRangeStart).toBe(15000);
+      expect(config.users.uidRangeEnd).toBe(20000);
+      expect(config.logging.level).toBe("debug");
+      // Defaults for unspecified fields
+      expect(config.users.subuidRangeStart).toBe(100000);
     });
 
     test("returns error for malformed TOML", async () => {
       const configPath = pathJoin(TEST_DIR, "bad.toml");
-      const writeResult = await writeFile(configPath, "this is not valid toml [[[");
-      expect(writeResult.ok).toBe(true);
+      await Effect.runPromise(writeFile(configPath, "this is not valid toml [[["));
 
-      const result = await loadGlobalConfig(configPath);
+      const exit = await Effect.runPromiseExit(loadGlobalConfig(configPath));
 
-      expect(result.ok).toBe(false);
+      expect(Exit.isFailure(exit)).toBe(true);
     });
 
     test("applies partial config with defaults for missing fields", async () => {
       const configPath = pathJoin(TEST_DIR, "partial.toml");
-      const writeResult = await writeFile(
-        configPath,
-        `
+      await Effect.runPromise(
+        writeFile(
+          configPath,
+          `
 [logging]
 format = "json"
 `
+        )
       );
-      expect(writeResult.ok).toBe(true);
 
-      const result = await loadGlobalConfig(configPath);
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        // Explicitly set
-        expect(result.value.logging.format).toBe("json");
-        // Defaults
-        expect(result.value.logging.level).toBe("info");
-        expect(result.value.users.uidRangeStart).toBe(10000);
-        expect(result.value.defaults.networkMode).toBe("pasta");
-      }
+      // Explicitly set
+      expect(config.logging.format).toBe("json");
+      // Defaults
+      expect(config.logging.level).toBe("info");
+      expect(config.users.uidRangeStart).toBe(10000);
+      expect(config.defaults.networkMode).toBe("pasta");
     });
   });
 
   describe("getUserAllocationSettings", () => {
     test("extracts settings from global config", async () => {
-      const result = await loadGlobalConfig();
-      expect(result.ok).toBe(true);
+      const config = await Effect.runPromise(loadGlobalConfig());
 
-      if (result.ok) {
-        const settings = getUserAllocationSettings(result.value);
-        expect(settings.uidRangeStart).toBe(10000);
-        expect(settings.uidRangeEnd).toBe(59999);
-        expect(settings.subuidRangeStart).toBe(100000);
-        expect(settings.subuidRangeSize).toBe(65536);
-      }
+      const settings = getUserAllocationSettings(config);
+      expect(settings.uidRangeStart).toBe(10000);
+      expect(settings.uidRangeEnd).toBe(59999);
+      expect(settings.subuidRangeStart).toBe(100000);
+      expect(settings.subuidRangeSize).toBe(65536);
     });
 
     test("uses custom values when provided", async () => {
       const configPath = pathJoin(TEST_DIR, "custom-users.toml");
-      const writeResult = await writeFile(
-        configPath,
-        `
+      await Effect.runPromise(
+        writeFile(
+          configPath,
+          `
 [users]
 uidRangeStart = 20000
 uidRangeEnd = 30000
 subuidRangeStart = 200000
 subuidRangeSize = 131072
 `
+        )
       );
-      expect(writeResult.ok).toBe(true);
 
-      const result = await loadGlobalConfig(configPath);
-      expect(result.ok).toBe(true);
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      if (result.ok) {
-        const settings = getUserAllocationSettings(result.value);
-        expect(settings.uidRangeStart).toBe(20000);
-        expect(settings.uidRangeEnd).toBe(30000);
-        expect(settings.subuidRangeStart).toBe(200000);
-        expect(settings.subuidRangeSize).toBe(131072);
-      }
+      const settings = getUserAllocationSettings(config);
+      expect(settings.uidRangeStart).toBe(20000);
+      expect(settings.uidRangeEnd).toBe(30000);
+      expect(settings.subuidRangeStart).toBe(200000);
+      expect(settings.subuidRangeSize).toBe(131072);
     });
   });
 
   describe("getLoggingSettings", () => {
     test("extracts logging settings with defaults", async () => {
-      const result = await loadGlobalConfig();
-      expect(result.ok).toBe(true);
+      const config = await Effect.runPromise(loadGlobalConfig());
 
-      if (result.ok) {
-        const settings = getLoggingSettings(result.value);
-        expect(settings.level).toBe("info");
-        expect(settings.format).toBe("pretty");
-      }
+      const settings = getLoggingSettings(config);
+      expect(settings.level).toBe("info");
+      expect(settings.format).toBe("pretty");
     });
 
     test("uses custom values when provided", async () => {
       const configPath = pathJoin(TEST_DIR, "custom-logging.toml");
-      const writeResult = await writeFile(
-        configPath,
-        `
+      await Effect.runPromise(
+        writeFile(
+          configPath,
+          `
 [logging]
 level = "warn"
 format = "json"
 `
+        )
       );
-      expect(writeResult.ok).toBe(true);
 
-      const result = await loadGlobalConfig(configPath);
-      expect(result.ok).toBe(true);
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      if (result.ok) {
-        const settings = getLoggingSettings(result.value);
-        expect(settings.level).toBe("warn");
-        expect(settings.format).toBe("json");
-      }
+      const settings = getLoggingSettings(config);
+      expect(settings.level).toBe("warn");
+      expect(settings.format).toBe("json");
     });
   });
 });

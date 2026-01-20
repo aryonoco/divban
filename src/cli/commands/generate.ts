@@ -6,24 +6,29 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Generate command - generate quadlet files without installing.
+ * Effect-based generate command - generate quadlet files without installing.
  */
 
+import { Effect } from "effect";
 import { loadServiceConfig } from "../../config/loader";
-import { DivbanError, ErrorCode } from "../../lib/errors";
+import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { TEMP_PATHS, outputConfigDir, outputQuadletDir, toAbsolutePath } from "../../lib/paths";
-import { Err, Ok, type Result, asyncFlatMapResult, combine3 } from "../../lib/result";
+import {
+  TEMP_PATHS,
+  outputConfigDir,
+  outputQuadletDir,
+  toAbsolutePathEffect,
+} from "../../lib/paths";
 import { GroupId, UserId, Username } from "../../lib/types";
 import { writeGeneratedFilesPreview } from "../../services/helpers";
-import type { AnyService, ServiceContext } from "../../services/types";
+import type { AnyServiceEffect, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 import { detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface GenerateOptions {
-  service: AnyService;
+  service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -31,44 +36,68 @@ export interface GenerateOptions {
 /**
  * Execute the generate command.
  */
-export const executeGenerate = (options: GenerateOptions): Promise<Result<void, DivbanError>> => {
-  const { service, args, logger } = options;
-  const configPath = args.configPath;
-  const outputDir = args.outputDir ?? ".";
+export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, DivbanEffectError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+    const configPath = args.configPath;
+    const outputDir = args.outputDir ?? ".";
 
-  if (!configPath) {
-    return Promise.resolve(
-      Err(new DivbanError(ErrorCode.INVALID_ARGS, "Config path is required for generate command"))
-    );
-  }
-
-  logger.info(`Generating files for ${service.definition.name}...`);
-
-  // Create mock user for preview context
-  const userResult = combine3(Username("divban-preview"), UserId(1000), GroupId(1000));
-  if (!userResult.ok) {
-    return Promise.resolve(userResult);
-  }
-  const [username, uid, gid] = userResult.value;
-
-  // Chain: validate path → load config → generate
-  return asyncFlatMapResult(toAbsolutePath(configPath), async (validPath) => {
-    const configResult = await loadServiceConfig(validPath, service.definition.configSchema);
-    if (!configResult.ok) {
-      return configResult;
+    if (!configPath) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Config path is required for generate command",
+        })
+      );
     }
+
+    logger.info(`Generating files for ${service.definition.name}...`);
+
+    // Create mock user for preview context
+    const usernameResult = Username("divban-preview");
+    const uidResult = UserId(1000);
+    const gidResult = GroupId(1000);
+
+    if (!(usernameResult.ok && uidResult.ok && gidResult.ok)) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: "Failed to create preview user",
+        })
+      );
+    }
+
+    const username = usernameResult.value;
+    const uid = uidResult.value;
+    const gid = gidResult.value;
+
+    const validPath = yield* toAbsolutePathEffect(configPath);
+    const config = yield* loadServiceConfig(validPath, service.definition.configSchema);
 
     const quadletDirResult = outputQuadletDir(outputDir);
     if (!quadletDirResult.ok) {
-      return quadletDirResult;
-    }
-    const configDirResult = outputConfigDir(outputDir);
-    if (!configDirResult.ok) {
-      return configDirResult;
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: quadletDirResult.error.message,
+        })
+      );
     }
 
+    const configDirResult = outputConfigDir(outputDir);
+    if (!configDirResult.ok) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: configDirResult.error.message,
+        })
+      );
+    }
+
+    const system = yield* detectSystemCapabilities();
+
     const ctx: ServiceContext<unknown> = {
-      config: configResult.value,
+      config,
       logger,
       paths: {
         dataDir: TEMP_PATHS.generateDataDir,
@@ -78,16 +107,11 @@ export const executeGenerate = (options: GenerateOptions): Promise<Result<void, 
       },
       user: { name: username, uid, gid },
       options: getContextOptions(args),
-      system: await detectSystemCapabilities(),
+      system,
     };
 
     // Generate files
-    const filesResult = await service.generate(ctx);
-    if (!filesResult.ok) {
-      return filesResult;
-    }
-
-    const files = filesResult.value;
+    const files = yield* service.generate(ctx);
 
     if (args.dryRun) {
       logger.info("Would generate the following files:");
@@ -106,23 +130,14 @@ export const executeGenerate = (options: GenerateOptions): Promise<Result<void, 
       for (const [name] of files.other) {
         logger.info(`  config/${name}`);
       }
-      return Ok(undefined);
+      return;
     }
 
-    await ensureDirectory(quadletDirResult.value);
-    await ensureDirectory(configDirResult.value);
+    yield* ensureDirectory(quadletDirResult.value);
+    yield* ensureDirectory(configDirResult.value);
 
-    const writeResult = await writeGeneratedFilesPreview(
-      files,
-      quadletDirResult.value,
-      configDirResult.value
-    );
-    if (!writeResult.ok) {
-      return writeResult;
-    }
+    yield* writeGeneratedFilesPreview(files, quadletDirResult.value, configDirResult.value);
 
     const total = getFileCount(files);
     logger.success(`Generated ${total} files in ${outputDir}/`);
-    return Ok(undefined);
   });
-};

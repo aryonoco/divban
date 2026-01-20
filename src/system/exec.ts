@@ -6,183 +6,174 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Command execution wrapper with Result-based error handling.
+ * Command execution wrapper using Effect for error handling.
  * Uses Bun.spawn for process management and Bun Shell for complex piping.
  */
 
 import { $ } from "bun";
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import { Err, type Result, mapResult, tryCatch } from "../lib/result";
+import { Effect } from "effect";
+import { ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
 
 export interface ExecOptions {
-  /** Environment variables to set */
   env?: Record<string, string>;
-  /** Working directory */
   cwd?: string;
-  /** Timeout in milliseconds (uses Bun.spawn native timeout) */
   timeout?: number;
-  /** Run as specific user (requires root) */
   user?: string;
-  /** Capture stdout */
   captureStdout?: boolean;
-  /** Capture stderr */
   captureStderr?: boolean;
-  /** Pipe stdin */
   stdin?: string;
-  /** AbortSignal for cancellation */
   signal?: AbortSignal;
 }
 
 export interface ExecResult {
-  /** Exit code */
   exitCode: number;
-  /** Captured stdout (if captureStdout was true) */
   stdout: string;
-  /** Captured stderr (if captureStderr was true) */
   stderr: string;
 }
 
 /**
- * Execute a command and return the result.
- * Uses argument array to prevent shell injection.
+ * Helper to create a SystemError for exec failures.
  */
-export const exec = async (
+const execError = (command: string, e: unknown): SystemError =>
+  new SystemError({
+    code: ErrorCode.EXEC_FAILED as 26,
+    message: `Failed to execute: ${command}: ${errorMessage(e)}`,
+    ...(e instanceof Error ? { cause: e } : {}),
+  });
+
+/**
+ * Execute a command and return the result.
+ */
+export const exec = (
   command: readonly string[],
   options: ExecOptions = {}
-): Promise<Result<ExecResult, DivbanError>> => {
-  if (command.length === 0) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Command array cannot be empty"));
-  }
+): Effect.Effect<ExecResult, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    if (command.length === 0) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Command array cannot be empty",
+        })
+      );
+    }
 
-  const [cmd, ...args] = command;
-  if (!cmd) {
-    return Err(new DivbanError(ErrorCode.INVALID_ARGS, "Command cannot be empty"));
-  }
+    const [cmd, ...args] = command;
+    if (!cmd) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Command cannot be empty",
+        })
+      );
+    }
 
-  // Build environment
-  const env = {
-    ...Bun.env,
-    ...options.env,
-  };
+    const env = {
+      ...Bun.env,
+      ...options.env,
+    };
 
-  // Handle user switching with sudo
-  let finalCommand: string[];
-  if (options.user) {
-    finalCommand = [
-      "sudo",
-      "--preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS",
-      "-u",
-      options.user,
-      "--",
-      cmd,
-      ...args,
-    ];
-  } else {
-    finalCommand = [cmd, ...args];
-  }
+    let finalCommand: string[];
+    if (options.user) {
+      finalCommand = [
+        "sudo",
+        "--preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS",
+        "-u",
+        options.user,
+        "--",
+        cmd,
+        ...args,
+      ];
+    } else {
+      finalCommand = [cmd, ...args];
+    }
 
-  const result = await tryCatch(
-    async () => {
-      const spawnOptions: Parameters<typeof Bun.spawn>[1] = {
-        env,
-        stdout: options.captureStdout !== false ? "pipe" : "inherit",
-        stderr: options.captureStderr !== false ? "pipe" : "inherit",
-        stdin: options.stdin ? new Response(options.stdin).body : undefined,
-      };
+    return yield* Effect.tryPromise({
+      try: async (): Promise<ExecResult> => {
+        const spawnOptions: Parameters<typeof Bun.spawn>[1] = {
+          env,
+          stdout: options.captureStdout !== false ? "pipe" : "inherit",
+          stderr: options.captureStderr !== false ? "pipe" : "inherit",
+          stdin: options.stdin ? new Response(options.stdin).body : undefined,
+        };
 
-      // Only add optional properties if defined (Bun's exactOptionalPropertyTypes)
-      if (options.cwd) {
-        spawnOptions.cwd = options.cwd;
-      }
-      if (options.timeout) {
-        spawnOptions.timeout = options.timeout;
-      }
-      if (options.signal) {
-        spawnOptions.signal = options.signal;
-      }
+        if (options.cwd) {
+          spawnOptions.cwd = options.cwd;
+        }
+        if (options.timeout) {
+          spawnOptions.timeout = options.timeout;
+        }
+        if (options.signal) {
+          spawnOptions.signal = options.signal;
+        }
 
-      const proc = Bun.spawn(finalCommand, spawnOptions);
+        const proc = Bun.spawn(finalCommand, spawnOptions);
+        const exitCode = await proc.exited;
 
-      const exitCode = await proc.exited;
+        const stdout =
+          options.captureStdout !== false && proc.stdout
+            ? await Bun.readableStreamToText(proc.stdout as ReadableStream)
+            : "";
+        const stderr =
+          options.captureStderr !== false && proc.stderr
+            ? await Bun.readableStreamToText(proc.stderr as ReadableStream)
+            : "";
 
-      const stdout =
-        options.captureStdout !== false && proc.stdout
-          ? await Bun.readableStreamToText(proc.stdout as ReadableStream)
-          : "";
-      const stderr =
-        options.captureStderr !== false && proc.stderr
-          ? await Bun.readableStreamToText(proc.stderr as ReadableStream)
-          : "";
-
-      return { exitCode, stdout, stderr };
-    },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Failed to execute: ${finalCommand.join(" ")}`)
-  );
-
-  return result;
-};
+        return { exitCode, stdout, stderr };
+      },
+      catch: (e): SystemError => execError(finalCommand.join(" "), e),
+    });
+  });
 
 /**
  * Execute a command and check for success (exit code 0).
  */
-export const execSuccess = async (
+export const execSuccess = (
   command: readonly string[],
   options: ExecOptions = {}
-): Promise<Result<ExecResult, DivbanError>> => {
-  const result = await exec(command, options);
+): Effect.Effect<ExecResult, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const result = yield* exec(command, options);
 
-  if (!result.ok) {
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.trim();
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.EXEC_FAILED as 26,
+          message: `Command failed with exit code ${result.exitCode}: ${command.join(" ")}${stderr ? `\n${stderr}` : ""}`,
+        })
+      );
+    }
+
     return result;
-  }
-
-  if (result.value.exitCode !== 0) {
-    const stderr = result.value.stderr.trim();
-    return Err(
-      new DivbanError(
-        ErrorCode.EXEC_FAILED,
-        `Command failed with exit code ${result.value.exitCode}: ${command.join(" ")}${stderr ? `\n${stderr}` : ""}`
-      )
-    );
-  }
-
-  return result;
-};
+  });
 
 /**
  * Execute a command and return stdout on success.
  */
-export const execOutput = async (
+export const execOutput = (
   command: readonly string[],
   options: ExecOptions = {}
-): Promise<Result<string, DivbanError>> => {
-  return mapResult(
-    await execSuccess(command, { ...options, captureStdout: true }),
-    (r) => r.stdout
-  );
-};
+): Effect.Effect<string, SystemError | GeneralError> =>
+  Effect.map(execSuccess(command, { ...options, captureStdout: true }), (r) => r.stdout);
 
 /**
  * Check if a command exists in PATH.
- * Uses Bun.which() for synchronous, no-subprocess lookup.
  */
-export const commandExists = (command: string): boolean => {
-  return Bun.which(command) !== null;
-};
+export const commandExists = (command: string): boolean => Bun.which(command) !== null;
 
 /**
  * Run command as a specific user with proper environment.
- * Uses /tmp as default cwd since target user may not have access to caller's cwd.
  */
 export const execAsUser = (
   user: string,
   uid: number,
   command: readonly string[],
   options: Omit<ExecOptions, "user"> = {}
-): Promise<Result<ExecResult, DivbanError>> => {
-  return exec(command, {
+): Effect.Effect<ExecResult, SystemError | GeneralError> =>
+  exec(command, {
     ...options,
     user,
-    // Default to /tmp if no cwd specified - target user may not have access to caller's cwd
     cwd: options.cwd ?? "/tmp",
     env: {
       ...options.env,
@@ -190,20 +181,13 @@ export const execAsUser = (
       DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${uid}/bus`,
     },
   });
-};
 
 export interface ShellOptions {
-  /** Working directory */
   cwd?: string;
-  /** Environment variables */
   env?: Record<string, string>;
-  /** User ID for XDG_RUNTIME_DIR */
   uid?: number;
 }
 
-/**
- * Build environment for shell commands with optional XDG_RUNTIME_DIR.
- */
 const buildShellEnv = (options: ShellOptions): Record<string, string | undefined> => ({
   ...Bun.env,
   ...options.env,
@@ -217,14 +201,13 @@ const buildShellEnv = (options: ShellOptions): Record<string, string | undefined
 
 /**
  * Execute a shell command with piping support using Bun Shell.
- * Use for commands that benefit from shell features (pipes, redirects).
  */
-export const shell = async (
+export const shell = (
   command: string,
   options: ShellOptions = {}
-): Promise<Result<ExecResult, DivbanError>> => {
-  return tryCatch(
-    async () => {
+): Effect.Effect<ExecResult, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<ExecResult> => {
       let cmd = $`${{ raw: command }}`.nothrow().quiet();
 
       if (options.cwd) {
@@ -240,20 +223,18 @@ export const shell = async (
         stderr: result.stderr.toString(),
       };
     },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
-  );
-};
+    catch: (e): SystemError => execError(command, e),
+  });
 
 /**
  * Execute a shell command and return stdout as text.
- * Uses Bun Shell's native .text() method.
  */
 export const shellText = (
   command: string,
   options: ShellOptions = {}
-): Promise<Result<string, DivbanError>> => {
-  return tryCatch(
-    () => {
+): Effect.Effect<string, SystemError> =>
+  Effect.tryPromise({
+    try: (): Promise<string> => {
       let cmd = $`${{ raw: command }}`.quiet();
 
       if (options.cwd) {
@@ -264,20 +245,18 @@ export const shellText = (
 
       return cmd.text();
     },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
-  );
-};
+    catch: (e): SystemError => execError(command, e),
+  });
 
 /**
  * Execute a shell command and return stdout as lines.
- * Uses Bun Shell's native .lines() method.
  */
-export const shellLines = async (
+export const shellLines = (
   command: string,
   options: ShellOptions = {}
-): Promise<Result<string[], DivbanError>> => {
-  return tryCatch(
-    async () => {
+): Effect.Effect<string[], SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<string[]> => {
       let cmd = $`${{ raw: command }}`.quiet();
 
       if (options.cwd) {
@@ -286,53 +265,39 @@ export const shellLines = async (
 
       cmd = cmd.env(buildShellEnv(options));
 
-      // Collect async iterable into array
       const lines: string[] = [];
       for await (const line of cmd.lines()) {
         lines.push(line);
       }
       return lines;
     },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell command failed: ${command}`)
-  );
-};
+    catch: (e): SystemError => execError(command, e),
+  });
 
 /**
  * Escape a string for safe use in shell commands.
- * Uses Bun Shell's native $.escape() for proper escaping.
  */
-export const shellEscape = (input: string): string => {
-  return $.escape(input);
-};
+export const shellEscape = (input: string): string => $.escape(input);
 
 /**
  * Expand brace expressions in a string.
- * Uses Bun Shell's native $.braces() for brace expansion.
- *
- * @example
- * shellBraces("file{1,2,3}.txt") // ["file1.txt", "file2.txt", "file3.txt"]
  */
-export const shellBraces = (pattern: string): string[] => {
-  return $.braces(pattern);
-};
+export const shellBraces = (pattern: string): string[] => $.braces(pattern);
 
 /**
  * Execute shell command as another user via sudo.
- * Uses $.escape() for safe command escaping.
- * Uses /tmp as default cwd since target user may not have access to caller's cwd.
  */
 export const shellAsUser = (
   user: string,
   uid: number,
   command: string,
   options: Omit<ShellOptions, "uid"> = {}
-): Promise<Result<ExecResult, DivbanError>> => {
+): Effect.Effect<ExecResult, SystemError> => {
   const escapedCommand = $.escape(command);
   return shell(
     `sudo --preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS -u ${user} -- sh -c ${escapedCommand}`,
     {
       uid,
-      // Default to /tmp if no cwd specified - target user may not have access to caller's cwd
       cwd: options.cwd ?? "/tmp",
       ...options,
     }
@@ -341,14 +306,13 @@ export const shellAsUser = (
 
 /**
  * Execute a shell command and parse stdout as JSON.
- * Uses Bun Shell's native .json() method for optimal parsing.
  */
-export const shellJson = async <T>(
+export const shellJson = <T>(
   command: string,
   options: ShellOptions = {}
-): Promise<Result<T, DivbanError>> => {
-  return tryCatch(
-    async () => {
+): Effect.Effect<T, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<T> => {
       let cmd = $`${{ raw: command }}`.quiet();
 
       if (options.cwd) {
@@ -359,20 +323,18 @@ export const shellJson = async <T>(
 
       return (await cmd.json()) as T;
     },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell JSON command failed: ${command}`)
-  );
-};
+    catch: (e): SystemError => execError(command, e),
+  });
 
 /**
  * Execute a shell command and return stdout as a Blob.
- * Useful for binary data handling.
  */
-export const shellBlob = async (
+export const shellBlob = (
   command: string,
   options: ShellOptions = {}
-): Promise<Result<Blob, DivbanError>> => {
-  return tryCatch(
-    async () => {
+): Effect.Effect<Blob, SystemError> =>
+  Effect.tryPromise({
+    try: async (): Promise<Blob> => {
       let cmd = $`${{ raw: command }}`.quiet();
 
       if (options.cwd) {
@@ -383,6 +345,5 @@ export const shellBlob = async (
 
       return await cmd.blob();
     },
-    (e) => wrapError(e, ErrorCode.EXEC_FAILED, `Shell blob command failed: ${command}`)
-  );
-};
+    catch: (e): SystemError => execError(command, e),
+  });

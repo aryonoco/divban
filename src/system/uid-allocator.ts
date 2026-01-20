@@ -6,14 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Dynamic UID and subuid allocation for service users.
+ * Dynamic UID and subuid allocation using Effect for error handling.
  * Cross-distribution compatible using POSIX-standard mechanisms.
  */
 
-import { DivbanError, ErrorCode } from "../lib/errors";
-import { fromUndefined, okOr } from "../lib/option";
+import { Effect } from "effect";
+import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
-import { Err, Ok, type Result, mapResult } from "../lib/result";
 import type { SubordinateId, UserId } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
@@ -77,51 +76,54 @@ const parsePasswdFile = (content: string): Set<number> => {
  * Get all UIDs currently in use on the system.
  * Works across all major Linux distributions.
  */
-export const getUsedUids = async (): Promise<Result<Set<number>, DivbanError>> => {
-  const usedUids = new Set<number>();
+export const getUsedUids = (): Effect.Effect<Set<number>, never> =>
+  Effect.gen(function* () {
+    const usedUids = new Set<number>();
 
-  // Method 1: Parse /etc/passwd directly (always available, all distros)
-  const passwdContent = await readFileOrEmpty(SYSTEM_PATHS.passwd);
-  for (const uid of parsePasswdFile(passwdContent)) {
-    usedUids.add(uid);
-  }
-
-  // Method 2: Use getent for NSS sources (handles LDAP, NIS, SSSD)
-  // Not available on musl-based distros (Alpine) - fails gracefully
-  const getentResult = await execOutput(["getent", "passwd"]);
-  if (getentResult.ok) {
-    for (const uid of parsePasswdFile(getentResult.value)) {
+    // Method 1: Parse /etc/passwd directly (always available, all distros)
+    const passwdContent = yield* readFileOrEmpty(SYSTEM_PATHS.passwd);
+    for (const uid of parsePasswdFile(passwdContent)) {
       usedUids.add(uid);
     }
-  }
-  // Note: getent failure is not an error - Alpine doesn't have it
 
-  return Ok(usedUids);
-};
+    // Method 2: Use getent for NSS sources (handles LDAP, NIS, SSSD)
+    // Not available on musl-based distros (Alpine) - fails gracefully
+    const getentResult = yield* Effect.either(execOutput(["getent", "passwd"]));
+    if (getentResult._tag === "Right") {
+      for (const uid of parsePasswdFile(getentResult.right)) {
+        usedUids.add(uid);
+      }
+    }
+    // Note: getent failure is not an error - Alpine doesn't have it
+
+    return usedUids;
+  });
 
 /**
  * Get all subuid ranges currently allocated.
  */
-export const getUsedSubuidRanges = async (): Promise<
-  Result<Array<{ user: string; start: number; end: number }>, DivbanError>
-> => {
-  const ranges: Array<{ user: string; start: number; end: number }> = [];
+export const getUsedSubuidRanges = (): Effect.Effect<
+  Array<{ user: string; start: number; end: number }>,
+  never
+> =>
+  Effect.gen(function* () {
+    const ranges: Array<{ user: string; start: number; end: number }> = [];
 
-  const content = await readFileOrEmpty(SYSTEM_PATHS.subuid);
-  for (const line of content.split("\n")) {
-    if (!line.trim() || line.startsWith("#")) {
-      continue;
+    const content = yield* readFileOrEmpty(SYSTEM_PATHS.subuid);
+    for (const line of content.split("\n")) {
+      if (!line.trim() || line.startsWith("#")) {
+        continue;
+      }
+      const [user, startStr, countStr] = line.split(":");
+      const start = Number.parseInt(startStr ?? "", 10);
+      const count = Number.parseInt(countStr ?? "", 10);
+      if (user && !Number.isNaN(start) && !Number.isNaN(count)) {
+        ranges.push({ user, start, end: start + count - 1 });
+      }
     }
-    const [user, startStr, countStr] = line.split(":");
-    const start = Number.parseInt(startStr ?? "", 10);
-    const count = Number.parseInt(countStr ?? "", 10);
-    if (user && !Number.isNaN(start) && !Number.isNaN(count)) {
-      ranges.push({ user, start, end: start + count - 1 });
-    }
-  }
 
-  return Ok(ranges);
-};
+    return ranges;
+  });
 
 /**
  * Allocate the next available UID in the range.
@@ -129,64 +131,57 @@ export const getUsedSubuidRanges = async (): Promise<
  */
 export const allocateUid = (
   settings?: UidAllocationSettings
-): Promise<Result<UserId, DivbanError>> => {
-  return withLock("uid-allocation", async () => {
-    const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
-    const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
+): Effect.Effect<UserId, SystemError | GeneralError> =>
+  withLock(
+    "uid-allocation",
+    Effect.gen(function* () {
+      const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
+      const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
 
-    // Re-read after acquiring lock to get fresh state
-    const usedResult = await getUsedUids();
-    if (!usedResult.ok) {
-      return usedResult;
-    }
+      // Re-read after acquiring lock to get fresh state
+      const usedUids = yield* getUsedUids();
 
-    const usedUids = usedResult.value;
-
-    for (let uid = start; uid <= end; uid++) {
-      if (!usedUids.has(uid)) {
-        return Ok(uid as UserId);
+      for (let uid = start; uid <= end; uid++) {
+        if (!usedUids.has(uid)) {
+          return uid as UserId;
+        }
       }
-    }
 
-    return Err(
-      new DivbanError(
-        ErrorCode.UID_RANGE_EXHAUSTED,
-        `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`
-      )
-    );
-  });
-};
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+          message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+        })
+      );
+    })
+  );
 
 /**
  * Internal UID allocation without lock - for use within larger locked operations.
  * MUST only be called while holding the "uid-allocation" lock.
  */
-export const allocateUidInternal = async (
+export const allocateUidInternal = (
   settings?: UidAllocationSettings
-): Promise<Result<UserId, DivbanError>> => {
-  const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
-  const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
+): Effect.Effect<UserId, SystemError> =>
+  Effect.gen(function* () {
+    const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
+    const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
 
-  const usedResult = await getUsedUids();
-  if (!usedResult.ok) {
-    return usedResult;
-  }
+    const usedUids = yield* getUsedUids();
 
-  const usedUids = usedResult.value;
-
-  for (let uid = start; uid <= end; uid++) {
-    if (!usedUids.has(uid)) {
-      return Ok(uid as UserId);
+    for (let uid = start; uid <= end; uid++) {
+      if (!usedUids.has(uid)) {
+        return uid as UserId;
+      }
     }
-  }
 
-  return Err(
-    new DivbanError(
-      ErrorCode.UID_RANGE_EXHAUSTED,
-      `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`
-    )
-  );
-};
+    return yield* Effect.fail(
+      new SystemError({
+        code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+        message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+      })
+    );
+  });
 
 /**
  * Allocate the next available subuid range that doesn't overlap
@@ -196,103 +191,116 @@ export const allocateUidInternal = async (
 export const allocateSubuidRange = (
   size?: number,
   settings?: UidAllocationSettings
-): Promise<Result<{ start: SubordinateId; size: number }, DivbanError>> => {
-  return withLock("subuid-allocation", async () => {
-    const rangeStart = settings?.subuidRangeStart ?? DEFAULT_SUBUID_RANGE.start;
-    const rangeSize = size ?? settings?.subuidRangeSize ?? DEFAULT_SUBUID_RANGE.size;
+): Effect.Effect<{ start: SubordinateId; size: number }, SystemError | GeneralError> =>
+  withLock(
+    "subuid-allocation",
+    Effect.gen(function* () {
+      const rangeStart = settings?.subuidRangeStart ?? DEFAULT_SUBUID_RANGE.start;
+      const rangeSize = size ?? settings?.subuidRangeSize ?? DEFAULT_SUBUID_RANGE.size;
 
-    // Re-read after acquiring lock to get fresh state
-    const rangesResult = await getUsedSubuidRanges();
-    if (!rangesResult.ok) {
-      return rangesResult;
-    }
+      // Re-read after acquiring lock to get fresh state
+      const usedRanges = (yield* getUsedSubuidRanges()).sort((a, b) => a.start - b.start);
 
-    const usedRanges = rangesResult.value.sort((a, b) => a.start - b.start);
+      let candidate = rangeStart;
 
-    let candidate = rangeStart;
-
-    for (const range of usedRanges) {
-      // Check if candidate range fits before this used range
-      if (candidate + rangeSize - 1 < range.start) {
-        return Ok({ start: candidate as SubordinateId, size: rangeSize });
+      for (const range of usedRanges) {
+        // Check if candidate range fits before this used range
+        if (candidate + rangeSize - 1 < range.start) {
+          return { start: candidate as SubordinateId, size: rangeSize };
+        }
+        // Move candidate past this used range
+        candidate = Math.max(candidate, range.end + 1);
       }
-      // Move candidate past this used range
-      candidate = Math.max(candidate, range.end + 1);
-    }
 
-    // Check if candidate fits after all used ranges
-    if (candidate + rangeSize - 1 <= DEFAULT_SUBUID_RANGE.maxEnd) {
-      return Ok({ start: candidate as SubordinateId, size: rangeSize });
-    }
+      // Check if candidate fits after all used ranges
+      if (candidate + rangeSize - 1 <= DEFAULT_SUBUID_RANGE.maxEnd) {
+        return { start: candidate as SubordinateId, size: rangeSize };
+      }
 
-    return Err(
-      new DivbanError(
-        ErrorCode.SUBUID_RANGE_EXHAUSTED,
-        `No available subuid range of size ${rangeSize} starting from ${rangeStart}`
-      )
-    );
-  });
-};
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.SUBUID_RANGE_EXHAUSTED as 25,
+          message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
+        })
+      );
+    })
+  );
 
 /**
  * Get UID for an existing user by name.
  */
-export const getUidByUsername = async (username: string): Promise<Result<UserId, DivbanError>> => {
-  const result = await execOutput(["id", "-u", username]);
+export const getUidByUsername = (
+  username: string
+): Effect.Effect<UserId, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(execOutput(["id", "-u", username]));
 
-  if (!result.ok) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `User ${username} not found`));
-  }
+    if (result._tag === "Left") {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `User ${username} not found`,
+        })
+      );
+    }
 
-  const uid = Number.parseInt(result.value.trim(), 10);
-  if (Number.isNaN(uid)) {
-    return Err(new DivbanError(ErrorCode.GENERAL_ERROR, `Invalid UID for user ${username}`));
-  }
+    const uid = Number.parseInt(result.right.trim(), 10);
+    if (Number.isNaN(uid)) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `Invalid UID for user ${username}`,
+        })
+      );
+    }
 
-  return Ok(uid as UserId);
-};
+    return uid as UserId;
+  });
 
 /**
  * Check if a user exists.
  */
-export const userExists = async (username: string): Promise<boolean> => {
-  const result = await exec(["id", username]);
-  return result.ok && result.value.exitCode === 0;
-};
+export const userExists = (username: string): Effect.Effect<boolean, never> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.either(exec(["id", username]));
+    return result._tag === "Right" && result.right.exitCode === 0;
+  });
 
 /**
  * Get existing subuid start for a user.
  */
-export const getExistingSubuidStart = async (
+export const getExistingSubuidStart = (
   username: string
-): Promise<Result<SubordinateId, DivbanError>> => {
-  const rangesResult = await getUsedSubuidRanges();
-  if (!rangesResult.ok) {
-    return rangesResult;
-  }
+): Effect.Effect<SubordinateId, GeneralError> =>
+  Effect.gen(function* () {
+    const ranges = yield* getUsedSubuidRanges();
 
-  const rangeOpt = fromUndefined(rangesResult.value.find((r) => r.user === username));
-  return mapResult(
-    okOr(
-      rangeOpt,
-      new DivbanError(ErrorCode.GENERAL_ERROR, `No subuid range found for ${username}`)
-    ),
-    (range) => range.start as SubordinateId
-  );
-};
+    const range = ranges.find((r) => r.user === username);
+    if (range === undefined) {
+      return yield* Effect.fail(
+        new GeneralError({
+          code: ErrorCode.GENERAL_ERROR as 1,
+          message: `No subuid range found for ${username}`,
+        })
+      );
+    }
+
+    return range.start as SubordinateId;
+  });
 
 /**
  * Get nologin shell path (distribution-independent).
  */
-export const getNologinShell = async (): Promise<string> => {
-  // Check standard nologin locations first
-  for (const path of SYSTEM_PATHS.nologinPaths) {
-    const file = Bun.file(path);
-    if (await file.exists()) {
-      return path;
+export const getNologinShell = (): Effect.Effect<string, never> =>
+  Effect.promise(async () => {
+    // Check standard nologin locations first
+    for (const path of SYSTEM_PATHS.nologinPaths) {
+      const file = Bun.file(path);
+      if (await file.exists()) {
+        return path;
+      }
     }
-  }
 
-  // Fallback (POSIX)
-  return "/bin/false";
-};
+    // Fallback (POSIX)
+    return "/bin/false";
+  });

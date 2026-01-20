@@ -6,11 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration merging utilities.
+ * Configuration merging utilities using Effect.
  * Merges global defaults with service-specific configuration.
  */
 
-import { fromUndefined, isNone } from "../lib/option";
+import { Option } from "effect";
 import type { ContainerBaseConfig, GlobalConfig } from "./schema";
 
 /**
@@ -27,7 +27,7 @@ export const deepMerge = <T extends Record<string, unknown>>(
     const sourceValue = source[key];
     const targetValue = target[key];
 
-    if (isNone(fromUndefined(sourceValue))) {
+    if (Option.isNone(Option.fromNullable(sourceValue))) {
       continue;
     }
 

@@ -6,12 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * SELinux detection module.
+ * SELinux detection module using Effect for error handling.
  * Provides runtime detection of SELinux status for conditional volume relabeling.
  */
 
-import type { DivbanError } from "../lib/errors";
-import { Ok, type Result } from "../lib/result";
+import { Effect } from "effect";
 import { commandExists, exec } from "./exec";
 
 /**
@@ -23,39 +22,38 @@ export type SELinuxMode = "enforcing" | "permissive" | "disabled";
  * Get the current SELinux enforcement mode.
  * Returns "disabled" if SELinux/getenforce is not available (non-SELinux systems).
  */
-export const getSELinuxMode = async (): Promise<Result<SELinuxMode, DivbanError>> => {
-  // Check if getenforce command exists (SELinux not installed on Debian/Ubuntu)
-  if (!commandExists("getenforce")) {
-    return Ok("disabled");
-  }
+export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
+  Effect.gen(function* () {
+    // Check if getenforce command exists (SELinux not installed on Debian/Ubuntu)
+    if (!commandExists("getenforce")) {
+      return "disabled" as const;
+    }
 
-  const result = await exec(["getenforce"], { captureStdout: true });
+    const result = yield* Effect.either(exec(["getenforce"], { captureStdout: true }));
 
-  if (!result.ok) {
-    // If command fails, assume SELinux is disabled
-    return Ok("disabled");
-  }
+    if (result._tag === "Left") {
+      // If command fails, assume SELinux is disabled
+      return "disabled" as const;
+    }
 
-  const output = result.value.stdout.trim().toLowerCase();
+    const output = result.right.stdout.trim().toLowerCase();
 
-  switch (output) {
-    case "enforcing":
-      return Ok("enforcing");
-    case "permissive":
-      return Ok("permissive");
-    case "disabled":
-      return Ok("disabled");
-    default:
-      // Unknown output, default to disabled
-      return Ok("disabled");
-  }
-};
+    switch (output) {
+      case "enforcing":
+        return "enforcing" as const;
+      case "permissive":
+        return "permissive" as const;
+      case "disabled":
+        return "disabled" as const;
+      default:
+        // Unknown output, default to disabled
+        return "disabled" as const;
+    }
+  });
 
 /**
  * Check if SELinux is in enforcing mode.
  * This is the main function used to determine if :Z should be added to volumes.
  */
-export const isSELinuxEnforcing = async (): Promise<boolean> => {
-  const result = await getSELinuxMode();
-  return result.ok && result.value === "enforcing";
-};
+export const isSELinuxEnforcing = (): Effect.Effect<boolean, never> =>
+  Effect.map(getSELinuxMode(), (mode) => mode === "enforcing");

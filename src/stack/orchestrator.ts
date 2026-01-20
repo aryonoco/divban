@@ -6,21 +6,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Stack orchestration for starting, stopping, and managing multi-container stacks.
+ * Effect-based stack orchestration for starting, stopping, and managing multi-container stacks.
  */
 
-import { DivbanError, ErrorCode, wrapError } from "../lib/errors";
-import type { Logger } from "../lib/logger";
-import { fromUndefined } from "../lib/option";
+import { Effect, Option } from "effect";
 import {
-  Err,
-  Ok,
-  type Result,
-  asyncFlatMapResult,
-  mapErr,
-  parallel,
-  sequence,
-} from "../lib/result";
+  ContainerError,
+  ErrorCode,
+  GeneralError,
+  ServiceError,
+  type SystemError,
+} from "../lib/errors";
+import type { Logger } from "../lib/logger";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -47,290 +44,281 @@ export interface OrchestratorOptions {
 /**
  * Start all containers in a stack in dependency order.
  */
-export const startStack = async (
+export const startStack = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger, parallel: parallelStart = true } = options;
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { logger, parallel: parallelStart = true } = options;
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  // Resolve start order
-  const orderResult = resolveStartOrder(stack.containers);
-  if (!orderResult.ok) {
-    return orderResult;
-  }
+    // Resolve start order
+    const { levels } = yield* resolveStartOrder(stack.containers);
 
-  const { levels } = orderResult.value;
+    // Reload daemon first
+    logger.info("Reloading systemd daemon...");
+    yield* daemonReload(systemctlOpts);
 
-  // Reload daemon first
-  logger.info("Reloading systemd daemon...");
-  const reloadResult = await daemonReload(systemctlOpts);
-  if (!reloadResult.ok) {
-    return reloadResult;
-  }
-
-  // Start containers level by level
-  for (let i = 0; i < levels.length; i++) {
-    const level = levels[i];
-    if (!level) {
-      continue;
-    }
-
-    logger.step(i + 1, levels.length, `Starting level ${i + 1}: ${level.join(", ")}`);
-
-    if (parallelStart && level.length > 1) {
-      // Start all containers in this level in parallel
-      const result = await parallel(
-        level.map((name) => startService(`${name}.service`, systemctlOpts)),
-        (e) => wrapError(e, ErrorCode.SERVICE_START_FAILED, "starting services")
-      );
-      if (!result.ok) {
-        return result;
+    // Start containers level by level
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i];
+      if (!level) {
+        continue;
       }
-    } else {
-      // Start sequentially
-      for (const name of level) {
-        const result = await startService(`${name}.service`, systemctlOpts);
-        if (!result.ok) {
-          return Err(
-            new DivbanError(
-              ErrorCode.SERVICE_START_FAILED,
-              `Failed to start container ${name}`,
-              result.error
+
+      logger.step(i + 1, levels.length, `Starting level ${i + 1}: ${level.join(", ")}`);
+
+      if (parallelStart && level.length > 1) {
+        // Start all containers in this level in parallel
+        yield* Effect.all(
+          level.map((name) =>
+            Effect.mapError(
+              startService(`${name}.service`, systemctlOpts),
+              (e) =>
+                new ServiceError({
+                  code: ErrorCode.SERVICE_START_FAILED as 31,
+                  message: `Failed to start container ${name}: ${e.message}`,
+                  service: name,
+                  cause: e,
+                })
             )
+          ),
+          { concurrency: "unbounded" }
+        );
+      } else {
+        // Start sequentially
+        for (const name of level) {
+          yield* Effect.mapError(
+            startService(`${name}.service`, systemctlOpts),
+            (e) =>
+              new ServiceError({
+                code: ErrorCode.SERVICE_START_FAILED as 31,
+                message: `Failed to start container ${name}: ${e.message}`,
+                service: name,
+                cause: e,
+              })
           );
         }
       }
     }
-  }
 
-  logger.success(`Stack '${stack.name}' started successfully`);
-  return Ok(undefined);
-};
+    logger.success(`Stack '${stack.name}' started successfully`);
+  });
 
 /**
  * Stop all containers in a stack in reverse dependency order.
  */
-export const stopStack = async (
+export const stopStack = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger, parallel: parallelStop = true } = options;
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { logger, parallel: parallelStop = true } = options;
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  // Resolve stop order (reverse of start)
-  const orderResult = resolveStopOrder(stack.containers);
-  if (!orderResult.ok) {
-    return orderResult;
-  }
+    // Resolve stop order (reverse of start)
+    const { levels } = yield* resolveStopOrder(stack.containers);
 
-  const { levels } = orderResult.value;
-
-  // Stop containers level by level
-  for (let i = 0; i < levels.length; i++) {
-    const level = levels[i];
-    if (!level) {
-      continue;
-    }
-
-    logger.step(i + 1, levels.length, `Stopping level ${i + 1}: ${level.join(", ")}`);
-
-    if (parallelStop && level.length > 1) {
-      // Stop all containers in this level in parallel
-      const result = await parallel(
-        level.map((name) => stopService(`${name}.service`, systemctlOpts)),
-        (e) => wrapError(e, ErrorCode.SERVICE_STOP_FAILED, "stopping services")
-      );
-      if (!result.ok) {
-        return result;
+    // Stop containers level by level
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i];
+      if (!level) {
+        continue;
       }
-    } else {
-      // Stop sequentially
-      for (const name of level) {
-        const result = await stopService(`${name}.service`, systemctlOpts);
-        if (!result.ok) {
-          return Err(
-            new DivbanError(
-              ErrorCode.SERVICE_STOP_FAILED,
-              `Failed to stop container ${name}`,
-              result.error
+
+      logger.step(i + 1, levels.length, `Stopping level ${i + 1}: ${level.join(", ")}`);
+
+      if (parallelStop && level.length > 1) {
+        // Stop all containers in this level in parallel
+        yield* Effect.all(
+          level.map((name) =>
+            Effect.mapError(
+              stopService(`${name}.service`, systemctlOpts),
+              (e) =>
+                new ServiceError({
+                  code: ErrorCode.SERVICE_STOP_FAILED as 32,
+                  message: `Failed to stop container ${name}: ${e.message}`,
+                  service: name,
+                  cause: e,
+                })
             )
+          ),
+          { concurrency: "unbounded" }
+        );
+      } else {
+        // Stop sequentially
+        for (const name of level) {
+          yield* Effect.mapError(
+            stopService(`${name}.service`, systemctlOpts),
+            (e) =>
+              new ServiceError({
+                code: ErrorCode.SERVICE_STOP_FAILED as 32,
+                message: `Failed to stop container ${name}: ${e.message}`,
+                service: name,
+                cause: e,
+              })
           );
         }
       }
     }
-  }
 
-  logger.success(`Stack '${stack.name}' stopped successfully`);
-  return Ok(undefined);
-};
+    logger.success(`Stack '${stack.name}' stopped successfully`);
+  });
 
 /**
  * Restart all containers in a stack.
  */
-export const restartStack = async (
+export const restartStack = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger } = options;
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { logger } = options;
 
-  logger.info(`Restarting stack '${stack.name}'...`);
+    logger.info(`Restarting stack '${stack.name}'...`);
 
-  // Stop then start (to maintain proper order)
-  return asyncFlatMapResult(await stopStack(stack, options), () => startStack(stack, options));
-};
+    // Stop then start (to maintain proper order)
+    yield* stopStack(stack, options);
+    yield* startStack(stack, options);
+  });
 
 /**
  * Enable all containers in a stack to start on boot.
  */
-export const enableStack = async (
+export const enableStack = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger } = options;
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const { logger } = options;
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  logger.info(`Enabling stack '${stack.name}'...`);
+    logger.info(`Enabling stack '${stack.name}'...`);
 
-  const enableOps = stack.containers.map(
-    (container): (() => Promise<Result<void, DivbanError>>) =>
-      async (): Promise<Result<void, DivbanError>> => {
-        const result = await enableService(`${container.name}.service`, systemctlOpts);
-        return mapErr(
-          result,
-          (err) =>
-            new DivbanError(
-              ErrorCode.GENERAL_ERROR,
-              `Failed to enable container ${container.name}`,
-              err
-            )
-        );
-      }
-  );
-  const enableResult = await sequence(enableOps);
-  if (!enableResult.ok) {
-    return enableResult;
-  }
+    for (const container of stack.containers) {
+      yield* Effect.mapError(
+        enableService(`${container.name}.service`, systemctlOpts),
+        (e) =>
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Failed to enable container ${container.name}: ${e.message}`,
+            cause: e,
+          })
+      );
+    }
 
-  logger.success(`Stack '${stack.name}' enabled successfully`);
-  return Ok(undefined);
-};
+    logger.success(`Stack '${stack.name}' enabled successfully`);
+  });
 
 /**
  * Get status of all containers in a stack.
  */
-export const getStackStatus = async (
+export const getStackStatus = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<
-  Result<Array<{ name: string; running: boolean; description?: string }>, DivbanError>
-> => {
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
-  const statuses: Array<{ name: string; running: boolean; description?: string }> = [];
+): Effect.Effect<
+  Array<{ name: string; running: boolean; description?: string }>,
+  ServiceError | SystemError
+> =>
+  Effect.gen(function* () {
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+    const statuses: Array<{ name: string; running: boolean; description?: string }> = [];
 
-  for (const container of stack.containers) {
-    const running = await isServiceActive(`${container.name}.service`, systemctlOpts);
-    const status: { name: string; running: boolean; description?: string } = {
-      name: container.name,
-      running,
-    };
-    const descOpt = fromUndefined(container.description);
-    if (descOpt.isSome) {
-      status.description = descOpt.value;
+    for (const container of stack.containers) {
+      const running = yield* isServiceActive(`${container.name}.service`, systemctlOpts);
+      const status: { name: string; running: boolean; description?: string } = {
+        name: container.name,
+        running,
+      };
+      const descOpt = Option.fromNullable(container.description);
+      if (Option.isSome(descOpt)) {
+        status.description = descOpt.value;
+      }
+      statuses.push(status);
     }
-    statuses.push(status);
-  }
 
-  return Ok(statuses);
-};
+    return statuses;
+  });
 
 /**
  * Check if all containers in a stack are running.
  */
-export const isStackRunning = async (
+export const isStackRunning = (
   stack: Stack,
   options: OrchestratorOptions
-): Promise<boolean> => {
-  const statusResult = await getStackStatus(stack, options);
-  if (!statusResult.ok) {
-    return false;
-  }
-
-  return statusResult.value.every((s) => s.running);
-};
+): Effect.Effect<boolean, ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const statuses = yield* getStackStatus(stack, options);
+    return statuses.every((s) => s.running);
+  });
 
 /**
  * Start a single container in a stack (with its dependencies).
  */
-export const startContainer = async (
+export const startContainer = (
   stack: Stack,
   containerName: string,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger } = options;
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError> =>
+  Effect.gen(function* () {
+    const { logger } = options;
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  const containerOpt = fromUndefined(stack.containers.find((c) => c.name === containerName));
-  if (!containerOpt.isSome) {
-    return Err(
-      new DivbanError(
-        ErrorCode.CONTAINER_NOT_FOUND,
-        `Container '${containerName}' not found in stack`
-      )
+    const containerOpt = Option.fromNullable(
+      stack.containers.find((c) => c.name === containerName)
     );
-  }
+    if (Option.isNone(containerOpt)) {
+      return yield* Effect.fail(
+        new ContainerError({
+          code: ErrorCode.CONTAINER_NOT_FOUND as 44,
+          message: `Container '${containerName}' not found in stack`,
+          container: containerName,
+        })
+      );
+    }
 
-  // Reload daemon first
-  await daemonReload(systemctlOpts);
+    // Reload daemon first
+    yield* daemonReload(systemctlOpts);
 
-  // Start the container (systemd will handle dependencies)
-  logger.info(`Starting container '${containerName}'...`);
-  const result = await startService(`${containerName}.service`, systemctlOpts);
+    // Start the container (systemd will handle dependencies)
+    logger.info(`Starting container '${containerName}'...`);
+    yield* Effect.mapError(
+      startService(`${containerName}.service`, systemctlOpts),
+      (e) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_START_FAILED as 31,
+          message: `Failed to start container ${containerName}: ${e.message}`,
+          service: containerName,
+          cause: e,
+        })
+    );
 
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.SERVICE_START_FAILED,
-        `Failed to start container ${containerName}`,
-        err
-      )
-  );
-  if (!mapped.ok) {
-    return mapped;
-  }
-
-  logger.success(`Container '${containerName}' started successfully`);
-  return Ok(undefined);
-};
+    logger.success(`Container '${containerName}' started successfully`);
+  });
 
 /**
  * Stop a single container in a stack.
  */
-export const stopContainer = async (
+export const stopContainer = (
   _stack: Stack,
   containerName: string,
   options: OrchestratorOptions
-): Promise<Result<void, DivbanError>> => {
-  const { logger } = options;
-  const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
+): Effect.Effect<void, ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const { logger } = options;
+    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-  logger.info(`Stopping container '${containerName}'...`);
-  const result = await stopService(`${containerName}.service`, systemctlOpts);
+    logger.info(`Stopping container '${containerName}'...`);
+    yield* Effect.mapError(
+      stopService(`${containerName}.service`, systemctlOpts),
+      (e) =>
+        new ServiceError({
+          code: ErrorCode.SERVICE_STOP_FAILED as 32,
+          message: `Failed to stop container ${containerName}: ${e.message}`,
+          service: containerName,
+          cause: e,
+        })
+    );
 
-  const mapped = mapErr(
-    result,
-    (err) =>
-      new DivbanError(
-        ErrorCode.SERVICE_STOP_FAILED,
-        `Failed to stop container ${containerName}`,
-        err
-      )
-  );
-  if (!mapped.ok) {
-    return mapped;
-  }
-
-  logger.success(`Container '${containerName}' stopped successfully`);
-  return Ok(undefined);
-};
+    logger.success(`Container '${containerName}' stopped successfully`);
+  });
