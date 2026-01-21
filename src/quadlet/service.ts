@@ -11,9 +11,9 @@
 
 import type { Entries } from "./entry";
 import { concat, fromValue } from "./entry-combinators";
+import { makeSection } from "./factory";
 import type { IniSection } from "./format";
 import type { ServiceConfig } from "./types";
-
 
 export const getServiceSectionEntries = (config: ServiceConfig): Entries =>
   concat(
@@ -26,10 +26,10 @@ export const getServiceSectionEntries = (config: ServiceConfig): Entries =>
 /**
  * Build the [Service] section for a quadlet file.
  */
-export const buildServiceSection = (config: ServiceConfig): IniSection => ({
-  name: "Service",
-  entries: getServiceSectionEntries(config),
-});
+export const buildServiceSection: (config: ServiceConfig) => IniSection = makeSection(
+  "Service",
+  getServiceSectionEntries
+);
 
 /**
  * Create a default service configuration.

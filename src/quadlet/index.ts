@@ -24,6 +24,9 @@ export {
   when,
 } from "./entry-combinators";
 
+// Factories (higher-order section/quadlet builders)
+export { makeSection, makeSimpleQuadletGenerator } from "./factory";
+
 // Types
 export type {
   ContainerQuadlet,

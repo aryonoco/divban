@@ -12,6 +12,7 @@
 import { Array as Arr, Option, pipe } from "effect";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromValue } from "./entry-combinators";
+import { makeSection } from "./factory";
 import type { IniSection } from "./format";
 
 /**
@@ -51,7 +52,6 @@ const optionalField = <K extends string, V>(
     })
   );
 
-
 export const getUnitSectionEntries = (config: UnitConfig): Entries =>
   concat(
     fromValue("Description", config.description),
@@ -66,10 +66,10 @@ export const getUnitSectionEntries = (config: UnitConfig): Entries =>
 /**
  * Build the [Unit] section for a quadlet file.
  */
-export const buildUnitSection = (config: UnitConfig): IniSection => ({
-  name: "Unit",
-  entries: getUnitSectionEntries(config),
-});
+export const buildUnitSection: (config: UnitConfig) => IniSection = makeSection(
+  "Unit",
+  getUnitSectionEntries
+);
 
 /**
  * Convert container names to systemd unit names.

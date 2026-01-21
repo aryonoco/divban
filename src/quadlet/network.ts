@@ -9,13 +9,11 @@
  * Network quadlet file generation.
  */
 
-import { Array as Arr, Option, identity, pipe } from "effect";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromRecord, fromValue } from "./entry-combinators";
+import { makeSection, makeSimpleQuadletGenerator } from "./factory";
 import type { IniSection } from "./format";
-import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, NetworkQuadlet } from "./types";
-import { buildUnitSection } from "./unit";
 
 export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
   concat(
@@ -32,32 +30,16 @@ export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
 /**
  * Build the [Network] section using pure combinators.
  */
-export const buildNetworkSection = (config: NetworkQuadlet): IniSection => ({
-  name: "Network",
-  entries: getNetworkSectionEntries(config),
-});
+export const buildNetworkSection: (config: NetworkQuadlet) => IniSection = makeSection(
+  "Network",
+  getNetworkSectionEntries
+);
 
 /**
  * Generate a complete network quadlet file.
  */
-export const generateNetworkQuadlet = (config: NetworkQuadlet): GeneratedQuadlet => {
-  const sections = pipe(
-    [
-      pipe(
-        Option.fromNullable(config.description),
-        Option.map((description) => buildUnitSection({ description }))
-      ),
-      Option.some(buildNetworkSection(config)),
-    ],
-    Arr.filterMap(identity)
-  );
-
-  return {
-    filename: `${config.name}.network`,
-    content: createQuadletFile(sections),
-    type: "network",
-  };
-};
+export const generateNetworkQuadlet: (config: NetworkQuadlet) => GeneratedQuadlet =
+  makeSimpleQuadletGenerator("network", buildNetworkSection);
 
 /**
  * Create a simple internal bridge network configuration.

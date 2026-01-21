@@ -11,6 +11,7 @@
 
 import type { Entries } from "./entry";
 import { fromValue } from "./entry-combinators";
+import { makeSection } from "./factory";
 import type { IniSection } from "./format";
 
 export interface InstallConfig {
@@ -24,10 +25,8 @@ export const getInstallSectionEntries = (config: InstallConfig): Entries =>
 /**
  * Build the [Install] section for a quadlet file.
  */
-export const buildInstallSection = (config: InstallConfig = {}): IniSection => ({
-  name: "Install",
-  entries: getInstallSectionEntries(config),
-});
+export const buildInstallSection = (config: InstallConfig = {}): IniSection =>
+  makeSection("Install", getInstallSectionEntries)(config);
 
 /**
  * Common install targets.

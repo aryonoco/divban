@@ -10,6 +10,18 @@ import type { Entries, Entry } from "./entry";
 import { empty } from "./entry";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Core Primitive
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Monoid homomorphism: Option<Entries> → Entries
+ * Lifts Option<Entries> into Entries by returning empty for None.
+ * This is the universal primitive that all combinators factor through.
+ */
+const optionToEntries = (opt: Option.Option<Entries>): Entries =>
+  Option.getOrElse(opt, (): Entries => empty);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Primitives (Functor-based lifting)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -24,23 +36,22 @@ const formatPrimitive = (value: string | number | boolean): string =>
   );
 
 /**
- * Lift a value into an Entry if defined, otherwise return empty.
- *
+ * Create an entry with custom formatting, only if value is defined.
+ * Fundamental combinator that fromValue delegates to.
  */
-export const fromValue = (key: string, value: string | number | boolean | undefined): Entries =>
+export const fromMaybe = <A>(key: string, value: A | undefined, f: (a: A) => string): Entries =>
   pipe(
     Option.fromNullable(value),
-    Option.map(
-      (v): Entry => ({
-        key,
-        value: formatPrimitive(v),
-      })
-    ),
-    Option.match({
-      onNone: (): Entries => empty,
-      onSome: (entry): Entries => [entry],
-    })
+    Option.map((v): Entries => [{ key, value: f(v) }]),
+    optionToEntries
   );
+
+/**
+ * Lift a value into an Entry if defined, otherwise return empty.
+ * Delegates to fromMaybe with formatPrimitive.
+ */
+export const fromValue = (key: string, value: string | number | boolean | undefined): Entries =>
+  fromMaybe(key, value, formatPrimitive);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Array Combinators
@@ -53,7 +64,7 @@ export const fromArray = (key: string, values: readonly string[] | undefined): E
   pipe(
     Option.fromNullable(values),
     Option.map(Arr.map((value): Entry => ({ key, value }))),
-    Option.getOrElse((): Entries => empty)
+    optionToEntries
   );
 
 /**
@@ -67,7 +78,7 @@ export const fromArrayWith = <A>(
   pipe(
     Option.fromNullable(items),
     Option.map(Arr.map((item): Entry => ({ key, value: f(item) }))),
-    Option.getOrElse((): Entries => empty)
+    optionToEntries
   );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,7 +102,7 @@ export const fromRecord = <V extends string | number | boolean>(
         Arr.map(([k, v]): Entry => ({ key, value: f(k, v) }))
       )
     ),
-    Option.getOrElse((): Entries => empty)
+    optionToEntries
   );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,21 +115,8 @@ export const fromRecord = <V extends string | number | boolean>(
 export const concat = (...arrays: readonly Entries[]): Entries => Arr.flatten(arrays);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Conditional Entry (For complex formatting)
+// Conditional Entry
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Create an entry with custom formatting, only if value is defined.
- */
-export const fromMaybe = <A>(key: string, value: A | undefined, f: (a: A) => string): Entries =>
-  pipe(
-    Option.fromNullable(value),
-    Option.map((v): Entry => ({ key, value: f(v) })),
-    Option.match({
-      onNone: (): Entries => empty,
-      onSome: (entry): Entries => [entry],
-    })
-  );
 
 /**
  * Conditionally include an entry based on a predicate.

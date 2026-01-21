@@ -9,13 +9,11 @@
  * Volume quadlet file generation.
  */
 
-import { Array as Arr, Option, identity, pipe } from "effect";
 import type { Entries } from "./entry";
 import { concat, fromRecord, fromValue } from "./entry-combinators";
+import { makeSection, makeSimpleQuadletGenerator } from "./factory";
 import type { IniSection } from "./format";
-import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, VolumeQuadlet } from "./types";
-import { buildUnitSection } from "./unit";
 
 export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
   concat(
@@ -25,34 +23,18 @@ export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
   );
 
 /**
- * Build the [Volume] section using pure combinators.
+ * Build the [Volume] section using combinators.
  */
-export const buildVolumeSection = (config: VolumeQuadlet): IniSection => ({
-  name: "Volume",
-  entries: getVolumeSectionEntries(config),
-});
+export const buildVolumeSection: (config: VolumeQuadlet) => IniSection = makeSection(
+  "Volume",
+  getVolumeSectionEntries
+);
 
 /**
  * Generate a complete volume quadlet file.
  */
-export const generateVolumeQuadlet = (config: VolumeQuadlet): GeneratedQuadlet => {
-  const sections = pipe(
-    [
-      pipe(
-        Option.fromNullable(config.description),
-        Option.map((description) => buildUnitSection({ description }))
-      ),
-      Option.some(buildVolumeSection(config)),
-    ],
-    Arr.filterMap(identity)
-  );
-
-  return {
-    filename: `${config.name}.volume`,
-    content: createQuadletFile(sections),
-    type: "volume",
-  };
-};
+export const generateVolumeQuadlet: (config: VolumeQuadlet) => GeneratedQuadlet =
+  makeSimpleQuadletGenerator("volume", buildVolumeSection);
 
 /**
  * Create a simple named volume configuration.

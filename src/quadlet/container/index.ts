@@ -36,63 +36,30 @@ import { getVolumeEntries } from "./volumes";
  * Architecture:
  * - Each getXxxEntries is a pure function: Config → Entries
  * - concat is the monoid operation combining all entries
+ * - ContainerQuadlet extends sub-config interfaces, enabling direct pass-through
  */
 export const buildContainerSection = (config: ContainerQuadlet): IniSection => ({
   name: "Container",
   entries: concat(
+    // ImageConfig: explicit object needed because image is required in ImageConfig
     getImageEntries({
       image: config.image,
-      ...(config.imageDigest !== undefined && { imageDigest: config.imageDigest }),
-      ...(config.autoUpdate !== undefined && { autoUpdate: config.autoUpdate }),
+      imageDigest: config.imageDigest,
+      autoUpdate: config.autoUpdate,
     }),
-    getNetworkEntries({
-      ...(config.network !== undefined && { network: config.network }),
-      ...(config.networkMode !== undefined && { networkMode: config.networkMode }),
-      ...(config.mapHostLoopback !== undefined && { mapHostLoopback: config.mapHostLoopback }),
-      ...(config.ports !== undefined && { ports: config.ports }),
-      ...(config.exposePort !== undefined && { exposePort: config.exposePort }),
-      ...(config.hostname !== undefined && { hostname: config.hostname }),
-      ...(config.dns !== undefined && { dns: config.dns }),
-    }),
-    getVolumeEntries({
-      ...(config.volumes !== undefined && { volumes: config.volumes }),
-      ...(config.tmpfs !== undefined && { tmpfs: config.tmpfs }),
-    }),
-    getEnvironmentEntries({
-      ...(config.environmentFiles !== undefined && { environmentFiles: config.environmentFiles }),
-      ...(config.environment !== undefined && { environment: config.environment }),
-    }),
-    getSecretEntries({
-      ...(config.secrets !== undefined && { secrets: config.secrets }),
-    }),
+    // These all accept their respective config types - direct pass via structural subtyping
+    getNetworkEntries(config),
+    getVolumeEntries(config),
+    getEnvironmentEntries(config),
+    getSecretEntries(config),
+    getSecurityEntries(config),
+    getCapabilityEntries(config),
+    getResourceEntries(config),
+    // These take specific types, not config interfaces
     getUserNsEntries(config.userNs),
     getHealthCheckEntries(config.healthCheck),
-    getSecurityEntries({
-      ...(config.readOnlyRootfs !== undefined && { readOnlyRootfs: config.readOnlyRootfs }),
-      ...(config.noNewPrivileges !== undefined && { noNewPrivileges: config.noNewPrivileges }),
-      ...(config.seccompProfile !== undefined && { seccompProfile: config.seccompProfile }),
-      ...(config.user !== undefined && { user: config.user }),
-      ...(config.group !== undefined && { group: config.group }),
-    }),
-    getCapabilityEntries({
-      ...(config.capAdd !== undefined && { capAdd: config.capAdd }),
-      ...(config.capDrop !== undefined && { capDrop: config.capDrop }),
-    }),
-    getResourceEntries({
-      ...(config.shmSize !== undefined && { shmSize: config.shmSize }),
-      ...(config.memory !== undefined && { memory: config.memory }),
-      ...(config.pidsLimit !== undefined && { pidsLimit: config.pidsLimit }),
-    }),
-    getMiscEntries({
-      ...(config.init !== undefined && { init: config.init }),
-      ...(config.logDriver !== undefined && { logDriver: config.logDriver }),
-      ...(config.entrypoint !== undefined && { entrypoint: config.entrypoint }),
-      ...(config.exec !== undefined && { exec: config.exec }),
-      ...(config.workdir !== undefined && { workdir: config.workdir }),
-      ...(config.devices !== undefined && { devices: config.devices }),
-      ...(config.sysctl !== undefined && { sysctl: config.sysctl }),
-      containerName: config.containerName ?? config.name,
-    })
+    // MiscConfig: need spread for containerName default (falls back to unit name)
+    getMiscEntries({ ...config, containerName: config.containerName ?? config.name })
   ),
 });
 

@@ -10,6 +10,16 @@
  * Quadlets are systemd generator files for Podman containers.
  */
 
+import type { ContainerCapabilitiesConfig } from "./container/capabilities";
+import type { ContainerEnvironmentConfig } from "./container/environment";
+import type { ImageConfig } from "./container/image";
+import type { ContainerMiscConfig } from "./container/misc";
+import type { ContainerNetworkConfig } from "./container/network";
+import type { ContainerResourcesConfig } from "./container/resources";
+import type { ContainerSecretsConfig } from "./container/secrets";
+import type { ContainerSecurityConfig } from "./container/security";
+import type { ContainerVolumeConfig } from "./container/volumes";
+
 /**
  * Port mapping configuration.
  */
@@ -97,89 +107,46 @@ export interface ServiceConfig {
 
 /**
  * Full container quadlet configuration.
+ * Composes sub-config interfaces via structural subtyping.
+ * ContainerQuadlet extends Partial<XxxConfig> to enable direct passing to getXxxEntries.
  */
-export interface ContainerQuadlet {
+export interface ContainerQuadlet
+  extends Partial<ContainerNetworkConfig>,
+    Partial<ContainerSecurityConfig>,
+    Partial<ContainerCapabilitiesConfig>,
+    Partial<ContainerEnvironmentConfig>,
+    Partial<ContainerResourcesConfig>,
+    Partial<ContainerSecretsConfig>,
+    Partial<ContainerVolumeConfig>,
+    Partial<ContainerMiscConfig>,
+    Partial<Omit<ImageConfig, "image">> {
+  // Required fields
   /** Container name (used for unit file name) */
-  name: string;
+  readonly name: string;
   /** Human-readable description */
-  description: string;
+  readonly description: string;
   /** Container image reference */
-  image: string;
-  /** Optional image digest for pinning */
-  imageDigest?: string | undefined;
-
-  /** Unit dependencies */
-  requires?: string[] | undefined;
-  wants?: string[] | undefined;
-  after?: string[] | undefined;
-  before?: string[] | undefined;
-
-  /** Network configuration */
-  network?: string | undefined;
-  networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
-  /** Map private IP to host loopback (pasta networkMode only) */
-  mapHostLoopback?: string | undefined;
-  ports?: readonly PortMapping[] | undefined;
-  exposePort?: readonly number[] | undefined;
-  hostname?: string | undefined;
-  dns?: readonly string[] | undefined;
-
-  /** Volume configuration */
-  volumes?: readonly VolumeMount[] | undefined;
-  tmpfs?: readonly string[] | undefined;
-
-  /** Environment configuration */
-  environmentFiles?: string[] | undefined;
-  environment?: Record<string, string> | undefined;
-
-  /** Podman secrets to mount or inject */
-  secrets?: readonly SecretMount[] | undefined;
-
-  /** User namespace configuration */
-  userNs?: UserNamespace | undefined;
-
-  /** Health check configuration */
-  healthCheck?: HealthCheck | undefined;
-
-  /** Security configuration */
-  readOnlyRootfs?: boolean | undefined;
-  noNewPrivileges?: boolean | undefined;
-  seccompProfile?: string | undefined;
-  apparmorProfile?: string | undefined;
-  capAdd?: string[] | undefined;
-  capDrop?: string[] | undefined;
-
-  /** Resource limits */
-  shmSize?: string | undefined;
-  memory?: string | undefined;
-  cpuQuota?: string | undefined;
-  pidsLimit?: number | undefined;
-
-  /** Devices */
-  devices?: string[] | undefined;
-
-  /** Misc options */
-  init?: boolean | undefined;
-  logDriver?: string | undefined;
-  entrypoint?: string | undefined;
-  exec?: string | undefined;
-  workdir?: string | undefined;
-  user?: string | undefined;
-  group?: string | undefined;
-  /** Explicit container name (for DNS resolution in networks) */
-  containerName?: string | undefined;
-
-  /** Sysctl settings for the container */
-  sysctl?: Record<string, string | number> | undefined;
-
-  /** Auto-update configuration */
-  autoUpdate?: "registry" | "local" | false | undefined;
-
+  readonly image: string;
   /** Service configuration */
-  service: ServiceConfig;
+  readonly service: ServiceConfig;
 
-  /** Install section */
-  wantedBy?: string | undefined;
+  // Unit dependencies (not from sub-configs)
+  /** Hard dependencies - unit fails if these fail */
+  readonly requires?: readonly string[] | undefined;
+  /** Soft dependencies - unit doesn't fail if these fail */
+  readonly wants?: readonly string[] | undefined;
+  /** Order: start after these units */
+  readonly after?: readonly string[] | undefined;
+  /** Order: start before these units */
+  readonly before?: readonly string[] | undefined;
+
+  // Container-specific optionals (not from sub-configs)
+  /** User namespace configuration */
+  readonly userNs?: UserNamespace | undefined;
+  /** Health check configuration */
+  readonly healthCheck?: HealthCheck | undefined;
+  /** Install section - target to install to */
+  readonly wantedBy?: string | undefined;
 }
 
 /**

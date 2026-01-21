@@ -10,7 +10,7 @@
  * Simple single-container personal finance application.
  */
 
-import { Effect, Exit, Option } from "effect";
+import { Effect, Exit } from "effect";
 import {
   type BackupError,
   ErrorCode,
@@ -139,13 +139,12 @@ const generate = (
       service: {
         restart: "always",
       },
-    };
 
-    // Only add autoUpdate if defined
-    const autoUpdate = config.container?.autoUpdate;
-    if (Option.isSome(Option.fromNullable(autoUpdate))) {
-      quadletConfig.autoUpdate = autoUpdate;
-    }
+      // Auto-update (only if configured)
+      ...(config.container?.autoUpdate !== undefined && {
+        autoUpdate: config.container.autoUpdate,
+      }),
+    };
 
     const containerQuadlet = generateContainerQuadlet(quadletConfig);
 

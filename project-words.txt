@@ -149,6 +149,7 @@ millis
 jittered
 effectful
 Effectful
+subtyping
 
 # Misc
 Filenaming
