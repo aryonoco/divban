@@ -9,6 +9,9 @@
  * Container environment configuration for quadlet files.
  */
 
+import { Array as Arr, pipe } from "effect";
+
+import { mergeEnv } from "../../stack/environment";
 import { addEntries, escapeIniValue } from "../format";
 
 export interface ContainerEnvironmentConfig {
@@ -72,18 +75,11 @@ export const CommonEnvVars: Record<
 
 /**
  * Merge multiple environment configurations.
+ * Re-exported from stack/environment for backwards compatibility.
  */
-export const mergeEnvironments = (
-  ...envs: (Record<string, string> | undefined)[]
-): Record<string, string> => {
-  const result: Record<string, string> = {};
-  for (const env of envs) {
-    if (env) {
-      Object.assign(result, env);
-    }
-  }
-  return result;
-};
+export const mergeEnvironments: (
+  ...envs: (Record<string, string | number | boolean | undefined> | undefined)[]
+) => Record<string, string> = mergeEnv;
 
 /**
  * Filter environment variables by prefix.
@@ -91,12 +87,9 @@ export const mergeEnvironments = (
 export const filterEnvByPrefix = (
   env: Record<string, string>,
   prefix: string
-): Record<string, string> => {
-  const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(env)) {
-    if (key.startsWith(prefix)) {
-      result[key] = value;
-    }
-  }
-  return result;
-};
+): Record<string, string> =>
+  pipe(
+    Object.entries(env),
+    Arr.filter(([key]) => key.startsWith(prefix)),
+    Object.fromEntries
+  );

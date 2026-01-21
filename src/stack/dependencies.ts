@@ -10,20 +10,52 @@
  * Uses topological sort to determine correct start/stop order.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
+
+// ============================================================================
+// Pure Graph Helper Functions
+// ============================================================================
+
+/** Get all dependencies (requires + wants) for a node */
+const getNodeDeps = (node: DependencyNode): readonly string[] => [...node.requires, ...node.wants];
+
+/** Get all dependencies for a container */
+const getContainerDeps = (c: StackContainer): readonly string[] => [
+  ...(c.requires ?? []),
+  ...(c.wants ?? []),
+];
+
+/** Build a name->node lookup map  */
+const buildNodeMap = (nodes: DependencyNode[]): ReadonlyMap<string, DependencyNode> =>
+  new Map(nodes.map((n) => [n.name, n]));
+
+/** Build a name->container lookup map */
+const buildContainerMap = (containers: StackContainer[]): ReadonlyMap<string, StackContainer> =>
+  new Map(containers.map((c) => [c.name, c]));
+
+/** Check if all dependencies are in a given set */
+const allDepsIn = (deps: readonly string[], placed: ReadonlySet<string>): boolean =>
+  deps.every((dep) => placed.has(dep));
+
+// ============================================================================
+// Graph Construction
+// ============================================================================
 
 /**
  * Build dependency graph from container definitions.
  */
-export const buildDependencyGraph = (containers: StackContainer[]): DependencyNode[] => {
-  return containers.map((c) => ({
+export const buildDependencyGraph = (containers: StackContainer[]): DependencyNode[] =>
+  containers.map((c) => ({
     name: c.name,
     requires: c.requires ?? [],
     wants: c.wants ?? [],
   }));
-};
+
+// ============================================================================
+// Validation Functions
+// ============================================================================
 
 /**
  * Validate that all dependencies exist in the stack.
@@ -33,69 +65,85 @@ export const validateDependencies = (
 ): Effect.Effect<void, GeneralError> => {
   const names = new Set(nodes.map((n) => n.name));
 
-  for (const node of nodes) {
-    for (const dep of [...node.requires, ...node.wants]) {
-      if (!names.has(dep)) {
-        return Effect.fail(
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Container '${node.name}' depends on unknown container '${dep}'`,
-          })
-        );
-      }
-    }
-  }
+  const depPairs = nodes.flatMap((node) =>
+    getNodeDeps(node).map((dep) => ({ nodeName: node.name, dep }))
+  );
 
-  return Effect.void;
+  return pipe(
+    Effect.forEach(depPairs, ({ nodeName, dep }) =>
+      names.has(dep)
+        ? Effect.void
+        : Effect.fail(
+            new GeneralError({
+              code: ErrorCode.GENERAL_ERROR as 1,
+              message: `Container '${nodeName}' depends on unknown container '${dep}'`,
+            })
+          )
+    ),
+    Effect.asVoid
+  );
 };
 
 /**
  * Detect cycles in the dependency graph.
  */
 export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, GeneralError> => {
-  const visited = new Set<string>();
-  const recursionStack = new Set<string>();
-  const nodeMap = new Map(nodes.map((n) => [n.name, n]));
+  const nodeMap = buildNodeMap(nodes);
 
-  const hasCycle = (name: string, path: string[]): Option.Option<string[]> => {
-    if (recursionStack.has(name)) {
-      return Option.some([...path, name]);
-    }
-    if (visited.has(name)) {
-      return Option.none();
-    }
+  const findCycle = (
+    name: string,
+    path: readonly string[],
+    visited: ReadonlySet<string>,
+    inStack: ReadonlySet<string>
+  ): Option.Option<readonly string[]> => {
+    if (inStack.has(name)) return Option.some([...path, name]);
+    if (visited.has(name)) return Option.none();
 
-    visited.add(name);
-    recursionStack.add(name);
+    return pipe(
+      Option.fromNullable(nodeMap.get(name)),
+      Option.flatMap((node) => {
+        const newPath = [...path, name];
+        const newVisited = new Set([...visited, name]);
+        const newStack = new Set([...inStack, name]);
 
-    const nodeOpt = Option.fromNullable(nodeMap.get(name));
-    if (Option.isSome(nodeOpt)) {
-      for (const dep of [...nodeOpt.value.requires, ...nodeOpt.value.wants]) {
-        const cycle = hasCycle(dep, [...path, name]);
-        if (Option.isSome(cycle)) {
-          return cycle;
-        }
-      }
-    }
-
-    recursionStack.delete(name);
-    return Option.none();
+        // Find first cycle in dependencies (short-circuit with reduce)
+        return getNodeDeps(node).reduce<Option.Option<readonly string[]>>(
+          (acc, dep) => (Option.isSome(acc) ? acc : findCycle(dep, newPath, newVisited, newStack)),
+          Option.none()
+        );
+      })
+    );
   };
 
-  for (const node of nodes) {
-    const cycle = hasCycle(node.name, []);
-    if (Option.isSome(cycle)) {
-      return Effect.fail(
+  // Check all nodes as starting points
+  const cycleResult = nodes.reduce<Option.Option<readonly string[]>>(
+    (acc, node) => (Option.isSome(acc) ? acc : findCycle(node.name, [], new Set(), new Set())),
+    Option.none()
+  );
+
+  return Option.match(cycleResult, {
+    onNone: () => Effect.void,
+    onSome: (cycle) =>
+      Effect.fail(
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
-          message: `Circular dependency detected: ${cycle.value.join(" -> ")}`,
+          message: `Circular dependency detected: ${cycle.join(" -> ")}`,
         })
-      );
-    }
-  }
-
-  return Effect.void;
+      ),
+  });
 };
+
+// ============================================================================
+// Topological Sort
+// ============================================================================
+
+/** State for Kahn's algorithm iteration */
+interface KahnState {
+  readonly inDegree: ReadonlyMap<string, number>;
+  readonly adjacency: ReadonlyMap<string, readonly string[]>;
+  readonly queue: readonly string[];
+  readonly sorted: readonly string[];
+}
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -103,60 +151,70 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
  */
 export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[], GeneralError> =>
   Effect.gen(function* () {
-    // Validate first
     yield* validateDependencies(nodes);
     yield* detectCycles(nodes);
 
-    // Build adjacency list and in-degree count
-    const inDegree = new Map<string, number>();
-    const adjacency = new Map<string, string[]>();
-
-    for (const node of nodes) {
-      inDegree.set(node.name, 0);
-      adjacency.set(node.name, []);
-    }
+    // Build initial adjacency and in-degree using reduce
+    const initial = nodes.reduce<{ adj: Map<string, string[]>; deg: Map<string, number> }>(
+      (acc, node) => {
+        acc.deg.set(node.name, 0);
+        acc.adj.set(node.name, []);
+        return acc;
+      },
+      { adj: new Map(), deg: new Map() }
+    );
 
     // Add edges (dependency -> dependent)
-    for (const node of nodes) {
-      for (const dep of [...node.requires, ...node.wants]) {
-        adjacency.get(dep)?.push(node.name);
-        inDegree.set(node.name, (inDegree.get(node.name) ?? 0) + 1);
+    const { adjacency, inDegree } = nodes.reduce(
+      (acc, node) =>
+        getNodeDeps(node).reduce((innerAcc, dep) => {
+          const newAdj = new Map(innerAcc.adjacency);
+          newAdj.set(dep, [...(innerAcc.adjacency.get(dep) ?? []), node.name]);
+          const newDeg = new Map(innerAcc.inDegree);
+          newDeg.set(node.name, (innerAcc.inDegree.get(node.name) ?? 0) + 1);
+          return { adjacency: newAdj, inDegree: newDeg };
+        }, acc),
+      {
+        adjacency: initial.adj as ReadonlyMap<string, readonly string[]>,
+        inDegree: initial.deg as ReadonlyMap<string, number>,
       }
-    }
+    );
 
-    // Find nodes with no dependencies
-    const queue: string[] = [];
-    for (const [name, degree] of inDegree) {
-      if (degree === 0) {
-        queue.push(name);
+    // Initial queue: nodes with zero in-degree
+    const initialQueue = [...inDegree.entries()]
+      .filter(([, deg]) => deg === 0)
+      .map(([name]) => name);
+
+    const finalState = yield* Effect.iterate(
+      { inDegree, adjacency, queue: initialQueue, sorted: [] } as KahnState,
+      {
+        while: (s) => s.queue.length > 0,
+        body: (s) => {
+          const [current, ...rest] = s.queue;
+          if (!current) return Effect.succeed(s);
+
+          const dependents = s.adjacency.get(current) ?? [];
+          const { newDegree, ready } = dependents.reduce(
+            (acc, dep) => {
+              const deg = (acc.newDegree.get(dep) ?? 1) - 1;
+              const updated = new Map(acc.newDegree);
+              updated.set(dep, deg);
+              return { newDegree: updated, ready: deg === 0 ? [...acc.ready, dep] : acc.ready };
+            },
+            { newDegree: s.inDegree, ready: [] as string[] }
+          );
+
+          return Effect.succeed({
+            ...s,
+            inDegree: newDegree,
+            queue: [...rest, ...ready],
+            sorted: [...s.sorted, current],
+          });
+        },
       }
-    }
+    );
 
-    // Process queue
-    const sorted: string[] = [];
-    while (queue.length > 0) {
-      const nameOpt = Option.fromNullable(queue.shift());
-      if (Option.isNone(nameOpt)) {
-        break;
-      }
-      const name = nameOpt.value;
-      sorted.push(name);
-
-      for (const dependent of Option.getOrElse(
-        Option.fromNullable(adjacency.get(name)),
-        () => []
-      )) {
-        const newDegree =
-          Option.getOrElse(Option.fromNullable(inDegree.get(dependent)), () => 1) - 1;
-        inDegree.set(dependent, newDegree);
-        if (newDegree === 0) {
-          queue.push(dependent);
-        }
-      }
-    }
-
-    // Check if all nodes were processed
-    if (sorted.length !== nodes.length) {
+    if (finalState.sorted.length !== nodes.length) {
       return yield* Effect.fail(
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
@@ -165,8 +223,19 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
       );
     }
 
-    return sorted;
+    return [...finalState.sorted];
   });
+
+// ============================================================================
+// Start/Stop Order Resolution
+// ============================================================================
+
+/** State for level computation iteration */
+interface LevelState {
+  readonly placed: ReadonlySet<string>;
+  readonly levels: readonly (readonly string[])[];
+  readonly remaining: readonly string[];
+}
 
 /**
  * Resolve start order with parallelization levels.
@@ -178,50 +247,33 @@ export const resolveStartOrder = (
   Effect.gen(function* () {
     const nodes = buildDependencyGraph(containers);
     const sorted = yield* topologicalSort(nodes);
+    const nodeMap = buildNodeMap(nodes);
 
-    const nodeMap = new Map(nodes.map((n) => [n.name, n]));
+    const finalState = yield* Effect.iterate(
+      { placed: new Set<string>(), levels: [], remaining: sorted } as LevelState,
+      {
+        while: (s) => s.remaining.length > 0,
+        body: (s) => {
+          // Partition: ready (all deps placed) vs not ready
+          const ready = s.remaining.filter((name) => {
+            const node = nodeMap.get(name);
+            return node ? allDepsIn(getNodeDeps(node), s.placed) : false;
+          });
 
-    // Group by levels (containers at same level have all deps satisfied)
-    const levels: string[][] = [];
-    const placed = new Set<string>();
+          if (ready.length === 0) return Effect.succeed({ ...s, remaining: [] });
 
-    while (placed.size < sorted.length) {
-      const level: string[] = [];
+          const notReady = s.remaining.filter((name) => !ready.includes(name));
 
-      for (const name of sorted) {
-        if (placed.has(name)) {
-          continue;
-        }
-
-        const nodeOpt = Option.fromNullable(nodeMap.get(name));
-        if (Option.isNone(nodeOpt)) {
-          continue;
-        }
-        const node = nodeOpt.value;
-
-        // Check if all dependencies are placed
-        const allDepsPlaced = [...node.requires, ...node.wants].every((dep) => placed.has(dep));
-
-        if (allDepsPlaced) {
-          level.push(name);
-        }
+          return Effect.succeed({
+            placed: new Set([...s.placed, ...ready]),
+            levels: [...s.levels, ready],
+            remaining: notReady,
+          });
+        },
       }
+    );
 
-      if (level.length === 0) {
-        // Should not happen if topological sort succeeded
-        break;
-      }
-
-      for (const name of level) {
-        placed.add(name);
-      }
-      levels.push(level);
-    }
-
-    return {
-      order: sorted,
-      levels,
-    };
+    return { order: sorted, levels: finalState.levels.map((l) => [...l]) };
   });
 
 /**
@@ -235,14 +287,17 @@ export const resolveStopOrder = (
     levels: [...start.levels].reverse(),
   }));
 
+// ============================================================================
+// Dependency Query Functions
+// ============================================================================
+
 /**
  * Get all containers that depend on a given container.
  */
-export const getDependents = (containerName: string, containers: StackContainer[]): string[] => {
-  return containers
+export const getDependents = (containerName: string, containers: StackContainer[]): string[] =>
+  containers
     .filter((c) => c.requires?.includes(containerName) || c.wants?.includes(containerName))
     .map((c) => c.name);
-};
 
 /**
  * Get all dependencies of a container (transitive).
@@ -251,29 +306,27 @@ export const getAllDependencies = (
   containerName: string,
   containers: StackContainer[]
 ): string[] => {
-  const containerMap = new Map(containers.map((c) => [c.name, c]));
-  const deps = new Set<string>();
-  const queue = [containerName];
+  const containerMap = buildContainerMap(containers);
 
-  while (queue.length > 0) {
-    const nameOpt = Option.fromNullable(queue.shift());
-    if (Option.isNone(nameOpt)) {
-      break;
-    }
-    const name = nameOpt.value;
-    const containerOpt = Option.fromNullable(containerMap.get(name));
-    if (Option.isNone(containerOpt)) {
-      continue;
-    }
-    const container = containerOpt.value;
+  // Tail-recursive BFS with immutable state
+  const bfs = (queue: readonly string[], visited: ReadonlySet<string>): ReadonlySet<string> => {
+    if (queue.length === 0) return visited;
 
-    for (const dep of [...(container.requires ?? []), ...(container.wants ?? [])]) {
-      if (!deps.has(dep)) {
-        deps.add(dep);
-        queue.push(dep);
-      }
-    }
-  }
+    const [current, ...rest] = queue;
+    if (!current) return visited;
 
-  return [...deps];
+    const container = containerMap.get(current);
+    if (!container) return bfs(rest, visited);
+
+    const deps = getContainerDeps(container);
+    const unvisited = deps.filter((d) => !visited.has(d));
+
+    return bfs([...rest, ...unvisited], new Set([...visited, ...unvisited]));
+  };
+
+  const start = containerMap.get(containerName);
+  if (!start) return [];
+
+  const initialDeps = getContainerDeps(start);
+  return [...bfs(initialDeps, new Set(initialDeps))];
 };
