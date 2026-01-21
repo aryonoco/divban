@@ -332,7 +332,7 @@ const buildParsedArgs = (
   });
 
 /**
- * Parse raw args 
+ * Parse raw args
  */
 const parseRawArgs = (argv: readonly string[]): { values: ParsedValues; positionals: string[] } =>
   nodeParseArgs({

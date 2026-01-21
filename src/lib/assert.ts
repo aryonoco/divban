@@ -92,3 +92,10 @@ export const assertNonEmpty = <T>(arr: T[], message: string): NonEmptyArray<T> =
   }
   return arr;
 };
+
+/**
+ * Type guard: value is a plain object (not array, not null).
+ * Used for recursive object operations like deep merge.
+ */
+export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);

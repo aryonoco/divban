@@ -40,9 +40,6 @@ export {
   loadTomlFile,
 } from "./loader";
 
-// Re-export filesystem utilities from system/fs for backwards compatibility
-export { directoryExists, fileExists } from "../system/fs";
-
 // Merge exports
 export {
   addTimezoneToEnv,

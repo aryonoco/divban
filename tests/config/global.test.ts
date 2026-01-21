@@ -29,12 +29,10 @@ describe("global config", () => {
   });
 
   describe("loadGlobalConfig", () => {
-    test("returns defaults when no config file exists", async () => {
-      const config = await Effect.runPromise(loadGlobalConfig(path("/nonexistent/divban.toml")));
+    test("returns error for non-existent explicit config path", async () => {
+      const exit = await Effect.runPromiseExit(loadGlobalConfig(path("/nonexistent/divban.toml")));
 
-      expect(config.users.uidRangeStart).toBe(10000);
-      expect(config.users.uidRangeEnd).toBe(59999);
-      expect(config.logging.level).toBe("info");
+      expect(Exit.isFailure(exit)).toBe(true);
     });
 
     test("loads and parses valid TOML config", async () => {

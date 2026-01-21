@@ -6,18 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect Config definitions for environment-based configuration.
- *
- * This module follows "functional core, imperative shell" philosophy:
- * - All exports are pure Config<A> values (no effects executed)
- * - Configs are composed using combinators (all, map, nested, withDefault)
- * - Effects are only yielded at the application boundary (CLI)
+ * Config definitions for environment-based configuration.
  */
 
 import { Config, ConfigProvider } from "effect";
+import { optionalProp } from "../lib/option-helpers";
 
 // ============================================================================
-// Type Definitions (Pure Data)
+// Type Definitions
 // ============================================================================
 
 /** Supported log levels */
@@ -28,7 +24,6 @@ export type LogFormat = "pretty" | "json";
 
 /**
  * Environment configuration shape.
- * Pure data type - no behavior, just structure.
  */
 export interface EnvConfig {
   readonly home: string;
@@ -43,7 +38,7 @@ export interface EnvConfig {
 }
 
 // ============================================================================
-// Primitive Configs (Building Blocks)
+// Primitive Configs
 // ============================================================================
 
 /**
@@ -94,15 +89,13 @@ export const DebugModeConfig: Config.Config<boolean> = Config.nested(
 );
 
 // ============================================================================
-// Composite Config (Pure Transformation)
+// Composite Config 
 // ============================================================================
 
 /**
  * Combined environment configuration.
  *
  * Composed from primitive configs using Config.all and Config.map.
- * This is a pure value - no effects are executed when defining it.
- * Effects only occur when this Config is yielded in an Effect.gen block.
  */
 export const EnvConfigSpec: Config.Config<EnvConfig> = Config.all([
   HomeConfig,
@@ -125,7 +118,7 @@ export const EnvConfigSpec: Config.Config<EnvConfig> = Config.all([
 );
 
 // ============================================================================
-// Test Utilities (Pure Functions)
+// Test Utilities
 // ============================================================================
 
 /**
@@ -152,8 +145,18 @@ export interface TestConfigOverrides {
 }
 
 /**
+ * Default test configuration values.
+ */
+const testDefaults = {
+  [envVarNames.home]: "/home/testuser",
+  [envVarNames.logLevel]: "info",
+  [envVarNames.logFormat]: "pretty",
+  [envVarNames.baseDataDir]: "/srv",
+  [envVarNames.debug]: "false",
+} as const satisfies Record<string, string>;
+
+/**
  * Create a ConfigProvider for testing.
- * Pure function - returns a ConfigProvider value, no effects.
  *
  * @example
  * ```typescript
@@ -165,39 +168,26 @@ export interface TestConfigOverrides {
  */
 export const createTestConfigProvider = (
   overrides: TestConfigOverrides = {}
-): ConfigProvider.ConfigProvider => {
-  const defaults = new Map<string, string>([
-    [envVarNames.home, "/home/testuser"],
-    [envVarNames.logLevel, "info"],
-    [envVarNames.logFormat, "pretty"],
-    [envVarNames.baseDataDir, "/srv"],
-    [envVarNames.debug, "false"],
-  ]);
-  if (overrides.home !== undefined) {
-    defaults.set(envVarNames.home, overrides.home);
-  }
-  if (overrides.logLevel !== undefined) {
-    defaults.set(envVarNames.logLevel, overrides.logLevel);
-  }
-  if (overrides.logFormat !== undefined) {
-    defaults.set(envVarNames.logFormat, overrides.logFormat);
-  }
-  if (overrides.baseDataDir !== undefined) {
-    defaults.set(envVarNames.baseDataDir, overrides.baseDataDir);
-  }
-  if (overrides.debug !== undefined) {
-    defaults.set(envVarNames.debug, overrides.debug);
-  }
-  return ConfigProvider.fromMap(defaults);
-};
+): ConfigProvider.ConfigProvider =>
+  ConfigProvider.fromMap(
+    new Map(
+      Object.entries({
+        ...testDefaults,
+        ...optionalProp(envVarNames.home, overrides.home),
+        ...optionalProp(envVarNames.logLevel, overrides.logLevel),
+        ...optionalProp(envVarNames.logFormat, overrides.logFormat),
+        ...optionalProp(envVarNames.baseDataDir, overrides.baseDataDir),
+        ...optionalProp(envVarNames.debug, overrides.debug),
+      })
+    )
+  );
 
 // ============================================================================
-// Config Resolution (Pure Functions)
+// Config Resolution
 // ============================================================================
 
 /**
  * Resolve effective log level from multiple sources.
- * Pure function - no effects, just logic.
  *
  * Priority: CLI args > env vars > TOML config
  *
@@ -230,7 +220,6 @@ export const resolveLogLevel = (
 
 /**
  * Resolve effective log format from multiple sources.
- * Pure function - no effects, just logic.
  *
  * Priority: CLI args > env vars > TOML config
  */

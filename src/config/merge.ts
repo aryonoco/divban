@@ -6,51 +6,35 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration merging utilities using Effect.
+ * Configuration merging utilities.
  * Merges global defaults with service-specific configuration.
  */
 
-import { Option } from "effect";
+import { isPlainObject } from "../lib/assert";
 import type { ContainerBaseConfig, GlobalConfig } from "./schema";
 
 /**
  * Deep merge two objects, with source values taking precedence.
- * Arrays are replaced, not merged.
  */
 export const deepMerge = <T extends Record<string, unknown>>(
   target: T,
   source: Partial<NoInfer<T>>
 ): T => {
-  const result = { ...target };
-
-  for (const key of Object.keys(source) as (keyof T)[]) {
-    const sourceValue = source[key];
-    const targetValue = target[key];
-
-    if (Option.isNone(Option.fromNullable(sourceValue))) {
-      continue;
-    }
-
-    if (
-      typeof sourceValue === "object" &&
-      sourceValue !== null &&
-      !Array.isArray(sourceValue) &&
-      typeof targetValue === "object" &&
-      targetValue !== null &&
-      !Array.isArray(targetValue)
-    ) {
-      // Recursively merge objects
-      result[key] = deepMerge(
-        targetValue as Record<string, unknown>,
-        sourceValue as Record<string, unknown>
-      ) as T[keyof T];
-    } else {
-      // Replace value (including arrays)
-      result[key] = sourceValue as T[keyof T];
-    }
-  }
-
-  return result;
+  // Build overrides object from source entries (single pass)
+  const overrides = Object.fromEntries(
+    Object.entries(source)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([key, sourceValue]) => {
+        const targetValue: unknown = target[key as keyof T];
+        // Recursive case: both are plain objects
+        if (isPlainObject(sourceValue) && isPlainObject(targetValue)) {
+          return [key, deepMerge(targetValue, sourceValue)];
+        }
+        // Base case: use source value directly
+        return [key, sourceValue];
+      })
+  );
+  return { ...target, ...overrides } as T;
 };
 
 /**
