@@ -14,9 +14,7 @@ import { concat, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
 import type { ServiceConfig } from "./types";
 
-/**
- * Pure function: ServiceConfig → Entries
- */
+
 export const getServiceSectionEntries = (config: ServiceConfig): Entries =>
   concat(
     fromValue("Restart", config.restart),

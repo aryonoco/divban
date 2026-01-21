@@ -18,9 +18,6 @@ export interface InstallConfig {
   wantedBy?: string | undefined;
 }
 
-/**
- * Pure function: InstallConfig → Entries
- */
 export const getInstallSectionEntries = (config: InstallConfig): Entries =>
   fromValue("WantedBy", config.wantedBy ?? "default.target");
 

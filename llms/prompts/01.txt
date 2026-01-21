@@ -45,17 +45,12 @@ Your report should indicate exactly how Effect is already used, and it should pr
 ensure the plan is exhaustive and idempotent. do not leave any decisions for later. Do the
   required investigation now and ensure the plan is deterministic and complete
 
+---
 
-----
+Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. 
 
-Ensure the plan fully leverages all the relevant facilities available in Effect
+---
 
-Read @llms/effect.llms.headline.txt 
-
-To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
-
-
---- 
 
 Refactor and rewrite every file in 
 to eliminate all loops, minimise mutable data structures, and align it with FP principles 
@@ -68,8 +63,25 @@ To find out the details of something in Effect, read the relevant parts of llms/
 
 --- 
 
+Ensure the plan fully leverages all the relevant facilities available in Effect
+
+Read @llms/effect.llms.headline.txt 
+
+To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+
+
+--- 
+
 ensure you plan leverages as much of the existing codebase as possible, is DRY and aligns with software engineering best practices. You can refactor any part of the codebase if required to avhieve this. You can refactor by merging or breaking existing modules if such an action would faclitate achiving better alignment with the principles discussed. 
 
 ---
 
 Think like a senior Haskell/Ocaml developer. Ensure your plan aligns with how a senior haskell/ocaml programmer would structure the code, while also respecting my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)
+
+----
+
+ I still feel like there is a lot of duplication in
+
+Think like a SRE level Haskell expert with a penchant for type theory, and then think very carefully and see if there is a way to restructure/refactor 
+@src/quadlet/ 
+in a more composable and FP-oriented way while still respecting my TS compiler settings @tsconfig.json

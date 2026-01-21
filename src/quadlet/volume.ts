@@ -17,10 +17,6 @@ import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, VolumeQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
 
-/**
- * Pure function: VolumeQuadlet → Entries
- * No side effects, explicit return type.
- */
 export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
   concat(
     fromValue("Driver", config.driver),

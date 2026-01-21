@@ -51,9 +51,7 @@ const optionalField = <K extends string, V>(
     })
   );
 
-/**
- * Pure function: UnitConfig → Entries
- */
+
 export const getUnitSectionEntries = (config: UnitConfig): Entries =>
   concat(
     fromValue("Description", config.description),

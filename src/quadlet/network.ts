@@ -17,10 +17,6 @@ import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, NetworkQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
 
-/**
- * Pure function: NetworkQuadlet → Entries
- * No side effects, explicit return type.
- */
 export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
   concat(
     fromValue("Internal", config.internal),
