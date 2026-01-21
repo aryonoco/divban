@@ -96,8 +96,12 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
     visited: ReadonlySet<string>,
     inStack: ReadonlySet<string>
   ): Option.Option<readonly string[]> => {
-    if (inStack.has(name)) return Option.some([...path, name]);
-    if (visited.has(name)) return Option.none();
+    if (inStack.has(name)) {
+      return Option.some([...path, name]);
+    }
+    if (visited.has(name)) {
+      return Option.none();
+    }
 
     return pipe(
       Option.fromNullable(nodeMap.get(name)),
@@ -122,8 +126,8 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
   );
 
   return Option.match(cycleResult, {
-    onNone: () => Effect.void,
-    onSome: (cycle) =>
+    onNone: (): Effect.Effect<void, GeneralError> => Effect.void,
+    onSome: (cycle): Effect.Effect<void, GeneralError> =>
       Effect.fail(
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
@@ -188,10 +192,12 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
     const finalState = yield* Effect.iterate(
       { inDegree, adjacency, queue: initialQueue, sorted: [] } as KahnState,
       {
-        while: (s) => s.queue.length > 0,
-        body: (s) => {
+        while: (s): boolean => s.queue.length > 0,
+        body: (s): Effect.Effect<KahnState> => {
           const [current, ...rest] = s.queue;
-          if (!current) return Effect.succeed(s);
+          if (!current) {
+            return Effect.succeed(s);
+          }
 
           const dependents = s.adjacency.get(current) ?? [];
           const { newDegree, ready } = dependents.reduce(
@@ -252,15 +258,17 @@ export const resolveStartOrder = (
     const finalState = yield* Effect.iterate(
       { placed: new Set<string>(), levels: [], remaining: sorted } as LevelState,
       {
-        while: (s) => s.remaining.length > 0,
-        body: (s) => {
+        while: (s): boolean => s.remaining.length > 0,
+        body: (s): Effect.Effect<LevelState> => {
           // Partition: ready (all deps placed) vs not ready
           const ready = s.remaining.filter((name) => {
             const node = nodeMap.get(name);
             return node ? allDepsIn(getNodeDeps(node), s.placed) : false;
           });
 
-          if (ready.length === 0) return Effect.succeed({ ...s, remaining: [] });
+          if (ready.length === 0) {
+            return Effect.succeed({ ...s, remaining: [] });
+          }
 
           const notReady = s.remaining.filter((name) => !ready.includes(name));
 
@@ -310,13 +318,19 @@ export const getAllDependencies = (
 
   // Tail-recursive BFS with immutable state
   const bfs = (queue: readonly string[], visited: ReadonlySet<string>): ReadonlySet<string> => {
-    if (queue.length === 0) return visited;
+    if (queue.length === 0) {
+      return visited;
+    }
 
     const [current, ...rest] = queue;
-    if (!current) return visited;
+    if (!current) {
+      return visited;
+    }
 
     const container = containerMap.get(current);
-    if (!container) return bfs(rest, visited);
+    if (!container) {
+      return bfs(rest, visited);
+    }
 
     const deps = getContainerDeps(container);
     const unvisited = deps.filter((d) => !visited.has(d));
@@ -325,7 +339,9 @@ export const getAllDependencies = (
   };
 
   const start = containerMap.get(containerName);
-  if (!start) return [];
+  if (!start) {
+    return [];
+  }
 
   const initialDeps = getContainerDeps(start);
   return [...bfs(initialDeps, new Set(initialDeps))];

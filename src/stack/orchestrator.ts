@@ -9,12 +9,12 @@
  * Effect-based stack orchestration for starting, stopping, and managing multi-container stacks.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, pipe } from "effect";
 import {
   ContainerError,
   ErrorCode,
-  GeneralError,
-  ServiceError,
+  type GeneralError,
+  type ServiceError,
   type SystemError,
 } from "../lib/errors";
 import type { Logger } from "../lib/logger";
@@ -31,15 +31,52 @@ import { resolveStartOrder, resolveStopOrder } from "./dependencies";
 import type { Stack } from "./types";
 
 export interface OrchestratorOptions {
-  /** Service user */
   user: Username;
-  /** Service user UID */
   uid: UserId;
-  /** Logger instance */
   logger: Logger;
-  /** Parallel operations (default: true) */
   parallel?: boolean;
 }
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/** Build service unit name from container name */
+const toServiceUnit = (name: string): string => `${name}.service`;
+
+// ============================================================================
+// Level Processing 
+// ============================================================================
+
+/** Process levels sequentially, containers within level based on parallel flag */
+const processLevels = <E>(
+  levels: readonly (readonly string[])[],
+  operation: (name: string) => Effect.Effect<void, E>,
+  logger: Logger,
+  actionVerb: string,
+  parallel: boolean
+): Effect.Effect<void, E> =>
+  Effect.forEach(
+    levels,
+    (level, i) =>
+      pipe(
+        Effect.sync(() =>
+          logger.step(i + 1, levels.length, `${actionVerb} level ${i + 1}: ${level.join(", ")}`)
+        ),
+        Effect.andThen(
+          Effect.forEach(
+            level,
+            operation,
+            parallel && level.length > 1 ? { concurrency: "unbounded" } : undefined
+          )
+        )
+      ),
+    { discard: true }
+  );
+
+// ============================================================================
+// Stack Operations
+// ============================================================================
 
 /**
  * Start all containers in a stack in dependency order.
@@ -49,58 +86,21 @@ export const startStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger, parallel: parallelStart = true } = options;
+    const { logger, parallel = true } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    // Resolve start order
     const { levels } = yield* resolveStartOrder(stack.containers);
 
-    // Reload daemon first
     logger.info("Reloading systemd daemon...");
     yield* daemonReload(systemctlOpts);
 
-    // Start containers level by level
-    for (let i = 0; i < levels.length; i++) {
-      const level = levels[i];
-      if (!level) {
-        continue;
-      }
-
-      logger.step(i + 1, levels.length, `Starting level ${i + 1}: ${level.join(", ")}`);
-
-      if (parallelStart && level.length > 1) {
-        // Start all containers in this level in parallel
-        yield* Effect.all(
-          level.map((name) =>
-            Effect.mapError(
-              startService(`${name}.service`, systemctlOpts),
-              (e) =>
-                new ServiceError({
-                  code: ErrorCode.SERVICE_START_FAILED as 31,
-                  message: `Failed to start container ${name}: ${e.message}`,
-                  service: name,
-                  cause: e,
-                })
-            )
-          ),
-          { concurrency: "unbounded" }
-        );
-      } else {
-        // Start sequentially
-        for (const name of level) {
-          yield* Effect.mapError(
-            startService(`${name}.service`, systemctlOpts),
-            (e) =>
-              new ServiceError({
-                code: ErrorCode.SERVICE_START_FAILED as 31,
-                message: `Failed to start container ${name}: ${e.message}`,
-                service: name,
-                cause: e,
-              })
-          );
-        }
-      }
-    }
+    yield* processLevels(
+      levels,
+      (name) => startService(toServiceUnit(name), systemctlOpts),
+      logger,
+      "Starting",
+      parallel
+    );
 
     logger.success(`Stack '${stack.name}' started successfully`);
   });
@@ -113,54 +113,18 @@ export const stopStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger, parallel: parallelStop = true } = options;
+    const { logger, parallel = true } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    // Resolve stop order (reverse of start)
     const { levels } = yield* resolveStopOrder(stack.containers);
 
-    // Stop containers level by level
-    for (let i = 0; i < levels.length; i++) {
-      const level = levels[i];
-      if (!level) {
-        continue;
-      }
-
-      logger.step(i + 1, levels.length, `Stopping level ${i + 1}: ${level.join(", ")}`);
-
-      if (parallelStop && level.length > 1) {
-        // Stop all containers in this level in parallel
-        yield* Effect.all(
-          level.map((name) =>
-            Effect.mapError(
-              stopService(`${name}.service`, systemctlOpts),
-              (e) =>
-                new ServiceError({
-                  code: ErrorCode.SERVICE_STOP_FAILED as 32,
-                  message: `Failed to stop container ${name}: ${e.message}`,
-                  service: name,
-                  cause: e,
-                })
-            )
-          ),
-          { concurrency: "unbounded" }
-        );
-      } else {
-        // Stop sequentially
-        for (const name of level) {
-          yield* Effect.mapError(
-            stopService(`${name}.service`, systemctlOpts),
-            (e) =>
-              new ServiceError({
-                code: ErrorCode.SERVICE_STOP_FAILED as 32,
-                message: `Failed to stop container ${name}: ${e.message}`,
-                service: name,
-                cause: e,
-              })
-          );
-        }
-      }
-    }
+    yield* processLevels(
+      levels,
+      (name) => stopService(toServiceUnit(name), systemctlOpts),
+      logger,
+      "Stopping",
+      parallel
+    );
 
     logger.success(`Stack '${stack.name}' stopped successfully`);
   });
@@ -195,17 +159,11 @@ export const enableStack = (
 
     logger.info(`Enabling stack '${stack.name}'...`);
 
-    for (const container of stack.containers) {
-      yield* Effect.mapError(
-        enableService(`${container.name}.service`, systemctlOpts),
-        (e) =>
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Failed to enable container ${container.name}: ${e.message}`,
-            cause: e,
-          })
-      );
-    }
+    yield* Effect.forEach(
+      stack.containers,
+      (container) => enableService(toServiceUnit(container.name), systemctlOpts),
+      { discard: true }
+    );
 
     logger.success(`Stack '${stack.name}' enabled successfully`);
   });
@@ -220,25 +178,18 @@ export const getStackStatus = (
   Array<{ name: string; running: boolean; description?: string }>,
   ServiceError | SystemError
 > =>
-  Effect.gen(function* () {
-    const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
-    const statuses: Array<{ name: string; running: boolean; description?: string }> = [];
-
-    for (const container of stack.containers) {
-      const running = yield* isServiceActive(`${container.name}.service`, systemctlOpts);
-      const status: { name: string; running: boolean; description?: string } = {
-        name: container.name,
-        running,
-      };
-      const descOpt = Option.fromNullable(container.description);
-      if (Option.isSome(descOpt)) {
-        status.description = descOpt.value;
-      }
-      statuses.push(status);
-    }
-
-    return statuses;
-  });
+  pipe(
+    Effect.forEach(stack.containers, (container) =>
+      pipe(
+        isServiceActive(toServiceUnit(container.name), { user: options.user, uid: options.uid }),
+        Effect.map((running) => ({
+          name: container.name,
+          running,
+          ...(container.description !== undefined ? { description: container.description } : {}),
+        }))
+      )
+    )
+  );
 
 /**
  * Check if all containers in a stack are running.
@@ -247,13 +198,17 @@ export const isStackRunning = (
   stack: Stack,
   options: OrchestratorOptions
 ): Effect.Effect<boolean, ServiceError | SystemError> =>
-  Effect.gen(function* () {
-    const statuses = yield* getStackStatus(stack, options);
-    return statuses.every((s) => s.running);
-  });
+  pipe(
+    getStackStatus(stack, options),
+    Effect.map((statuses) => statuses.every((s) => s.running))
+  );
+
+// ============================================================================
+// Single Container Operations
+// ============================================================================
 
 /**
- * Start a single container in a stack (with its dependencies).
+ * Start a single container in a stack.
  */
 export const startContainer = (
   stack: Stack,
@@ -264,10 +219,8 @@ export const startContainer = (
     const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    const containerOpt = Option.fromNullable(
-      stack.containers.find((c) => c.name === containerName)
-    );
-    if (Option.isNone(containerOpt)) {
+    const container = stack.containers.find((c) => c.name === containerName);
+    if (!container) {
       return yield* Effect.fail(
         new ContainerError({
           code: ErrorCode.CONTAINER_NOT_FOUND as 44,
@@ -277,21 +230,10 @@ export const startContainer = (
       );
     }
 
-    // Reload daemon first
     yield* daemonReload(systemctlOpts);
 
-    // Start the container (systemd will handle dependencies)
     logger.info(`Starting container '${containerName}'...`);
-    yield* Effect.mapError(
-      startService(`${containerName}.service`, systemctlOpts),
-      (e) =>
-        new ServiceError({
-          code: ErrorCode.SERVICE_START_FAILED as 31,
-          message: `Failed to start container ${containerName}: ${e.message}`,
-          service: containerName,
-          cause: e,
-        })
-    );
+    yield* startService(toServiceUnit(containerName), systemctlOpts);
 
     logger.success(`Container '${containerName}' started successfully`);
   });
@@ -303,22 +245,13 @@ export const stopContainer = (
   _stack: Stack,
   containerName: string,
   options: OrchestratorOptions
-): Effect.Effect<void, ServiceError | SystemError> =>
+): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
     logger.info(`Stopping container '${containerName}'...`);
-    yield* Effect.mapError(
-      stopService(`${containerName}.service`, systemctlOpts),
-      (e) =>
-        new ServiceError({
-          code: ErrorCode.SERVICE_STOP_FAILED as 32,
-          message: `Failed to stop container ${containerName}: ${e.message}`,
-          service: containerName,
-          cause: e,
-        })
-    );
+    yield* stopService(toServiceUnit(containerName), systemctlOpts);
 
     logger.success(`Container '${containerName}' stopped successfully`);
   });
