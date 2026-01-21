@@ -9,7 +9,7 @@
  * Effect-based shared utilities for CLI commands.
  */
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -28,7 +28,7 @@ import {
   userQuadletDir,
 } from "../../lib/paths";
 import {
-  AbsolutePath,
+  AbsolutePathSchema,
   type AbsolutePath as AbsolutePathType,
   type GroupId,
   type UserId,
@@ -146,8 +146,8 @@ export const getDataDirFromConfig = (
     typeof config.paths.dataDir === "string"
   ) {
     // Validate the path, falling back to default if invalid
-    const pathResult = AbsolutePath(config.paths.dataDir);
-    return pathResult.ok ? pathResult.value : fallback;
+    // Schema.is returns a type guard - if true, TypeScript narrows the type
+    return Schema.is(AbsolutePathSchema)(config.paths.dataDir) ? config.paths.dataDir : fallback;
   }
   return fallback;
 };

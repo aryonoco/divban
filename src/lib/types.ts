@@ -10,296 +10,299 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
+import { type Brand, Effect, ParseResult, Schema, type SchemaAST } from "effect";
+
 import { ErrorCode, GeneralError } from "./errors";
 
-/**
- * Simple Result type for validation functions.
- * This is a minimal implementation kept for type constructor compatibility.
- */
-export type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: GeneralError };
+// ============================================================================
+// Branded Type Definitions
+// ============================================================================
+// Define types first so they can be used in explicit type annotations.
+// These use Effect's Brand system for nominal typing.
 
-const Ok = <T>(value: T): ValidationResult<T> => ({ ok: true, value });
-const Err = (error: GeneralError): ValidationResult<never> => ({ ok: false, error });
+/** User ID (0-65534 range for POSIX users) */
+export type UserId = number & Brand.Brand<"UserId">;
 
-/** User ID (1000-65534 range for regular users) */
-export type UserId = number & { readonly __brand: "UserId" };
+/** Group ID (0-65534 range for POSIX groups) */
+export type GroupId = number & Brand.Brand<"GroupId">;
 
-/** Group ID (1000-65534 range for regular groups) */
-export type GroupId = number & { readonly __brand: "GroupId" };
-
-/** Subordinate ID for user namespaces (100000+ range) */
-export type SubordinateId = number & { readonly __brand: "SubordinateId" };
+/** Subordinate ID for user namespaces (100000-4294967294 range) */
+export type SubordinateId = number & Brand.Brand<"SubordinateId">;
 
 /** Absolute filesystem path (must start with /) */
-export type AbsolutePath = string & { readonly __brand: "AbsolutePath" };
+export type AbsolutePath = string & Brand.Brand<"AbsolutePath">;
 
-/** POSIX username (lowercase, starts with letter or underscore) */
-export type Username = string & { readonly __brand: "Username" };
+/** POSIX username (lowercase, starts with letter or underscore, max 32 chars) */
+export type Username = string & Brand.Brand<"Username">;
 
 /** Service name identifier */
-export type ServiceName = string & { readonly __brand: "ServiceName" };
+export type ServiceName = string & Brand.Brand<"ServiceName">;
 
 /** Container name identifier */
-export type ContainerName = string & { readonly __brand: "ContainerName" };
+export type ContainerName = string & Brand.Brand<"ContainerName">;
 
 /** Network name identifier */
-export type NetworkName = string & { readonly __brand: "NetworkName" };
+export type NetworkName = string & Brand.Brand<"NetworkName">;
 
 /** Volume name identifier */
-export type VolumeName = string & { readonly __brand: "VolumeName" };
-
-/**
- * Regex patterns for validation (top-level for performance)
- */
-const USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
-const SERVICE_NAME_REGEX = /^[a-z][a-z0-9-]*$/;
-const CONTAINER_NETWORK_VOLUME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
-const IPV4_REGEX = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-const IPV6_HEX_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
-
-/**
- * Type constructors with runtime validation.
- * These provide both type safety and runtime checks.
- */
-
-export const UserId = (n: number): ValidationResult<UserId> => {
-  if (!Number.isInteger(n) || n < 0 || n > 65534) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid UserId: ${n}. Must be integer 0-65534.`,
-      })
-    );
-  }
-  return Ok(n as UserId);
-};
-
-export const GroupId = (n: number): ValidationResult<GroupId> => {
-  if (!Number.isInteger(n) || n < 0 || n > 65534) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid GroupId: ${n}. Must be integer 0-65534.`,
-      })
-    );
-  }
-  return Ok(n as GroupId);
-};
-
-export const SubordinateId = (n: number): ValidationResult<SubordinateId> => {
-  if (!Number.isInteger(n) || n < 100000 || n > 4294967294) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid SubordinateId: ${n}. Must be integer 100000-4294967294.`,
-      })
-    );
-  }
-  return Ok(n as SubordinateId);
-};
-
-export const AbsolutePath = (s: string): ValidationResult<AbsolutePath> => {
-  if (!s.startsWith("/")) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Not an absolute path: ${s}. Must start with /.`,
-      })
-    );
-  }
-  return Ok(s as AbsolutePath);
-};
-
-export const Username = (s: string): ValidationResult<Username> => {
-  if (!USERNAME_REGEX.test(s)) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid username: ${s}. Must match [a-z_][a-z0-9_-]*.`,
-      })
-    );
-  }
-  if (s.length > 32) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Username too long: ${s}. Max 32 characters.`,
-      })
-    );
-  }
-  return Ok(s as Username);
-};
-
-export const ServiceName = (s: string): ValidationResult<ServiceName> => {
-  if (!SERVICE_NAME_REGEX.test(s)) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid service name: ${s}. Must match [a-z][a-z0-9-]*.`,
-      })
-    );
-  }
-  return Ok(s as ServiceName);
-};
-
-export const ContainerName = (s: string): ValidationResult<ContainerName> => {
-  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid container name: ${s}.`,
-      })
-    );
-  }
-  return Ok(s as ContainerName);
-};
-
-export const NetworkName = (s: string): ValidationResult<NetworkName> => {
-  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid network name: ${s}.`,
-      })
-    );
-  }
-  return Ok(s as NetworkName);
-};
-
-export const VolumeName = (s: string): ValidationResult<VolumeName> => {
-  if (!CONTAINER_NETWORK_VOLUME_REGEX.test(s)) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid volume name: ${s}.`,
-      })
-    );
-  }
-  return Ok(s as VolumeName);
-};
-
-/**
- * Type guards for branded types
- */
-export const isAbsolutePath = (s: string): s is AbsolutePath => s.startsWith("/");
-export const isUsername = (s: string): s is Username => USERNAME_REGEX.test(s) && s.length <= 32;
-export const isServiceName = (s: string): s is ServiceName => SERVICE_NAME_REGEX.test(s);
+export type VolumeName = string & Brand.Brand<"VolumeName">;
 
 /** Private IPv4 (RFC 1918) or IPv6 (RFC 4193 ULA) address */
-export type PrivateIP = string & { readonly __brand: "PrivateIP" };
+export type PrivateIP = string & Brand.Brand<"PrivateIP">;
 
-export const PrivateIP = (s: string): ValidationResult<PrivateIP> => {
-  if (typeof s !== "string" || s.length === 0) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: "Invalid PrivateIP: empty or not a string",
-      })
-    );
-  }
+// ============================================================================
+// Message Functions (extracted for explicit typing)
+// ============================================================================
 
-  const trimmed = s.trim();
+const userIdIntMsg = (): string => "UserId must be an integer";
+const userIdRangeMsg = (): string => "UserId must be 0-65534";
+const groupIdIntMsg = (): string => "GroupId must be an integer";
+const groupIdRangeMsg = (): string => "GroupId must be 0-65534";
+const subIdIntMsg = (): string => "SubordinateId must be an integer";
+const subIdRangeMsg = (): string => "SubordinateId must be 100000-4294967294";
+const absolutePathMsg = (): string => "Path must be absolute (start with /)";
+const usernamePatternMsg = (): string => "Username must match [a-z_][a-z0-9_-]*";
+const usernameMaxLenMsg = (): string => "Username max 32 characters";
+const serviceNamePatternMsg = (): string => "Service name must match [a-z][a-z0-9-]*";
+const containerNameMsg = (): string => "Invalid container name";
+const networkNameMsg = (): string => "Invalid network name";
+const volumeNameMsg = (): string => "Invalid volume name";
+const privateIPEmptyMsg = (): string => "IP address cannot be empty";
+const privateIPInvalidMsg = (): string => "Must be RFC 1918 IPv4 or RFC 4193 IPv6";
 
-  // Try IPv4 first
-  const v4Match = trimmed.match(IPV4_REGEX);
-  if (v4Match) {
-    const [, ...parts] = v4Match;
-    const [a, b, c, d] = parts.map(Number) as [number, number, number, number];
+// ============================================================================
+// Numeric Branded Schemas
+// ============================================================================
 
-    if ([a, b, c, d].some((n) => n > 255)) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". Invalid octet value`,
-        })
-      );
-    }
+/** User ID schema (0-65534 range for POSIX users) */
+export const UserIdSchema: Schema.BrandSchema<UserId, number, never> = Schema.Number.pipe(
+  Schema.int({ message: userIdIntMsg }),
+  Schema.between(0, 65534, { message: userIdRangeMsg }),
+  Schema.brand("UserId")
+);
 
-    const isPrivate =
-      a === 10 || // 10.0.0.0/8
-      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
-      (a === 192 && b === 168); // 192.168.0.0/16
+/** Group ID schema (0-65534 range for POSIX groups) */
+export const GroupIdSchema: Schema.BrandSchema<GroupId, number, never> = Schema.Number.pipe(
+  Schema.int({ message: groupIdIntMsg }),
+  Schema.between(0, 65534, { message: groupIdRangeMsg }),
+  Schema.brand("GroupId")
+);
 
-    if (!isPrivate) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". IPv4 must be RFC 1918 (10.x.x.x, 172.16-31.x.x, 192.168.x.x)`,
-        })
-      );
-    }
-
-    return Ok(trimmed as PrivateIP);
-  }
-
-  // Try IPv6 - check for ULA prefix (fc00::/7)
-  if (trimmed.includes(":")) {
-    // Basic IPv6 structure validation
-    const groups = trimmed.split("::");
-    if (groups.length > 2) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". Invalid IPv6 format (multiple ::)`,
-        })
-      );
-    }
-
-    const allGroups = groups.flatMap((g) => (g === "" ? [] : g.split(":")));
-    const isValidHex = (g: string): boolean => IPV6_HEX_GROUP_REGEX.test(g);
-
-    if (!allGroups.every(isValidHex)) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". Invalid IPv6 hex group`,
-        })
-      );
-    }
-
-    const maxGroups = groups.length === 2 ? 7 : 8; // :: means at least one group elided
-    if (allGroups.length > maxGroups) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". Too many IPv6 groups`,
-        })
-      );
-    }
-
-    // Check for ULA prefix (fc00::/7 = fc00-fdff)
-    const firstGroup = trimmed.split(":")[0];
-    if (!firstGroup) {
-      return Err(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid PrivateIP: "${s}". Invalid IPv6 format`,
-        })
-      );
-    }
-    const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
-
-    if (!Number.isNaN(firstWord) && firstWord >= 0xfc00 && firstWord <= 0xfdff) {
-      return Ok(trimmed as PrivateIP);
-    }
-
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid PrivateIP: "${s}". IPv6 must be RFC 4193 ULA (fc00::/7)`,
-      })
-    );
-  }
-
-  return Err(
-    new GeneralError({
-      code: ErrorCode.INVALID_ARGS as 2,
-      message: `Invalid PrivateIP: "${s}". Not a valid IP format`,
-    })
+/** Subordinate ID schema for user namespaces (100000-4294967294 range) */
+export const SubordinateIdSchema: Schema.BrandSchema<SubordinateId, number, never> =
+  Schema.Number.pipe(
+    Schema.int({ message: subIdIntMsg }),
+    Schema.between(100000, 4294967294, { message: subIdRangeMsg }),
+    Schema.brand("SubordinateId")
   );
+
+// ============================================================================
+// String Branded Schemas
+// ============================================================================
+
+/** Absolute filesystem path schema (must start with /) */
+export const AbsolutePathSchema: Schema.BrandSchema<AbsolutePath, string, never> =
+  Schema.String.pipe(
+    Schema.filter((s): boolean => s.startsWith("/"), { message: absolutePathMsg }),
+    Schema.brand("AbsolutePath")
+  );
+
+/** POSIX username schema (lowercase, starts with letter or underscore, max 32 chars) */
+export const UsernameSchema: Schema.BrandSchema<Username, string, never> = Schema.String.pipe(
+  Schema.pattern(/^[a-z_][a-z0-9_-]*$/, { message: usernamePatternMsg }),
+  Schema.maxLength(32, { message: usernameMaxLenMsg }),
+  Schema.brand("Username")
+);
+
+/** Service name schema */
+export const ServiceNameSchema: Schema.BrandSchema<ServiceName, string, never> = Schema.String.pipe(
+  Schema.pattern(/^[a-z][a-z0-9-]*$/, { message: serviceNamePatternMsg }),
+  Schema.brand("ServiceName")
+);
+
+/** Shared pattern for container/network/volume names */
+const containerNetworkVolumePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
+/** Container name schema */
+export const ContainerNameSchema: Schema.BrandSchema<ContainerName, string, never> =
+  Schema.String.pipe(
+    Schema.pattern(containerNetworkVolumePattern, { message: containerNameMsg }),
+    Schema.brand("ContainerName")
+  );
+
+/** Network name schema */
+export const NetworkNameSchema: Schema.BrandSchema<NetworkName, string, never> = Schema.String.pipe(
+  Schema.pattern(containerNetworkVolumePattern, { message: networkNameMsg }),
+  Schema.brand("NetworkName")
+);
+
+/** Volume name schema */
+export const VolumeNameSchema: Schema.BrandSchema<VolumeName, string, never> = Schema.String.pipe(
+  Schema.pattern(containerNetworkVolumePattern, { message: volumeNameMsg }),
+  Schema.brand("VolumeName")
+);
+
+// ============================================================================
+// PrivateIP Branded Schema
+// ============================================================================
+
+/** Top-level regex for IPv4 validation (performance) */
+const IPV4_REGEX = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** Top-level regex for IPv6 hex group validation (performance) */
+const IPV6_HEX_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
+
+/** Private IPv4 (RFC 1918) validation */
+const isRfc1918IPv4 = (s: string): boolean => {
+  const match = s.match(IPV4_REGEX);
+  if (!match) {
+    return false;
+  }
+  const [, ...parts] = match;
+  const [a, b, c, d] = parts.map(Number) as [number, number, number, number];
+  if ([a, b, c, d].some((n) => n > 255)) {
+    return false;
+  }
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 };
 
-export const isPrivateIP = (s: string): s is PrivateIP => PrivateIP(s).ok;
+/** Private IPv6 (RFC 4193 ULA) validation */
+const isRfc4193IPv6 = (s: string): boolean => {
+  if (!s.includes(":")) {
+    return false;
+  }
+  const groups = s.split("::");
+  if (groups.length > 2) {
+    return false;
+  }
+  const allGroups = groups.flatMap((g) => (g === "" ? [] : g.split(":")));
+  const isValidHex = (g: string): boolean => IPV6_HEX_GROUP_REGEX.test(g);
+  if (!allGroups.every(isValidHex)) {
+    return false;
+  }
+  const maxGroups = groups.length === 2 ? 7 : 8;
+  if (allGroups.length > maxGroups) {
+    return false;
+  }
+  const firstGroup = s.split(":")[0];
+  if (!firstGroup) {
+    return false;
+  }
+  const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
+  return !Number.isNaN(firstWord) && firstWord >= 0xfc00 && firstWord <= 0xfdff;
+};
+
+/** Check if string is a valid private IP */
+const isPrivateIPString = (s: string): boolean => isRfc1918IPv4(s) || isRfc4193IPv6(s);
+
+/** Decode function for PrivateIP transform */
+const trimString = (s: string): string => s.trim();
+
+/** Encode function for PrivateIP transform (identity) */
+const identityString = (s: string): string => s;
+
+/** Private IP schema (RFC 1918 IPv4 or RFC 4193 IPv6) */
+export const PrivateIPSchema: Schema.Schema<PrivateIP, string> = Schema.String.pipe(
+  Schema.nonEmptyString({ message: privateIPEmptyMsg }),
+  Schema.transform(Schema.String, {
+    strict: true,
+    decode: trimString,
+    encode: identityString,
+  }),
+  Schema.filter(isPrivateIPString, { message: privateIPInvalidMsg }),
+  Schema.brand("PrivateIP")
+);
+
+// ============================================================================
+// Type Guards (derived from Schemas via Schema.is)
+// ============================================================================
+// Schema.is(schema) returns (u: unknown) => u is A - a type guard predicate
+
+export const isUserId: (u: unknown) => u is UserId = Schema.is(UserIdSchema);
+export const isGroupId: (u: unknown) => u is GroupId = Schema.is(GroupIdSchema);
+export const isSubordinateId: (u: unknown) => u is SubordinateId = Schema.is(SubordinateIdSchema);
+export const isAbsolutePath: (u: unknown) => u is AbsolutePath = Schema.is(AbsolutePathSchema);
+export const isUsername: (u: unknown) => u is Username = Schema.is(UsernameSchema);
+export const isServiceName: (u: unknown) => u is ServiceName = Schema.is(ServiceNameSchema);
+export const isContainerName: (u: unknown) => u is ContainerName = Schema.is(ContainerNameSchema);
+export const isNetworkName: (u: unknown) => u is NetworkName = Schema.is(NetworkNameSchema);
+export const isVolumeName: (u: unknown) => u is VolumeName = Schema.is(VolumeNameSchema);
+export const isPrivateIP: (u: unknown) => u is PrivateIP = Schema.is(PrivateIPSchema);
+
+// ============================================================================
+// Effect-Based Decoders (for untrusted input in Effect pipelines)
+// ============================================================================
+// Usage: yield* decodeUserId(untrustedInput).pipe(Effect.mapError(parseErrorToGeneralError))
+//
+// Explicit type annotations required for isolatedDeclarations: true
+
+export const decodeUserId: (
+  i: number,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<UserId, ParseResult.ParseError, never> = Schema.decode(UserIdSchema);
+
+export const decodeGroupId: (
+  i: number,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<GroupId, ParseResult.ParseError, never> = Schema.decode(GroupIdSchema);
+
+export const decodeSubordinateId: (
+  i: number,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<SubordinateId, ParseResult.ParseError, never> =
+  Schema.decode(SubordinateIdSchema);
+
+export const decodeAbsolutePath: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<AbsolutePath, ParseResult.ParseError, never> = Schema.decode(AbsolutePathSchema);
+
+export const decodeUsername: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<Username, ParseResult.ParseError, never> = Schema.decode(UsernameSchema);
+
+export const decodeServiceName: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<ServiceName, ParseResult.ParseError, never> = Schema.decode(ServiceNameSchema);
+
+export const decodeContainerName: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<ContainerName, ParseResult.ParseError, never> =
+  Schema.decode(ContainerNameSchema);
+
+export const decodeNetworkName: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<NetworkName, ParseResult.ParseError, never> = Schema.decode(NetworkNameSchema);
+
+export const decodeVolumeName: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<VolumeName, ParseResult.ParseError, never> = Schema.decode(VolumeNameSchema);
+
+export const decodePrivateIP: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<PrivateIP, ParseResult.ParseError, never> = Schema.decode(PrivateIPSchema);
+
+// ============================================================================
+// Error Conversion Helper
+// ============================================================================
+
+/**
+ * Convert ParseError to GeneralError for Effect pipelines.
+ * Used with Effect.mapError to translate Schema validation errors.
+ */
+export const parseErrorToGeneralError = (error: ParseResult.ParseError): GeneralError => {
+  const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
+  return new GeneralError({
+    code: ErrorCode.INVALID_ARGS as 2,
+    message: formatted,
+  });
+};
 
 // ============================================================================
 // UID/GID Conversion Helper
@@ -333,7 +336,7 @@ type AbsolutePathLiteral = `/${string}`;
  * - Known config locations: path("/etc/divban")
  *
  * For dynamic paths (variables, user input), use:
- * - AbsolutePath(str) for runtime validation returning ValidationResult
+ * - decodeAbsolutePath(str) for runtime validation returning Effect
  * - pathJoin(base, ...segments) for path concatenation
  *
  * @example
@@ -405,18 +408,17 @@ export function pathWithSuffix(base: string, suffix: string): string {
  * Join path segments into an AbsolutePath.
  * First segment must start with /.
  */
-export const joinPath = (...segments: string[]): ValidationResult<AbsolutePath> => {
-  if (segments.length === 0) {
-    return Err(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: "No path segments provided",
-      })
-    );
-  }
-  const joined = segments.join("/").replace(/\/+/g, "/");
-  return AbsolutePath(joined);
-};
+export const joinPath = (...segments: string[]): Effect.Effect<AbsolutePath, GeneralError> =>
+  segments.length === 0
+    ? Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "No path segments provided",
+        })
+      )
+    : decodeAbsolutePath(segments.join("/").replace(/\/+/g, "/")).pipe(
+        Effect.mapError(parseErrorToGeneralError)
+      );
 
 // ============================================================================
 // Exhaustiveness Checking

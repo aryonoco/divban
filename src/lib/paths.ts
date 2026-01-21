@@ -12,13 +12,12 @@
 
 import { readFileSync } from "node:fs";
 import { normalize, resolve } from "node:path";
-import { Effect } from "effect";
-import { ConfigError, ErrorCode, GeneralError } from "./errors";
+import { Effect, Schema } from "effect";
+import { ConfigError, ErrorCode, type GeneralError } from "./errors";
 import {
   path,
-  AbsolutePath,
+  AbsolutePathSchema,
   type AbsolutePath as AbsolutePathType,
-  type ValidationResult,
   joinPath,
   pathJoin,
 } from "./types";
@@ -72,14 +71,10 @@ export const userHomeDir = (username: string): AbsolutePathType => {
     for (const line of content.split("\n")) {
       const fields = line.split(":");
       // passwd format: username:x:uid:gid:gecos:home:shell
-      if (fields[0] === username && fields[5]) {
-        // Trust /etc/passwd contains valid absolute paths
-        const result = AbsolutePath(fields[5]);
-        if (result.ok) {
-          homeCache.set(username, result.value);
-          return result.value;
-        }
-        // Fall through to default if passwd has invalid path
+      // Validate path from passwd file using Schema.is for type narrowing
+      if (fields[0] === username && fields[5] && Schema.is(AbsolutePathSchema)(fields[5])) {
+        homeCache.set(username, fields[5]);
+        return fields[5];
       }
     }
   } catch {
@@ -109,18 +104,9 @@ export const lingerFile = (username: string): AbsolutePathType =>
 // ============================================================================
 
 /**
- * Validate a path contains no null bytes (injection attack prevention).
+ * Check if a path contains null bytes (injection attack prevention).
  */
-const validateNoNullBytes = (p: string): ValidationResult<string> =>
-  p.includes("\x00")
-    ? {
-        ok: false,
-        error: new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid path contains null byte: ${p}`,
-        }),
-      }
-    : { ok: true, value: p };
+const hasNullByte = (p: string): boolean => p.includes("\x00");
 
 /**
  * Normalize and resolve a path to absolute.
@@ -138,21 +124,8 @@ const resolveToAbsolute = (p: string): AbsolutePathType => {
  * Rejects null bytes and normalizes path traversal sequences.
  * Use for all user-provided or config-file paths.
  */
-export const toAbsolutePath = (p: string): ValidationResult<AbsolutePathType> => {
-  const validated = validateNoNullBytes(p);
-  if (!validated.ok) {
-    return validated as ValidationResult<AbsolutePathType>;
-  }
-  return { ok: true, value: resolveToAbsolute(validated.value) };
-};
-
-/**
- * Convert a path to absolute with security validation (Effect version).
- * Rejects null bytes and normalizes path traversal sequences.
- * Use for all user-provided or config-file paths.
- */
 export const toAbsolutePathEffect = (p: string): Effect.Effect<AbsolutePathType, ConfigError> =>
-  p.includes("\x00")
+  hasNullByte(p)
     ? Effect.fail(
         new ConfigError({
           code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
@@ -212,8 +185,9 @@ export const TEMP_PATHS: {
   nonexistent: path("/nonexistent"),
 };
 
-export const outputQuadletDir = (outputDir: string): ValidationResult<AbsolutePathType> =>
-  joinPath(outputDir, "quadlets");
+export const outputQuadletDir = (
+  outputDir: string
+): Effect.Effect<AbsolutePathType, GeneralError> => joinPath(outputDir, "quadlets");
 
-export const outputConfigDir = (outputDir: string): ValidationResult<AbsolutePathType> =>
+export const outputConfigDir = (outputDir: string): Effect.Effect<AbsolutePathType, GeneralError> =>
   joinPath(outputDir, "config");

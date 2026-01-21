@@ -9,8 +9,8 @@
  * Container resource limits configuration for quadlet files.
  */
 
+import { Effect } from "effect";
 import { ErrorCode, GeneralError } from "../../lib/errors";
-import type { ValidationResult } from "../../lib/types";
 import { addEntry } from "../format";
 
 /**
@@ -63,16 +63,15 @@ export const addResourceEntries = (
 /**
  * Parse a memory size string to bytes.
  */
-export const parseMemorySize = (size: string): ValidationResult<number> => {
+export const parseMemorySize = (size: string): Effect.Effect<number, GeneralError> => {
   const match = size.match(MEMORY_SIZE_REGEX);
   if (!match) {
-    return {
-      ok: false,
-      error: new GeneralError({
+    return Effect.fail(
+      new GeneralError({
         code: ErrorCode.INVALID_ARGS as 2,
         message: `Invalid memory size: ${size}. Expected format: <number>[k|m|g|t][b] (e.g., "512m", "2g")`,
-      }),
-    };
+      })
+    );
   }
 
   const value = Number.parseFloat(match[1] ?? "0");
@@ -86,7 +85,7 @@ export const parseMemorySize = (size: string): ValidationResult<number> => {
     t: 1024 * 1024 * 1024 * 1024,
   };
 
-  return { ok: true, value: Math.floor(value * (multipliers[unit] ?? 1)) };
+  return Effect.succeed(Math.floor(value * (multipliers[unit] ?? 1)));
 };
 
 /**

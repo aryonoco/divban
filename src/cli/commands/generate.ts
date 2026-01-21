@@ -19,7 +19,7 @@ import {
   outputQuadletDir,
   toAbsolutePathEffect,
 } from "../../lib/paths";
-import { GroupId, UserId, Username } from "../../lib/types";
+import { GroupIdSchema, UserIdSchema, UsernameSchema } from "../../lib/types";
 import { writeGeneratedFilesPreview } from "../../services/helpers";
 import type { AnyServiceEffect, ServiceContext } from "../../services/types";
 import { getFileCount } from "../../services/types";
@@ -53,46 +53,16 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
 
     logger.info(`Generating files for ${service.definition.name}...`);
 
-    // Create mock user for preview context
-    const usernameResult = Username("divban-preview");
-    const uidResult = UserId(1000);
-    const gidResult = GroupId(1000);
-
-    if (!(usernameResult.ok && uidResult.ok && gidResult.ok)) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: "Failed to create preview user",
-        })
-      );
-    }
-
-    const username = usernameResult.value;
-    const uid = uidResult.value;
-    const gid = gidResult.value;
+    // Create mock user for preview context (known-valid literals)
+    const username = UsernameSchema.make("divban-preview");
+    const uid = UserIdSchema.make(1000);
+    const gid = GroupIdSchema.make(1000);
 
     const validPath = yield* toAbsolutePathEffect(configPath);
     const config = yield* loadServiceConfig(validPath, service.definition.configSchema);
 
-    const quadletDirResult = outputQuadletDir(outputDir);
-    if (!quadletDirResult.ok) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: quadletDirResult.error.message,
-        })
-      );
-    }
-
-    const configDirResult = outputConfigDir(outputDir);
-    if (!configDirResult.ok) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: configDirResult.error.message,
-        })
-      );
-    }
+    const quadletDir = yield* outputQuadletDir(outputDir);
+    const configDir = yield* outputConfigDir(outputDir);
 
     const system = yield* detectSystemCapabilities();
 
@@ -101,8 +71,8 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
       logger,
       paths: {
         dataDir: TEMP_PATHS.generateDataDir,
-        quadletDir: quadletDirResult.value,
-        configDir: configDirResult.value,
+        quadletDir,
+        configDir,
         homeDir: TEMP_PATHS.generateDataDir, // Pseudo-home for generation
       },
       user: { name: username, uid, gid },
@@ -133,10 +103,10 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
       return;
     }
 
-    yield* ensureDirectory(quadletDirResult.value);
-    yield* ensureDirectory(configDirResult.value);
+    yield* ensureDirectory(quadletDir);
+    yield* ensureDirectory(configDir);
 
-    yield* writeGeneratedFilesPreview(files, quadletDirResult.value, configDirResult.value);
+    yield* writeGeneratedFilesPreview(files, quadletDir, configDir);
 
     const total = getFileCount(files);
     logger.success(`Generated ${total} files in ${outputDir}/`);

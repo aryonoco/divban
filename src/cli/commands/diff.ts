@@ -33,7 +33,7 @@ import type {
   UserId as UserIdType,
   Username as UsernameType,
 } from "../../lib/types";
-import { GroupId, UserId } from "../../lib/types";
+import { GroupIdSchema, UserIdSchema } from "../../lib/types";
 import type { AnyServiceEffect, ServiceContext } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
@@ -100,18 +100,9 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       configDir = TEMP_PATHS.nonexistent;
     }
 
-    // Create fallback user IDs for when user doesn't exist
-    const fallbackUidResult = UserId(0);
-    const fallbackGidResult = GroupId(0);
-
-    if (!(fallbackUidResult.ok && fallbackGidResult.ok)) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: "Failed to create fallback user IDs",
-        })
-      );
-    }
+    // Create fallback user IDs for when user doesn't exist (known-valid literals)
+    const fallbackUid = UserIdSchema.make(0);
+    const fallbackGid = GroupIdSchema.make(0);
 
     const system = yield* detectSystemCapabilities();
 
@@ -133,8 +124,8 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
           }
         : {
             name: username,
-            uid: fallbackUidResult.value,
-            gid: fallbackGidResult.value,
+            uid: fallbackUid,
+            gid: fallbackGid,
           },
       options: getContextOptions(args),
       system,

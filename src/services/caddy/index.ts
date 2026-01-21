@@ -9,7 +9,7 @@
  * Caddy reverse proxy service implementation.
  */
 
-import { Effect, Exit } from "effect";
+import { Effect, Exit, ParseResult } from "effect";
 import {
   type ConfigError,
   ErrorCode,
@@ -18,7 +18,7 @@ import {
   type SystemError,
 } from "../../lib/errors";
 import type { PrivateIP, ServiceName } from "../../lib/types";
-import { PrivateIP as validatePrivateIP } from "../../lib/types";
+import { decodePrivateIP } from "../../lib/types";
 import {
   createHttpHealthCheck,
   createRootMappedNs,
@@ -90,16 +90,15 @@ const generate = (
     // Validate mapHostLoopback if provided
     let mapHostLoopback: PrivateIP | undefined;
     if (config.network?.mapHostLoopback) {
-      const ipResult = validatePrivateIP(config.network.mapHostLoopback);
-      if (!ipResult.ok) {
-        return yield* Effect.fail(
-          new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
-            message: `Invalid mapHostLoopback IP: ${ipResult.error.message}`,
-          })
-        );
-      }
-      mapHostLoopback = ipResult.value;
+      mapHostLoopback = yield* decodePrivateIP(config.network.mapHostLoopback).pipe(
+        Effect.mapError(
+          (e) =>
+            new ServiceError({
+              code: ErrorCode.SERVICE_NOT_FOUND as 30,
+              message: `Invalid mapHostLoopback IP: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
+            })
+        )
+      );
     }
 
     // Generate Caddyfile

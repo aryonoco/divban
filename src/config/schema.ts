@@ -13,7 +13,12 @@
 import { Effect, Schema } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
 import { isValidIP } from "../lib/schema-utils";
-import { type AbsolutePath, type Username, AbsolutePath as makeAbsolutePath } from "../lib/types";
+import {
+  type AbsolutePath,
+  type Username,
+  decodeAbsolutePath,
+  parseErrorToGeneralError,
+} from "../lib/types";
 
 /**
  * Top-level regex patterns for validation (better performance).
@@ -471,47 +476,21 @@ export const getServiceDataDir = (
 ): Effect.Effect<AbsolutePath, GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-
-    const pathResult = makeAbsolutePath(`${baseDataDir}/${username}`);
-    if (!pathResult.ok) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Invalid data directory: ${baseDataDir}/${username}`,
-        })
-      );
-    }
-    return pathResult.value;
+    return yield* decodeAbsolutePath(`${baseDataDir}/${username}`).pipe(
+      Effect.mapError(parseErrorToGeneralError)
+    );
   });
 
 /**
  * Get quadlet directory for a service user (Effect version).
  */
-export const getQuadletDir = (homeDir: string): Effect.Effect<AbsolutePath, GeneralError> => {
-  const pathResult = makeAbsolutePath(`${homeDir}/.config/containers/systemd`);
-  if (!pathResult.ok) {
-    return Effect.fail(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid quadlet directory path: ${homeDir}/.config/containers/systemd`,
-      })
-    );
-  }
-  return Effect.succeed(pathResult.value);
-};
+export const getQuadletDir = (homeDir: string): Effect.Effect<AbsolutePath, GeneralError> =>
+  decodeAbsolutePath(`${homeDir}/.config/containers/systemd`).pipe(
+    Effect.mapError(parseErrorToGeneralError)
+  );
 
 /**
  * Get config directory for a service (Effect version).
  */
-export const getConfigDir = (dataDir: string): Effect.Effect<AbsolutePath, GeneralError> => {
-  const pathResult = makeAbsolutePath(`${dataDir}/config`);
-  if (!pathResult.ok) {
-    return Effect.fail(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid config directory path: ${dataDir}/config`,
-      })
-    );
-  }
-  return Effect.succeed(pathResult.value);
-};
+export const getConfigDir = (dataDir: string): Effect.Effect<AbsolutePath, GeneralError> =>
+  decodeAbsolutePath(`${dataDir}/config`).pipe(Effect.mapError(parseErrorToGeneralError));
