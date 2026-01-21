@@ -152,6 +152,7 @@ Effectful
 Filenaming
 justfile
 Perepelitsa
+testuser
 Zstandard
 caddyformat
 colored

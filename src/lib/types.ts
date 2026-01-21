@@ -10,7 +10,6 @@
  * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
-import { Option } from "effect";
 import { ErrorCode, GeneralError } from "./errors";
 
 /**
@@ -417,22 +416,6 @@ export const joinPath = (...segments: string[]): ValidationResult<AbsolutePath> 
   }
   const joined = segments.join("/").replace(/\/+/g, "/");
   return AbsolutePath(joined);
-};
-
-// ============================================================================
-// Environment Variable Helpers (using Bun.env)
-// ============================================================================
-
-/**
- * Get an environment variable value.
- */
-export const getEnv = (key: string): Option.Option<string> => Option.fromNullable(Bun.env[key]);
-
-/**
- * Get environment variable with a default fallback.
- */
-export const getEnvOrDefault = (key: string, defaultValue: string): string => {
-  return Bun.env[key] ?? defaultValue;
 };
 
 // ============================================================================

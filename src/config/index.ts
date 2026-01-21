@@ -53,3 +53,17 @@ export {
   mergeContainerDefaults,
   mergeEnvironment,
 } from "./merge";
+
+// Environment config exports (functional core)
+export {
+  BaseDataDirConfig,
+  createTestConfigProvider,
+  DebugModeConfig,
+  EnvConfigSpec,
+  HomeConfig,
+  LogFormatConfig,
+  LogLevelConfig,
+  resolveLogFormat,
+  resolveLogLevel,
+} from "./env";
+export type { EnvConfig, LogFormat, LogLevel as EnvLogLevel, TestConfigOverrides } from "./env";

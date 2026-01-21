@@ -15,8 +15,6 @@ export {
   AbsolutePath,
   assertNever,
   ContainerName,
-  getEnv,
-  getEnvOrDefault,
   GroupId,
   isAbsolutePath,
   isServiceName,

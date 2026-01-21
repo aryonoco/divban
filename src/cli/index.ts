@@ -10,6 +10,7 @@
  */
 
 import { Effect, Option } from "effect";
+import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from "../config/env";
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
@@ -22,7 +23,7 @@ import {
   type ServiceError,
   type SystemError,
 } from "../lib/errors";
-import { type LogLevel, type Logger, createLogger } from "../lib/logger";
+import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { getService, initializeServices, listServices } from "../services";
 import type { AnyServiceEffect, ServiceDefinition } from "../services/types";
@@ -80,17 +81,20 @@ export const run = async (argv: string[]): Promise<number> => {
     // Load global configuration (always loads, returns defaults if no file)
     const globalConfig = yield* loadGlobalConfig(validatedPath);
 
-    // Apply logging settings: CLI args override global config
+    // Load environment config - this is where Config effects are run
+    // (the "imperative shell" boundary)
+    const envConfig: EnvConfig = yield* EnvConfigSpec;
+
+    // Resolve effective settings using pure functions
+    // Priority: CLI args > env vars > global config
     const loggingSettings = getLoggingSettings(globalConfig);
-    let effectiveLogLevel: LogLevel;
-    if (args.verbose) {
-      effectiveLogLevel = "debug";
-    } else if (args.logLevel !== "info") {
-      effectiveLogLevel = args.logLevel;
-    } else {
-      effectiveLogLevel = loggingSettings.level;
-    }
-    const effectiveFormat = args.format !== "pretty" ? args.format : loggingSettings.format;
+    const effectiveLogLevel = resolveLogLevel(
+      args.verbose,
+      args.logLevel,
+      envConfig,
+      loggingSettings.level
+    );
+    const effectiveFormat = resolveLogFormat(args.format, envConfig, loggingSettings.format);
 
     // Create logger with effective settings
     const logger = createLogger({

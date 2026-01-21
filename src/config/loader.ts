@@ -11,7 +11,7 @@
  * Uses Bun's native TOML parser for optimal performance.
  */
 
-import { Effect, type Schema } from "effect";
+import { Config, Effect, type Schema } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeOrThrow, decodeToEffect } from "../lib/schema-utils";
@@ -71,22 +71,17 @@ export const loadTomlFile = <A, I = A>(
   });
 
 /**
- * Load global configuration from divban.toml.
- * Returns default values if file doesn't exist.
+ * Load global configuration with explicit HOME directory.
+ * Pure in the sense that it only performs the effects described by its type.
  */
-export const loadGlobalConfig = (
-  configPath?: AbsolutePath
+export const loadGlobalConfigWithHome = (
+  configPath: AbsolutePath | undefined,
+  home: string
 ): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
   Effect.gen(function* () {
-    // Try default paths if not specified
-    // Search paths are plain strings (may be relative), converted at boundary
     const paths: string[] = configPath
       ? [configPath]
-      : [
-          "/etc/divban/divban.toml",
-          `${Bun.env["HOME"] ?? "/root"}/.config/divban/divban.toml`,
-          "./divban.toml",
-        ];
+      : ["/etc/divban/divban.toml", `${home}/.config/divban/divban.toml`, "./divban.toml"];
 
     for (const p of paths) {
       const file = Bun.file(p);
@@ -94,15 +89,28 @@ export const loadGlobalConfig = (
 
       if (exists) {
         const absolutePath = yield* toAbsolutePathEffect(p);
-        // Use explicit type assertion due to Effect Schema's input/output type inference
-        // with exactOptionalPropertyTypes. The schema has defaults on all
-        // nested objects, so the output type always has defined properties.
         return (yield* loadTomlFile(absolutePath, globalConfigSchema)) as GlobalConfig;
       }
     }
 
-    // Return defaults if no config file found
     return decodeOrThrow(globalConfigSchema, {}) as GlobalConfig;
+  });
+
+/**
+ * Load global configuration from divban.toml.
+ * Returns default values if file doesn't exist.
+ *
+ * Uses Effect Config to read HOME - this is the "imperative shell"
+ * where Config values are yielded to retrieve their values.
+ */
+export const loadGlobalConfig = (
+  configPath?: AbsolutePath
+): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
+  Effect.gen(function* () {
+    // Yield the HomeConfig to get the HOME directory
+    // Config.withDefault ensures this never fails, so orDie is safe
+    const home = yield* Config.string("HOME").pipe(Config.withDefault("/root"), Effect.orDie);
+    return yield* loadGlobalConfigWithHome(configPath, home);
   });
 
 /**

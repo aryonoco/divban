@@ -53,7 +53,7 @@ To find out the details of something in Effect, read the relevant parts of llms/
 
 
 --- 
-Ensure the plan, as much as is practical, aligns with a "functional core, imperative shell" philosophy and is uses idiomatic Effect patterns and is FP-aligned where practical and uses the features of the Effect library to achieve its goal where possible
+Ensure the plan, as much as is practical, aligns with a "functional core, imperative shell" philosophy and is uses classical FP concepts and idiomatic Effect patterns and is FP-aligned where practical and uses the features of the Effect library to achieve its goal where possible.
 
 Read @llms/effect.llms.headline.txt 
 
