@@ -173,12 +173,21 @@ export const createTestConfigProvider = (
     [envVarNames.baseDataDir, "/srv"],
     [envVarNames.debug, "false"],
   ]);
-  if (overrides.home !== undefined) defaults.set(envVarNames.home, overrides.home);
-  if (overrides.logLevel !== undefined) defaults.set(envVarNames.logLevel, overrides.logLevel);
-  if (overrides.logFormat !== undefined) defaults.set(envVarNames.logFormat, overrides.logFormat);
-  if (overrides.baseDataDir !== undefined)
+  if (overrides.home !== undefined) {
+    defaults.set(envVarNames.home, overrides.home);
+  }
+  if (overrides.logLevel !== undefined) {
+    defaults.set(envVarNames.logLevel, overrides.logLevel);
+  }
+  if (overrides.logFormat !== undefined) {
+    defaults.set(envVarNames.logFormat, overrides.logFormat);
+  }
+  if (overrides.baseDataDir !== undefined) {
     defaults.set(envVarNames.baseDataDir, overrides.baseDataDir);
-  if (overrides.debug !== undefined) defaults.set(envVarNames.debug, overrides.debug);
+  }
+  if (overrides.debug !== undefined) {
+    defaults.set(envVarNames.debug, overrides.debug);
+  }
   return ConfigProvider.fromMap(defaults);
 };
 
