@@ -9,7 +9,7 @@
  * Effect-based shared utilities for CLI commands.
  */
 
-import { Effect, Schema } from "effect";
+import { Effect, Schema, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -61,41 +61,58 @@ const getConfigPaths = (serviceName: string, homeDir: AbsolutePathType): string[
 ];
 
 /**
+ * Try to load config from a single path.
+ */
+const tryLoadConfigFromPath = (
+  path: string,
+  schema: Schema.Schema<unknown, unknown, never>
+): Effect.Effect<unknown, ConfigError | SystemError> =>
+  pipe(
+    Effect.promise(() => Bun.file(path).exists()),
+    Effect.flatMap((exists) =>
+      exists
+        ? pipe(
+            toAbsolutePathEffect(path),
+            Effect.flatMap((absPath) => loadServiceConfig(absPath, schema))
+          )
+        : Effect.fail(
+            new ConfigError({
+              code: ErrorCode.CONFIG_NOT_FOUND as 10,
+              message: `Config not found at ${path}`,
+            })
+          )
+    )
+  );
+
+/**
  * Find and load a service configuration file.
- * Searches in common locations if no explicit path is provided.
+ * Uses Effect.firstSuccessOf (asum pattern) instead of loop.
  */
 export const resolveServiceConfig = (
   service: AnyServiceEffect,
   homeDir: AbsolutePathType,
   explicitPath?: string
 ): Effect.Effect<unknown, ConfigError | SystemError> =>
-  Effect.gen(function* () {
-    // If explicit path provided, use it
-    if (explicitPath) {
-      const path = yield* toAbsolutePathEffect(explicitPath);
-      return yield* loadServiceConfig(path, service.definition.configSchema);
-    }
-
-    // Search common locations
-    const searchPaths = getConfigPaths(service.definition.name, homeDir);
-
-    for (const p of searchPaths) {
-      const file = Bun.file(p);
-      const exists = yield* Effect.promise(() => file.exists());
-      if (exists) {
-        const path = yield* toAbsolutePathEffect(p);
-        return yield* loadServiceConfig(path, service.definition.configSchema);
-      }
-    }
-
-    // No config found
-    return yield* Effect.fail(
-      new ConfigError({
-        code: ErrorCode.CONFIG_NOT_FOUND as 10,
-        message: `No configuration file found for ${service.definition.name}. Searched: ${searchPaths.join(", ")}`,
-      })
-    );
-  });
+  explicitPath !== undefined
+    ? pipe(
+        toAbsolutePathEffect(explicitPath),
+        Effect.flatMap((path) => loadServiceConfig(path, service.definition.configSchema))
+      )
+    : pipe(
+        Effect.firstSuccessOf(
+          getConfigPaths(service.definition.name, homeDir).map((p) =>
+            tryLoadConfigFromPath(p, service.definition.configSchema)
+          )
+        ),
+        Effect.catchAll(() =>
+          Effect.fail(
+            new ConfigError({
+              code: ErrorCode.CONFIG_NOT_FOUND as 10,
+              message: `No configuration file found for ${service.definition.name}. Searched: ${getConfigPaths(service.definition.name, homeDir).join(", ")}`,
+            })
+          )
+        )
+      );
 
 /**
  * Format duration for display.

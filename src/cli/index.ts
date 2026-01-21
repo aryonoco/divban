@@ -9,7 +9,7 @@
  * Effect-based CLI command router and main entry point.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from "../config/env";
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
@@ -27,7 +27,7 @@ import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { getService, initializeServices, listServices } from "../services";
 import type { AnyServiceEffect, ServiceDefinition } from "../services/types";
-import { type ParsedArgs, parseArgs, validateArgs } from "./parser";
+import { type Command, type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
 // Import Effect-based command handlers
 import { executeBackup } from "./commands/backup";
@@ -158,74 +158,34 @@ export const run = async (argv: string[]): Promise<number> => {
 
 /**
  * Execute a command on a single service.
+ * Uses Match.exhaustive for compile-time totality checking.
  */
 const executeCommand = (
   service: AnyServiceEffect,
   args: ParsedArgs,
   logger: Logger,
   globalConfig: GlobalConfig
-): Effect.Effect<void, DivbanEffectError> => {
-  switch (args.command) {
-    case "validate":
-      return executeValidate({ service, args, logger });
-
-    case "generate":
-      return executeGenerate({ service, args, logger });
-
-    case "diff":
-      return executeDiff({ service, args, logger });
-
-    case "setup":
-      return executeSetup({ service, args, logger, globalConfig });
-
-    case "start":
-      return executeStart({ service, args, logger });
-
-    case "stop":
-      return executeStop({ service, args, logger });
-
-    case "restart":
-      return executeRestart({ service, args, logger });
-
-    case "status":
-      return executeStatus({ service, args, logger });
-
-    case "logs":
-      return executeLogs({ service, args, logger });
-
-    case "update":
-      return executeUpdate({ service, args, logger });
-
-    case "backup":
-      return executeBackup({ service, args, logger });
-
-    case "backup-config":
-      return executeBackupConfig({ service, args, logger });
-
-    case "restore":
-      return executeRestore({ service, args, logger });
-
-    case "reload":
-      return executeReload({ service, args, logger });
-
-    case "remove":
-      return executeRemove({ service, args, logger });
-
-    case "secret":
-      return executeSecret({ service, args, logger });
-
-    case "help":
-      return Effect.void;
-
-    default:
-      return Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Unknown command: ${args.command}`,
-        })
-      );
-  }
-};
+): Effect.Effect<void, DivbanEffectError> =>
+  Match.value(args.command).pipe(
+    Match.when("validate", () => executeValidate({ service, args, logger })),
+    Match.when("generate", () => executeGenerate({ service, args, logger })),
+    Match.when("diff", () => executeDiff({ service, args, logger })),
+    Match.when("setup", () => executeSetup({ service, args, logger, globalConfig })),
+    Match.when("start", () => executeStart({ service, args, logger })),
+    Match.when("stop", () => executeStop({ service, args, logger })),
+    Match.when("restart", () => executeRestart({ service, args, logger })),
+    Match.when("status", () => executeStatus({ service, args, logger })),
+    Match.when("logs", () => executeLogs({ service, args, logger })),
+    Match.when("update", () => executeUpdate({ service, args, logger })),
+    Match.when("backup", () => executeBackup({ service, args, logger })),
+    Match.when("backup-config", () => executeBackupConfig({ service, args, logger })),
+    Match.when("restore", () => executeRestore({ service, args, logger })),
+    Match.when("reload", () => executeReload({ service, args, logger })),
+    Match.when("remove", () => executeRemove({ service, args, logger })),
+    Match.when("secret", () => executeSecret({ service, args, logger })),
+    Match.when("help", () => Effect.void),
+    Match.exhaustive
+  );
 
 /**
  * Run command on single service, returning Option<errorCode> for first-error tracking.
@@ -257,7 +217,39 @@ const runServiceCommand = (
   });
 
 /**
+ * Allowed commands for "all" target.
+ */
+const ALLOWED_ALL_COMMANDS = [
+  "status",
+  "start",
+  "stop",
+  "restart",
+  "update",
+  "backup",
+  "backup-config",
+] as const;
+
+type AllowedAllCommand = (typeof ALLOWED_ALL_COMMANDS)[number];
+
+const isAllowedAllCommand = (cmd: Command): cmd is AllowedAllCommand =>
+  (ALLOWED_ALL_COMMANDS as readonly string[]).includes(cmd);
+
+/**
+ * Validate command is allowed for "all" target.
+ */
+const validateAllServicesCommand = (command: Command): Effect.Effect<void, GeneralError> =>
+  isAllowedAllCommand(command)
+    ? Effect.void
+    : Effect.fail(
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Command '${command}' is not supported for 'all'. Allowed: ${ALLOWED_ALL_COMMANDS.join(", ")}`,
+        })
+      );
+
+/**
  * Run a command on all services, preserving first error code.
+ * Uses Effect.reduce (foldlM pattern) instead of mutable loop.
  */
 const runAllServices = (
   args: ParsedArgs,
@@ -272,34 +264,18 @@ const runAllServices = (
       return 0;
     }
 
-    // Only certain commands make sense for "all"
-    const allowedCommands = [
-      "status",
-      "start",
-      "stop",
-      "restart",
-      "update",
-      "backup",
-      "backup-config",
-    ];
-    if (!allowedCommands.includes(args.command)) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Command '${args.command}' is not supported for 'all'. Allowed: ${allowedCommands.join(", ")}`,
-        })
-      );
-    }
+    yield* validateAllServicesCommand(args.command);
 
-    // Sequential execution: run all services, track first error via Option
-    let firstError: Option.Option<number> = Option.none();
-    for (const serviceDef of services) {
-      const errorOpt = yield* runServiceCommand(serviceDef, args, logger, globalConfig);
-      // Keep first error, ignore subsequent errors
-      if (Option.isNone(firstError) && Option.isSome(errorOpt)) {
-        firstError = errorOpt;
-      }
-    }
+    // Effect.reduce: effectful fold accumulating first error as Option
+    const firstError = yield* Effect.reduce(services, Option.none<number>(), (acc, serviceDef) =>
+      pipe(
+        runServiceCommand(serviceDef, args, logger, globalConfig),
+        Effect.map((errorOpt) =>
+          // Keep first error only
+          Option.isNone(acc) && Option.isSome(errorOpt) ? errorOpt : acc
+        )
+      )
+    );
 
     return Option.getOrElse(firstError, () => 0);
   });

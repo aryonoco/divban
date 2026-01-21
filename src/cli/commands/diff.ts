@@ -9,7 +9,7 @@
  * Effect-based diff command - show differences between generated and installed files.
  */
 
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -44,12 +44,6 @@ export interface DiffOptions {
   service: AnyServiceEffect;
   args: ParsedArgs;
   logger: Logger;
-}
-
-interface FileDiff {
-  path: string;
-  status: "new" | "modified" | "unchanged" | "deleted";
-  diff?: string;
 }
 
 /**
@@ -133,71 +127,70 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
 
     // Generate files
     const files = yield* service.generate(ctx);
-    const diffs: FileDiff[] = [];
 
-    // Compare quadlet files
-    for (const [name, newContent] of files.quadlets) {
-      const path = quadletFilePath(quadletDir, name);
-      const diff = yield* compareFile(path, newContent);
-      diffs.push({ path, ...diff });
-    }
+    // Collect all file entries (pure transformation)
+    const fileEntries: readonly { path: AbsolutePath; content: string }[] = [
+      ...[...files.quadlets].map(([name, content]) => ({
+        path: quadletFilePath(quadletDir, name),
+        content,
+      })),
+      ...[...files.networks].map(([name, content]) => ({
+        path: quadletFilePath(quadletDir, name),
+        content,
+      })),
+      ...[...files.volumes].map(([name, content]) => ({
+        path: quadletFilePath(quadletDir, name),
+        content,
+      })),
+      ...[...files.environment].map(([name, content]) => ({
+        path: configFilePath(configDir, name),
+        content,
+      })),
+      ...[...files.other].map(([name, content]) => ({
+        path: configFilePath(configDir, name),
+        content,
+      })),
+    ];
 
-    // Compare network files
-    for (const [name, newContent] of files.networks) {
-      const path = quadletFilePath(quadletDir, name);
-      const diff = yield* compareFile(path, newContent);
-      diffs.push({ path, ...diff });
-    }
+    // Compute all diffs using Effect.forEach (traverse pattern)
+    const diffs = yield* Effect.forEach(
+      fileEntries,
+      ({ path, content }) =>
+        pipe(
+          compareFile(path, content),
+          Effect.map((result) => ({ path, ...result }))
+        ),
+      { concurrency: 1 }
+    );
 
-    // Compare volume files
-    for (const [name, newContent] of files.volumes) {
-      const path = quadletFilePath(quadletDir, name);
-      const diff = yield* compareFile(path, newContent);
-      diffs.push({ path, ...diff });
-    }
-
-    // Compare environment files
-    for (const [name, newContent] of files.environment) {
-      const path = configFilePath(configDir, name);
-      const diff = yield* compareFile(path, newContent);
-      diffs.push({ path, ...diff });
-    }
-
-    // Compare other files
-    for (const [name, newContent] of files.other) {
-      const path = configFilePath(configDir, name);
-      const diff = yield* compareFile(path, newContent);
-      diffs.push({ path, ...diff });
-    }
-
-    // Print results
+    // Pure: partition diffs by status
     const newFiles = diffs.filter((d) => d.status === "new");
     const modifiedFiles = diffs.filter((d) => d.status === "modified");
     const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
 
-    if (newFiles.length > 0) {
-      logger.info("\nNew files (would be created):");
-      for (const f of newFiles) {
-        logger.info(`  + ${f.path}`);
-      }
-    }
+    // Pure: format diff results as lines
+    const formatLines: readonly string[] = [
+      ...(newFiles.length > 0
+        ? ["\nNew files (would be created):", ...newFiles.map((f) => `  + ${f.path}`)]
+        : []),
+      ...(modifiedFiles.length > 0
+        ? [
+            "\nModified files:",
+            ...modifiedFiles.flatMap((f) => [
+              `  ~ ${f.path}`,
+              ...(args.verbose && f.diff !== undefined ? [f.diff] : []),
+            ]),
+          ]
+        : []),
+      ...(unchangedFiles.length > 0 && args.verbose
+        ? ["\nUnchanged files:", ...unchangedFiles.map((f) => `    ${f.path}`)]
+        : []),
+    ];
 
-    if (modifiedFiles.length > 0) {
-      logger.info("\nModified files:");
-      for (const f of modifiedFiles) {
-        logger.info(`  ~ ${f.path}`);
-        if (args.verbose && f.diff) {
-          logger.info(f.diff);
-        }
-      }
-    }
-
-    if (unchangedFiles.length > 0 && args.verbose) {
-      logger.info("\nUnchanged files:");
-      for (const f of unchangedFiles) {
-        logger.info(`    ${f.path}`);
-      }
-    }
+    // Single side effect: log all lines
+    yield* Effect.forEach(formatLines, (line) => Effect.sync(() => logger.info(line)), {
+      discard: true,
+    });
 
     // Summary
     logger.info("");
@@ -245,32 +238,32 @@ const compareFile = (
   });
 
 /**
- * Generate a simple unified diff.
+ * Generate a simple unified diff using functional patterns.
+ * No mutable arrays.
  */
 function generateSimpleDiff(oldContent: string, newContent: string): string {
   const oldLines = oldContent.split("\n");
   const newLines = newContent.split("\n");
+  const maxLen = Math.max(oldLines.length, newLines.length);
 
-  const output: string[] = [];
-  const maxLines = Math.max(oldLines.length, newLines.length);
-
-  for (let i = 0; i < maxLines; i++) {
-    const oldLine = oldLines[i];
+  return Array.from({ length: maxLen }, (_, i) => {
+    const oldLine = oldLines[i]; // string | undefined with noUncheckedIndexedAccess
     const newLine = newLines[i];
 
     if (oldLine === newLine) {
-      continue;
+      return null;
     }
-
     if (oldLine !== undefined && newLine === undefined) {
-      output.push(`      - ${oldLine}`);
-    } else if (oldLine === undefined && newLine !== undefined) {
-      output.push(`      + ${newLine}`);
-    } else if (oldLine !== newLine) {
-      output.push(`      - ${oldLine}`);
-      output.push(`      + ${newLine}`);
+      return `      - ${oldLine}`;
     }
-  }
-
-  return output.join("\n");
+    if (oldLine === undefined && newLine !== undefined) {
+      return `      + ${newLine}`;
+    }
+    if (oldLine !== undefined && newLine !== undefined && oldLine !== newLine) {
+      return `      - ${oldLine}\n      + ${newLine}`;
+    }
+    return null;
+  })
+    .filter((line): line is string => line !== null)
+    .join("\n");
 }

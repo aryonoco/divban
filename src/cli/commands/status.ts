@@ -9,7 +9,7 @@
  * Effect-based status command - show service status.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -99,14 +99,22 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
       if (status.containers.length > 0) {
         logger.raw("");
         logger.raw("Containers:");
-        for (const container of status.containers) {
+
+        // Pure: format container lines
+        const containerLines = status.containers.map((container) => {
           const containerStatusColor =
             container.status.status === "running" ? "\x1b[32m" : "\x1b[31m";
-          const healthOpt = Option.fromNullable(container.health);
-          const healthStr = Option.isSome(healthOpt) ? ` (${healthOpt.value.health})` : "";
-          logger.raw(
-            `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`
+          const healthStr = pipe(
+            Option.fromNullable(container.health),
+            Option.map((h) => ` (${h.health})`),
+            Option.getOrElse(() => "")
           );
+          return `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`;
+        });
+
+        // Single side effect: log all lines
+        for (const line of containerLines) {
+          logger.raw(line);
         }
       }
     }

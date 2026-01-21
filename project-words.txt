@@ -138,7 +138,9 @@ FSETID
 PERFMON
 
 # Programming
+asum
 fmap
+foldl
 mconcat
 nonexistent
 nothrow

@@ -11,7 +11,7 @@
 
 import { Option } from "effect";
 import { listServices } from "../services";
-import { COMMANDS } from "./parser";
+import { COMMANDS, type Command } from "./parser";
 
 const VERSION = "0.1.0";
 
@@ -98,34 +98,31 @@ export const getServiceHelp = (serviceName: string): string => {
   }
   const service = serviceOpt.value;
 
-  const capabilities: string[] = [];
-  if (service.capabilities.multiContainer) {
-    capabilities.push("multi-container");
-  }
-  if (service.capabilities.hasReload) {
-    capabilities.push("reload");
-  }
-  if (service.capabilities.hasBackup) {
-    capabilities.push("backup");
-  }
-  if (service.capabilities.hasRestore) {
-    capabilities.push("restore");
-  }
-  if (service.capabilities.hardwareAcceleration) {
-    capabilities.push("hardware-acceleration");
-  }
+  // Capabilities as data-driven derivation
+  const CAPABILITY_MAP = [
+    ["multiContainer", "multi-container"],
+    ["hasReload", "reload"],
+    ["hasBackup", "backup"],
+    ["hasRestore", "restore"],
+    ["hardwareAcceleration", "hardware-acceleration"],
+  ] as const satisfies readonly (readonly [keyof typeof service.capabilities, string])[];
+
+  const capabilities = CAPABILITY_MAP.filter(([key]) => service.capabilities[key]).map(
+    ([, label]) => label
+  );
+
+  // Command availability as data-driven predicate
+  const COMMAND_CAPABILITY_REQUIREMENTS: Partial<
+    Record<Command, keyof typeof service.capabilities>
+  > = {
+    reload: "hasReload",
+    backup: "hasBackup",
+    restore: "hasRestore",
+  };
 
   const availableCommands = COMMANDS.filter((cmd) => {
-    if (cmd === "reload" && !service.capabilities.hasReload) {
-      return false;
-    }
-    if (cmd === "backup" && !service.capabilities.hasBackup) {
-      return false;
-    }
-    if (cmd === "restore" && !service.capabilities.hasRestore) {
-      return false;
-    }
-    return true;
+    const required = COMMAND_CAPABILITY_REQUIREMENTS[cmd];
+    return required === undefined || service.capabilities[required] === true;
   });
 
   return `
