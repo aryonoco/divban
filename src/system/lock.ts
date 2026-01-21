@@ -10,8 +10,9 @@
  * Uses O_EXCL (via writeFileExclusive) for atomic lock acquisition.
  */
 
-import { Duration, Effect, Option, Schedule } from "effect";
+import { Effect, Option, Schedule, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
+import { pollingSchedule } from "../lib/retry";
 import type { AbsolutePath } from "../lib/types";
 import {
   deleteFile,
@@ -184,7 +185,6 @@ export const withLock = <T, E>(
     }
 
     const lockPath = `${LOCK_DIR}/${resourceName}.lock` as AbsolutePath;
-    const maxAttempts = Math.ceil(maxWaitMs / retryIntervalMs);
 
     // Ensure lock directory exists
     yield* ensureDirectory(LOCK_DIR).pipe(
@@ -199,9 +199,9 @@ export const withLock = <T, E>(
     );
 
     // Acquire lock with retry
-    const retrySchedule = Schedule.spaced(Duration.millis(retryIntervalMs)).pipe(
-      Schedule.whileInput((err: SystemError | LockBusyError) => err instanceof LockBusyError),
-      Schedule.compose(Schedule.recurs(maxAttempts - 1))
+    const retrySchedule = pipe(
+      pollingSchedule(maxWaitMs, retryIntervalMs),
+      Schedule.whileInput((err: SystemError | LockBusyError) => err instanceof LockBusyError)
     );
 
     yield* tryAcquireLock(lockPath, resourceName).pipe(

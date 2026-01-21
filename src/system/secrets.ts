@@ -14,6 +14,7 @@ import { Effect, Option, pipe } from "effect";
 import { generatePassword } from "../lib/crypto";
 import { ContainerError, ErrorCode, type GeneralError, type SystemError } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
+import { isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
 import { pathJoin } from "../lib/types";
 import {
@@ -83,9 +84,12 @@ export const podmanSecretExists = (
   user: Username,
   uid: number
 ): Effect.Effect<boolean, SystemError | GeneralError> =>
-  Effect.map(
-    execAsUser(user, uid, ["podman", "secret", "exists", secretName]),
-    (r) => r.exitCode === 0
+  execAsUser(user, uid, ["podman", "secret", "exists", secretName]).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
+    Effect.map((r) => r.exitCode === 0)
   );
 
 /**
@@ -112,6 +116,11 @@ const createPodmanSecret = (
       user,
       uid,
       `printf '%s' ${escapedValue} | podman secret create ${escapedName} -`
+    ).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
     );
 
     if (result.exitCode === 0) {
@@ -386,6 +395,13 @@ export const deletePodmanSecrets = (
 ): Effect.Effect<void, never> =>
   Effect.forEach(
     secretNames,
-    (name) => execAsUser(user, uid, ["podman", "secret", "rm", name]).pipe(Effect.ignore),
+    (name) =>
+      execAsUser(user, uid, ["podman", "secret", "rm", name]).pipe(
+        Effect.retry({
+          schedule: systemRetrySchedule,
+          while: (err): boolean => isTransientSystemError(err),
+        }),
+        Effect.ignore
+      ),
     { concurrency: "unbounded" }
   ).pipe(Effect.asVoid);

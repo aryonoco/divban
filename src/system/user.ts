@@ -10,10 +10,11 @@
  * Creates isolated users with proper subuid/subgid configuration.
  */
 
-import { Duration, Effect, Exit, Option, Schedule } from "effect";
+import { Effect, Exit, Option, Schedule, pipe } from "effect";
 import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
+import { systemRetrySchedule } from "../lib/retry";
 import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
 import type { Acquired } from "../services/helpers";
@@ -345,10 +346,9 @@ export const createServiceUser = (
     const shell = yield* getNologinShell();
 
     // 3. Allocate UID and create user atomically with retry on conflict
-    const retrySchedule = Schedule.exponential(Duration.millis(50)).pipe(
-      Schedule.jittered,
-      Schedule.whileInput((err: SystemError | GeneralError) => isUidConflictError(err)),
-      Schedule.compose(Schedule.recurs(2)) // 3 total attempts
+    const retrySchedule = pipe(
+      systemRetrySchedule,
+      Schedule.whileInput((err: SystemError | GeneralError) => isUidConflictError(err))
     );
 
     // 4. Create user with scoped rollback - if any subsequent operation fails,

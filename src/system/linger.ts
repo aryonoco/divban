@@ -13,6 +13,12 @@
 import { Effect, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
+import {
+  heavyRetrySchedule,
+  isTransientSystemError,
+  pollingSchedule,
+  systemRetrySchedule,
+} from "../lib/retry";
 import type { UserId, Username } from "../lib/types";
 import type { Acquired } from "../services/helpers";
 import { exec, execSuccess } from "./exec";
@@ -25,6 +31,10 @@ import { fileExists } from "./fs";
  */
 const startUserService = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
   execSuccess(["systemctl", "start", `user@${uid}.service`]).pipe(
+    Effect.retry({
+      schedule: heavyRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.map(() => undefined),
     Effect.mapError(
       (err) =>
@@ -37,28 +47,37 @@ const startUserService = (uid: UserId): Effect.Effect<void, SystemError | Genera
   );
 
 /**
+ * Check if user session socket exists.
+ * Fails if socket not found (for retry).
+ */
+const checkUserSessionSocket = (uid: UserId): Effect.Effect<void, SystemError> =>
+  Effect.gen(function* () {
+    const { existsSync } = yield* Effect.promise(() => import("node:fs"));
+    const socketPath = `/run/user/${uid}/bus`;
+    if (!existsSync(socketPath)) {
+      return yield* Effect.fail(
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `User session socket not ready at ${socketPath}`,
+        })
+      );
+    }
+  });
+
+/**
  * Wait for the systemd user session to be ready.
- * Polls for the D-Bus socket at /run/user/{uid}/bus.
- * Uses node:fs instead of Bun.file() because Bun.file().exists() returns false for Unix sockets.
+ * Uses Effect.retry with polling schedule instead of manual loop.
  */
 const waitForUserSession = (
   uid: UserId,
   maxWaitMs = 30000,
   intervalMs = 100
 ): Effect.Effect<boolean, never> =>
-  Effect.promise(async () => {
-    const { existsSync } = await import("node:fs");
-    const socketPath = `/run/user/${uid}/bus`;
-    const maxAttempts = Math.ceil(maxWaitMs / intervalMs);
-
-    for (let i = 0; i < maxAttempts; i++) {
-      if (existsSync(socketPath)) {
-        return true;
-      }
-      await Bun.sleep(intervalMs);
-    }
-    return false;
-  });
+  checkUserSessionSocket(uid).pipe(
+    Effect.retry(pollingSchedule(maxWaitMs, intervalMs)),
+    Effect.as(true),
+    Effect.orElseSucceed(() => false)
+  );
 
 /**
  * Check if linger is enabled for a user.
@@ -94,6 +113,10 @@ export const enableLinger = (
     }
 
     yield* execSuccess(["loginctl", "enable-linger", username]).pipe(
+      Effect.retry({
+        schedule: heavyRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      }),
       Effect.mapError(
         (err) =>
           new SystemError({
@@ -144,6 +167,10 @@ export const disableLinger = (
     }
 
     yield* execSuccess(["loginctl", "disable-linger", username]).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      }),
       Effect.mapError(
         (err) =>
           new GeneralError({

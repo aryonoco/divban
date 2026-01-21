@@ -11,6 +11,7 @@
 
 import { Effect, Option } from "effect";
 import { ErrorCode, type GeneralError, ServiceError, SystemError } from "../lib/errors";
+import { heavyRetrySchedule, isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
 
@@ -101,6 +102,10 @@ export const startService = (
   Effect.gen(function* () {
     yield* systemctl("start", unit, options);
   }).pipe(
+    Effect.retry({
+      schedule: heavyRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new ServiceError({
@@ -122,6 +127,10 @@ export const stopService = (
   Effect.gen(function* () {
     yield* systemctl("stop", unit, options);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new ServiceError({
@@ -143,6 +152,10 @@ export const restartService = (
   Effect.gen(function* () {
     yield* systemctl("restart", unit, options);
   }).pipe(
+    Effect.retry({
+      schedule: heavyRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new ServiceError({
@@ -164,6 +177,10 @@ export const reloadService = (
   Effect.gen(function* () {
     yield* systemctl("reload", unit, options);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new ServiceError({
@@ -189,7 +206,12 @@ export const enableService = (
       return;
     }
 
-    yield* systemctl("enable", unit, options);
+    yield* systemctl("enable", unit, options).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
+    );
   });
 
 /**
@@ -200,7 +222,12 @@ export const disableService = (
   options: SystemctlOptions
 ): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
-    yield* systemctl("disable", unit, options);
+    yield* systemctl("disable", unit, options).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
+    );
   });
 
 /**
@@ -242,7 +269,12 @@ export const daemonReload = (
   options: SystemctlOptions
 ): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
-    yield* systemctl("daemon-reload", null, options);
+    yield* systemctl("daemon-reload", null, options).pipe(
+      Effect.retry({
+        schedule: heavyRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
+    );
   });
 
 /**

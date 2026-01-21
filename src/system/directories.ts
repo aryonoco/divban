@@ -11,6 +11,7 @@
 
 import { Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
+import { isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
 import { directoryExists as fsDirectoryExists } from "./fs";
@@ -41,6 +42,10 @@ export const ensureDirectory = (
       path,
     ]);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new SystemError({
@@ -81,6 +86,10 @@ export const chown = (
 
     yield* execSuccess(args);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new SystemError({
@@ -104,6 +113,10 @@ export const chmod = (
 
     yield* execSuccess(args);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new SystemError({
@@ -169,6 +182,10 @@ export const removeDirectory = (
 
     yield* execSuccess(args);
   }).pipe(
+    Effect.retry({
+      schedule: systemRetrySchedule,
+      while: (err): boolean => isTransientSystemError(err),
+    }),
     Effect.mapError(
       (err) =>
         new SystemError({

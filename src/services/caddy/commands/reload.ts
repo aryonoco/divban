@@ -20,6 +20,7 @@ import {
   SystemError,
 } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
+import { isTransientSystemError, systemRetrySchedule } from "../../../lib/retry";
 import type { UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
 
@@ -59,6 +60,11 @@ export const reloadCaddy = (
         captureStdout: true,
         captureStderr: true,
       }
+    ).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
     );
 
     if (validateResult.exitCode !== 0) {
@@ -82,6 +88,11 @@ export const reloadCaddy = (
         captureStdout: true,
         captureStderr: true,
       }
+    ).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
     );
 
     if (reloadResult.exitCode !== 0) {
@@ -116,6 +127,11 @@ export const validateCaddyfile = (
         captureStdout: true,
         captureStderr: true,
       }
+    ).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
     );
 
     if (result.exitCode !== 0) {
@@ -149,6 +165,11 @@ export const formatCaddyfile = (
         captureStderr: true,
         stdin: content,
       }
+    ).pipe(
+      Effect.retry({
+        schedule: systemRetrySchedule,
+        while: (err): boolean => isTransientSystemError(err),
+      })
     );
 
     if (result.exitCode !== 0) {
