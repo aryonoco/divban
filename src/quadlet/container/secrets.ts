@@ -10,10 +10,12 @@
  */
 
 import { Option, pipe } from "effect";
+import type { Entries } from "../entry";
+import { fromArrayWith } from "../entry-combinators";
 import type { SecretMount } from "../types";
 
 export interface ContainerSecretsConfig {
-  secrets?: readonly SecretMount[] | undefined;
+  readonly secrets?: readonly SecretMount[] | undefined;
 }
 
 /**
@@ -39,20 +41,8 @@ export const formatSecretMount = (secret: SecretMount): string => {
   return [secret.name, ...optionalParts].join(",");
 };
 
-/**
- * Add secret-related entries to a section.
- */
-export const addSecretEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerSecretsConfig
-): void => {
-  if (!config.secrets) {
-    return;
-  }
-  for (const secret of config.secrets) {
-    entries.push({ key: "Secret", value: formatSecretMount(secret) });
-  }
-};
+export const getSecretEntries = (config: ContainerSecretsConfig): Entries =>
+  fromArrayWith("Secret", config.secrets, formatSecretMount);
 
 /**
  * Create a secret mounted as a file.

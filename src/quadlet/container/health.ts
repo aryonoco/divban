@@ -9,27 +9,31 @@
  * Container health check configuration for quadlet files.
  */
 
-import { addEntry } from "../format";
+import { Option, pipe } from "effect";
+import type { Entries } from "../entry";
+import { empty } from "../entry";
+import { concat, fromValue } from "../entry-combinators";
 import type { HealthCheck } from "../types";
 
 /**
- * Add health check entries to a section.
+ * Pure function: HealthCheck | undefined → Entries
+ * No side effects, explicit return type.
  */
-export const addHealthCheckEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: HealthCheck | undefined
-): void => {
-  if (!config) {
-    return;
-  }
-
-  addEntry(entries, "HealthCmd", config.cmd);
-  addEntry(entries, "HealthInterval", config.interval);
-  addEntry(entries, "HealthTimeout", config.timeout);
-  addEntry(entries, "HealthRetries", config.retries);
-  addEntry(entries, "HealthStartPeriod", config.startPeriod);
-  addEntry(entries, "HealthOnFailure", config.onFailure);
-};
+export const getHealthCheckEntries = (config: HealthCheck | undefined): Entries =>
+  pipe(
+    Option.fromNullable(config),
+    Option.map((c) =>
+      concat(
+        fromValue("HealthCmd", c.cmd),
+        fromValue("HealthInterval", c.interval),
+        fromValue("HealthTimeout", c.timeout),
+        fromValue("HealthRetries", c.retries),
+        fromValue("HealthStartPeriod", c.startPeriod),
+        fromValue("HealthOnFailure", c.onFailure)
+      )
+    ),
+    Option.getOrElse((): Entries => empty)
+  );
 
 /**
  * Create a basic health check configuration.

@@ -10,34 +10,36 @@
  */
 
 import { Option } from "effect";
+import type { Entries } from "./entry";
+import { concat, fromArray, fromRecord, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
-import { addEntries, addEntry, createQuadletFile } from "./format";
+import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, NetworkQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
 
 /**
- * Build the [Network] section for a network quadlet.
+ * Pure function: NetworkQuadlet → Entries
+ * No side effects, explicit return type.
  */
-export const buildNetworkSection = (config: NetworkQuadlet): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
+export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
+  concat(
+    fromValue("Internal", config.internal),
+    fromValue("Driver", config.driver),
+    fromValue("IPv6", config.ipv6),
+    fromValue("Subnet", config.subnet),
+    fromValue("Gateway", config.gateway),
+    fromValue("IPRange", config.ipRange),
+    fromArray("DNS", config.dns),
+    fromRecord("Options", config.options)
+  );
 
-  addEntry(entries, "Internal", config.internal);
-  addEntry(entries, "Driver", config.driver);
-  addEntry(entries, "IPv6", config.ipv6);
-  addEntry(entries, "Subnet", config.subnet);
-  addEntry(entries, "Gateway", config.gateway);
-  addEntry(entries, "IPRange", config.ipRange);
-  addEntries(entries, "DNS", config.dns);
-
-  // Add options
-  if (config.options) {
-    for (const [key, value] of Object.entries(config.options)) {
-      entries.push({ key: "Options", value: `${key}=${value}` });
-    }
-  }
-
-  return { name: "Network", entries };
-};
+/**
+ * Build the [Network] section using pure combinators.
+ */
+export const buildNetworkSection = (config: NetworkQuadlet): IniSection => ({
+  name: "Network",
+  entries: getNetworkSectionEntries(config) as Array<{ key: string; value: string }>,
+});
 
 /**
  * Generate a complete network quadlet file.

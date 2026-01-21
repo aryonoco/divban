@@ -9,25 +9,22 @@
  * Container Linux capabilities configuration for quadlet files.
  */
 
-import { addEntries } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromArray } from "../entry-combinators";
 
 export interface ContainerCapabilitiesConfig {
   /** Capabilities to add */
-  capAdd?: string[] | undefined;
+  readonly capAdd?: readonly string[] | undefined;
   /** Capabilities to drop */
-  capDrop?: string[] | undefined;
+  readonly capDrop?: readonly string[] | undefined;
 }
 
 /**
- * Add capability-related entries to a section.
+ * Pure function: Config → Entries
+ * No side effects, explicit return type.
  */
-export const addCapabilityEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerCapabilitiesConfig
-): void => {
-  addEntries(entries, "AddCapability", config.capAdd);
-  addEntries(entries, "DropCapability", config.capDrop);
-};
+export const getCapabilityEntries = (config: ContainerCapabilitiesConfig): Entries =>
+  concat(fromArray("AddCapability", config.capAdd), fromArray("DropCapability", config.capDrop));
 
 /**
  * Linux capabilities interface for isolatedDeclarations compatibility.
@@ -101,7 +98,6 @@ export const Capabilities: CapabilitiesMap = {
 
 /**
  * Drop all capabilities except those needed.
- * This is a security best practice.
  */
 export const dropAllExcept = (keep: string[]): ContainerCapabilitiesConfig => ({
   capDrop: [Capabilities.ALL],

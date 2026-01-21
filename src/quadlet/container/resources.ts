@@ -11,54 +11,50 @@
 
 import { Effect } from "effect";
 import { ErrorCode, GeneralError } from "../../lib/errors";
-import { addEntry } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromValue } from "../entry-combinators";
 
 /**
- * Top-level regex for memory size parsing (better performance).
+ * Top-level regex for memory size parsing.
  */
 const MEMORY_SIZE_REGEX = /^(\d+(?:\.\d+)?)\s*([kmgtKMGT])?[bB]?$/;
 
 export interface ContainerResourcesConfig {
   /** Shared memory size (e.g., "64m", "1g") */
-  shmSize?: string | undefined;
+  readonly shmSize?: string | undefined;
   /** Memory limit (e.g., "512m", "2g") */
-  memory?: string | undefined;
+  readonly memory?: string | undefined;
   /** Memory + swap limit */
-  memorySwap?: string | undefined;
+  readonly memorySwap?: string | undefined;
   /** Memory reservation (soft limit) */
-  memoryReservation?: string | undefined;
+  readonly memoryReservation?: string | undefined;
   /** CPU quota (e.g., "50000" for 50% of one CPU) */
-  cpuQuota?: number | undefined;
+  readonly cpuQuota?: number | undefined;
   /** CPU period (default 100000) */
-  cpuPeriod?: number | undefined;
+  readonly cpuPeriod?: number | undefined;
   /** CPU shares (relative weight) */
-  cpuShares?: number | undefined;
+  readonly cpuShares?: number | undefined;
   /** CPUs to use (e.g., "0-2" or "0,1") */
-  cpusetCpus?: string | undefined;
+  readonly cpusetCpus?: string | undefined;
   /** PIDs limit */
-  pidsLimit?: number | undefined;
+  readonly pidsLimit?: number | undefined;
   /** Block IO weight (10-1000) */
-  blkioWeight?: number | undefined;
+  readonly blkioWeight?: number | undefined;
 }
 
-/**
- * Add resource-related entries to a section.
- */
-export const addResourceEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerResourcesConfig
-): void => {
-  addEntry(entries, "ShmSize", config.shmSize);
-  addEntry(entries, "Memory", config.memory);
-  addEntry(entries, "MemorySwap", config.memorySwap);
-  addEntry(entries, "MemoryReservation", config.memoryReservation);
-  addEntry(entries, "CpuQuota", config.cpuQuota);
-  addEntry(entries, "CpuPeriod", config.cpuPeriod);
-  addEntry(entries, "CpuShares", config.cpuShares);
-  addEntry(entries, "CpusetCpus", config.cpusetCpus);
-  addEntry(entries, "PidsLimit", config.pidsLimit);
-  addEntry(entries, "BlkioWeight", config.blkioWeight);
-};
+export const getResourceEntries = (config: ContainerResourcesConfig): Entries =>
+  concat(
+    fromValue("ShmSize", config.shmSize),
+    fromValue("Memory", config.memory),
+    fromValue("MemorySwap", config.memorySwap),
+    fromValue("MemoryReservation", config.memoryReservation),
+    fromValue("CpuQuota", config.cpuQuota),
+    fromValue("CpuPeriod", config.cpuPeriod),
+    fromValue("CpuShares", config.cpuShares),
+    fromValue("CpusetCpus", config.cpusetCpus),
+    fromValue("PidsLimit", config.pidsLimit),
+    fromValue("BlkioWeight", config.blkioWeight)
+  );
 
 /**
  * Parse a memory size string to bytes.

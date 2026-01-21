@@ -56,8 +56,20 @@ To find out the details of something in Effect, read the relevant parts of llms/
 
 
 --- 
+
+Refactor and rewrite every file in 
+to eliminate all loops, minimise mutable data structures, and align it with FP principles 
+
 Ensure the plan, as much as is practical, aligns with a "functional core, imperative shell" philosophy and is uses classical FP concepts and idiomatic Effect patterns and is FP-aligned where practical and uses the features of the Effect library to achieve its goal where possible.
 
 Read @llms/effect.llms.headline.txt 
 
 To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+
+--- 
+
+ensure you plan leverages as much of the existing codebase as possible, is DRY and aligns with software engineering best practices. You can refactor any part of the codebase if required to avhieve this. You can refactor by merging or breaking existing modules if such an action would faclitate achiving better alignment with the principles discussed. 
+
+---
+
+Think like a senior Haskell/Ocaml developer. Ensure your plan aligns with how a senior haskell/ocaml programmer would structure the code, while also respecting my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)

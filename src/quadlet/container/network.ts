@@ -9,30 +9,31 @@
  * Container network configuration for quadlet files.
  */
 
-import { addEntries, addEntry } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromArray, fromArrayWith, fromMaybe, fromValue } from "../entry-combinators";
 import type { PortMapping } from "../types";
 
 export interface ContainerNetworkConfig {
   /** Named network to join */
-  network?: string | undefined;
+  readonly network?: string | undefined;
   /** Network mode */
-  networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
   /** Map private IP to host loopback (pasta only) */
-  mapHostLoopback?: string | undefined;
+  readonly mapHostLoopback?: string | undefined;
   /** Port mappings */
-  ports?: readonly PortMapping[] | undefined;
+  readonly ports?: readonly PortMapping[] | undefined;
   /** Ports to expose (no host mapping) */
-  exposePort?: readonly number[] | undefined;
+  readonly exposePort?: readonly number[] | undefined;
   /** Container hostname */
-  hostname?: string | undefined;
+  readonly hostname?: string | undefined;
   /** DNS servers */
-  dns?: readonly string[] | undefined;
+  readonly dns?: readonly string[] | undefined;
   /** DNS search domains */
-  dnsSearch?: readonly string[] | undefined;
+  readonly dnsSearch?: readonly string[] | undefined;
   /** DNS options */
-  dnsOption?: readonly string[] | undefined;
+  readonly dnsOption?: readonly string[] | undefined;
   /** Add extra hosts (/etc/hosts entries) */
-  addHost?: readonly string[] | undefined;
+  readonly addHost?: readonly string[] | undefined;
 }
 
 /**
@@ -68,47 +69,20 @@ export const formatNetworkMode = (
   return `${mode}:--map-host-loopback=${mapHostLoopback}`;
 };
 
-/**
- * Add network-related entries to a section.
- */
-export const addNetworkEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerNetworkConfig
-): void => {
-  // Named network (for joining named networks)
-  addEntry(entries, "Network", config.network);
-
-  // Network mode (pasta, slirp4netns, host, none)
-  if (config.networkMode) {
-    const value = formatNetworkMode(config.networkMode, config.mapHostLoopback);
-    entries.push({ key: "Network", value });
-  }
-
-  // Port mappings
-  if (config.ports) {
-    for (const port of config.ports) {
-      entries.push({ key: "PublishPort", value: formatPortMapping(port) });
-    }
-  }
-
-  // Exposed ports (internal only)
-  if (config.exposePort) {
-    for (const port of config.exposePort) {
-      entries.push({ key: "ExposePort", value: String(port) });
-    }
-  }
-
-  // Hostname
-  addEntry(entries, "HostName", config.hostname);
-
-  // DNS configuration
-  addEntries(entries, "DNS", config.dns);
-  addEntries(entries, "DNSSearch", config.dnsSearch);
-  addEntries(entries, "DNSOption", config.dnsOption);
-
-  // Extra hosts
-  addEntries(entries, "AddHost", config.addHost);
-};
+export const getNetworkEntries = (config: ContainerNetworkConfig): Entries =>
+  concat(
+    fromValue("Network", config.network),
+    fromMaybe("Network", config.networkMode, (mode) =>
+      formatNetworkMode(mode, config.mapHostLoopback)
+    ),
+    fromArrayWith("PublishPort", config.ports, formatPortMapping),
+    fromArrayWith("ExposePort", config.exposePort, String),
+    fromValue("HostName", config.hostname),
+    fromArray("DNS", config.dns),
+    fromArray("DNSSearch", config.dnsSearch),
+    fromArray("DNSOption", config.dnsOption),
+    fromArray("AddHost", config.addHost)
+  );
 
 /**
  * Create a standard port mapping.

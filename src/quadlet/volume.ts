@@ -9,35 +9,31 @@
  * Volume quadlet file generation.
  */
 
+import type { Entries } from "./entry";
+import { concat, fromRecord, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
-import { addEntry, createQuadletFile } from "./format";
+import { createQuadletFile } from "./format";
 import type { GeneratedQuadlet, VolumeQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
 
 /**
- * Build the [Volume] section for a volume quadlet.
+ * Pure function: VolumeQuadlet → Entries
+ * No side effects, explicit return type.
  */
-export const buildVolumeSection = (config: VolumeQuadlet): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
+export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
+  concat(
+    fromValue("Driver", config.driver),
+    fromRecord("Options", config.options),
+    fromRecord("Label", config.labels)
+  );
 
-  addEntry(entries, "Driver", config.driver);
-
-  // Add options
-  if (config.options) {
-    for (const [key, value] of Object.entries(config.options)) {
-      entries.push({ key: "Options", value: `${key}=${value}` });
-    }
-  }
-
-  // Add labels
-  if (config.labels) {
-    for (const [key, value] of Object.entries(config.labels)) {
-      entries.push({ key: "Label", value: `${key}=${value}` });
-    }
-  }
-
-  return { name: "Volume", entries };
-};
+/**
+ * Build the [Volume] section using pure combinators.
+ */
+export const buildVolumeSection = (config: VolumeQuadlet): IniSection => ({
+  name: "Volume",
+  entries: getVolumeSectionEntries(config) as Array<{ key: string; value: string }>,
+});
 
 /**
  * Generate a complete volume quadlet file.

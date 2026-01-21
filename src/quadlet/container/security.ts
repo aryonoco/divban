@@ -9,43 +9,38 @@
  * Container security configuration for quadlet files.
  */
 
-import { addEntry } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromValue } from "../entry-combinators";
 
 export interface ContainerSecurityConfig {
   /** Read-only root filesystem */
-  readOnlyRootfs?: boolean | undefined;
+  readonly readOnlyRootfs?: boolean | undefined;
   /** Prevent privilege escalation */
-  noNewPrivileges?: boolean | undefined;
+  readonly noNewPrivileges?: boolean | undefined;
   /** Custom seccomp profile path */
-  seccompProfile?: string | undefined;
+  readonly seccompProfile?: string | undefined;
   /** Custom AppArmor profile */
-  apparmorProfile?: string | undefined;
+  readonly apparmorProfile?: string | undefined;
   /** Run as privileged (avoid if possible) */
-  privileged?: boolean | undefined;
+  readonly privileged?: boolean | undefined;
   /** User to run as inside container */
-  user?: string | undefined;
+  readonly user?: string | undefined;
   /** Group to run as inside container */
-  group?: string | undefined;
+  readonly group?: string | undefined;
 }
 
 /**
- * Add security-related entries to a section.
+ * Pure function: Config → Entries
+ * No side effects, explicit return type.
  */
-export const addSecurityEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerSecurityConfig
-): void => {
-  addEntry(entries, "ReadOnly", config.readOnlyRootfs);
-  addEntry(entries, "NoNewPrivileges", config.noNewPrivileges);
-  addEntry(entries, "SeccompProfile", config.seccompProfile);
-
-  if (config.user) {
-    addEntry(entries, "User", config.user);
-  }
-  if (config.group) {
-    addEntry(entries, "Group", config.group);
-  }
-};
+export const getSecurityEntries = (config: ContainerSecurityConfig): Entries =>
+  concat(
+    fromValue("ReadOnly", config.readOnlyRootfs),
+    fromValue("NoNewPrivileges", config.noNewPrivileges),
+    fromValue("SeccompProfile", config.seccompProfile),
+    fromValue("User", config.user),
+    fromValue("Group", config.group)
+  );
 
 /**
  * Create a hardened security configuration.

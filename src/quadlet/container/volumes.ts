@@ -9,17 +9,18 @@
  * Container volume configuration for quadlet files.
  */
 
-import { Option } from "effect";
-import { addEntries } from "../format";
+import { Array as Arr, Option, pipe } from "effect";
+import type { Entries } from "../entry";
+import { concat, fromArray, fromArrayWith } from "../entry-combinators";
 import type { VolumeMount } from "../types";
 
 export interface ContainerVolumeConfig {
   /** Volume mounts */
-  volumes?: readonly VolumeMount[] | undefined;
+  readonly volumes?: readonly VolumeMount[] | undefined;
   /** Tmpfs mounts */
-  tmpfs?: readonly string[] | undefined;
+  readonly tmpfs?: readonly string[] | undefined;
   /** Read-only bind mounts */
-  readOnlyMounts?: readonly string[] | undefined;
+  readonly readOnlyMounts?: readonly string[] | undefined;
 }
 
 /**
@@ -30,42 +31,21 @@ export const formatVolumeMount = (mount: VolumeMount): string => {
   return `${mount.source}:${mount.target}${options}`;
 };
 
-/**
- * Add volume-related entries to a section.
- */
-export const addVolumeEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerVolumeConfig
-): void => {
-  // Volume mounts
-  if (config.volumes) {
-    for (const mount of config.volumes) {
-      entries.push({ key: "Volume", value: formatVolumeMount(mount) });
-    }
-  }
-
-  // Tmpfs mounts
-  addEntries(entries, "Tmpfs", config.tmpfs);
-
-  // Read-only mounts (convenience)
-  if (config.readOnlyMounts) {
-    for (const mount of config.readOnlyMounts) {
-      entries.push({ key: "Volume", value: `${mount}:ro` });
-    }
-  }
-};
+export const getVolumeEntries = (config: ContainerVolumeConfig): Entries =>
+  concat(
+    fromArrayWith("Volume", config.volumes, formatVolumeMount),
+    fromArray("Tmpfs", config.tmpfs),
+    fromArrayWith("Volume", config.readOnlyMounts, (mount) => `${mount}:ro`)
+  );
 
 /**
- * Create a bind mount.
+ * Create a bind mount
  */
-export const createBindMount = (source: string, target: string, options?: string): VolumeMount => {
-  const result: VolumeMount = { source, target };
-  const optionsOpt = Option.fromNullable(options);
-  if (Option.isSome(optionsOpt)) {
-    result.options = optionsOpt.value;
-  }
-  return result;
-};
+export const createBindMount = (source: string, target: string, options?: string): VolumeMount => ({
+  source,
+  target,
+  ...(options !== undefined && { options }),
+});
 
 /**
  * Create a read-only bind mount.
@@ -77,20 +57,17 @@ export const createReadOnlyMount = (source: string, target: string): VolumeMount
 });
 
 /**
- * Create a named volume mount.
+ * Create a named volume mount
  */
 export const createNamedVolumeMount = (
   volumeName: string,
   target: string,
   options?: string
-): VolumeMount => {
-  const result: VolumeMount = { source: `${volumeName}.volume`, target };
-  const optionsOpt = Option.fromNullable(options);
-  if (Option.isSome(optionsOpt)) {
-    result.options = optionsOpt.value;
-  }
-  return result;
-};
+): VolumeMount => ({
+  source: `${volumeName}.volume`,
+  target,
+  ...(options !== undefined && { options }),
+});
 
 /**
  * Create a mount with SELinux relabeling.
@@ -234,30 +211,23 @@ export interface VolumeProcessingOptions {
 }
 
 /**
- * Apply all volume processing options (SELinux relabeling, ownership).
- * Combines withSELinuxRelabel and withOwnershipFlag into a single pass.
+ * Process volumes
  */
 export const processVolumes = (
   volumes: readonly VolumeMount[] | undefined,
   options: VolumeProcessingOptions
-): readonly VolumeMount[] | undefined => {
-  if (!volumes) {
-    return undefined;
-  }
-
-  return volumes.map((mount) => {
-    let result = mount;
-
-    // Apply SELinux relabeling if needed
-    if (options.selinuxEnforcing) {
-      result = withSELinuxRelabel(result, true);
-    }
-
-    // Apply ownership flag if needed
-    if (options.applyOwnership) {
-      result = withOwnershipFlag(result);
-    }
-
-    return result;
-  });
-};
+): readonly VolumeMount[] | undefined =>
+  pipe(
+    Option.fromNullable(volumes),
+    Option.map(
+      Arr.map(
+        (mount: VolumeMount): VolumeMount =>
+          pipe(
+            mount,
+            (m) => (options.selinuxEnforcing ? withSELinuxRelabel(m, true) : m),
+            (m) => (options.applyOwnership ? withOwnershipFlag(m) : m)
+          )
+      )
+    ),
+    Option.getOrUndefined
+  );

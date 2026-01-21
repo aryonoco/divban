@@ -9,55 +9,63 @@
  * Container user namespace configuration for quadlet files.
  */
 
-import { Option, pipe } from "effect";
-import { assertNever } from "../../lib/types";
+import { Array as Arr, Match, Option, pipe } from "effect";
+import type { Entries, Entry } from "../entry";
+import { empty } from "../entry";
 import type { UserNamespace } from "../types";
 
 /**
- * Add user namespace entries to a section.
+ * Format keep-id mode with optional uid/gid.
  */
-export const addUserNsEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: UserNamespace | undefined
-): void => {
-  if (!config) {
-    return;
-  }
+const formatKeepId = (config: Extract<UserNamespace, { mode: "keep-id" }>): string =>
+  pipe(
+    [
+      pipe(
+        Option.fromNullable(config.uid),
+        Option.map((uid) => `uid=${uid}`)
+      ),
+      pipe(
+        Option.fromNullable(config.gid),
+        Option.map((gid) => `gid=${gid}`)
+      ),
+    ],
+    // filterMap with identity extracts Some values
+    Arr.filterMap((opt) => opt),
+    (parts) => (parts.length > 0 ? `keep-id:${parts.join(",")}` : "keep-id")
+  );
 
-  switch (config.mode) {
-    case "keep-id": {
-      // keep-id maps container UID 0 to host user's UID
-      // Transform each optional value to Option<string>, then collect present values
-      const parts = [
-        ...Option.toArray(
-          pipe(
-            Option.fromNullable(config.uid),
-            Option.map((uid) => `uid=${uid}`)
-          )
-        ),
-        ...Option.toArray(
-          pipe(
-            Option.fromNullable(config.gid),
-            Option.map((gid) => `gid=${gid}`)
-          )
-        ),
-      ];
-      const suffix = parts.length > 0 ? `:${parts.join(",")}` : "";
-      entries.push({ key: "UserNS", value: `keep-id${suffix}` });
-      break;
-    }
-    case "auto":
-      // auto creates an automatic user namespace mapping
-      entries.push({ key: "UserNS", value: "auto" });
-      break;
-    case "host":
-      // host disables user namespacing
-      entries.push({ key: "UserNS", value: "host" });
-      break;
-    default:
-      assertNever(config);
-  }
-};
+/**
+ * Function: UserNamespace | undefined → Entries
+ * Pattern match on UserNamespace discriminated union.
+ * Exhaustive matching ensures all cases are handled.
+ */
+export const getUserNsEntries = (config: UserNamespace | undefined): Entries =>
+  pipe(
+    Option.fromNullable(config),
+    Option.map(
+      (ns): Entry =>
+        pipe(
+          Match.value(ns),
+          Match.when({ mode: "keep-id" }, (c) => ({
+            key: "UserNS",
+            value: formatKeepId(c),
+          })),
+          Match.when({ mode: "auto" }, () => ({
+            key: "UserNS",
+            value: "auto",
+          })),
+          Match.when({ mode: "host" }, () => ({
+            key: "UserNS",
+            value: "host",
+          })),
+          Match.exhaustive
+        )
+    ),
+    Option.match({
+      onNone: (): Entries => empty,
+      onSome: (entry): Entries => [entry],
+    })
+  );
 
 /**
  * Create a keep-id user namespace configuration.
@@ -94,7 +102,7 @@ export const createHostNs = (): UserNamespace => ({
  * - Files in container are owned by root
  *
  * Security note: The container still runs isolated as the host service user
- * on the host side. Root inside the container is NOT root on the host.
+ * on the host side.
  */
 export const createRootMappedNs = (): UserNamespace => ({
   mode: "keep-id",
@@ -131,7 +139,7 @@ export const UserNsModes: Record<string, string> = {
   AUTO: "auto",
   /**
    * host: No user namespace (container UIDs = host UIDs).
-   * Use sparingly - reduces isolation.
+   * NEVER USE - minimizes isolation
    */
   HOST: "host",
 } as const satisfies Record<string, string>;

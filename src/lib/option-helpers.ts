@@ -63,3 +63,36 @@ export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.O
   }
   return Option.none();
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Object Construction Helpers (for exactOptionalPropertyTypes compatibility)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Conditionally spread an optional property.
+ * Compatible with exactOptionalPropertyTypes: true.
+ *
+ * Usage: { required, ...optionalProp("foo", maybeFoo) }
+ * Result: { required } if maybeFoo is undefined
+ *         { required, foo: value } if maybeFoo is defined
+ */
+export const optionalProp = <K extends string, V>(
+  key: K,
+  value: V | undefined
+): { [P in K]?: V } =>
+  value !== undefined ? ({ [key]: value } as { [P in K]?: V }) : ({} as { [P in K]?: V });
+
+/**
+ * Build an object from tuples, omitting undefined values.
+ * Compatible with exactOptionalPropertyTypes.
+ *
+ * Usage: buildObject([["foo", maybeFoo], ["bar", maybeBar]])
+ */
+export const buildObject = <T extends Record<string, unknown>>(
+  entries: readonly (readonly [keyof T, T[keyof T] | undefined])[]
+): Partial<T> =>
+  pipe(
+    entries,
+    (arr) => arr.filter((entry): entry is [keyof T, T[keyof T]] => entry[1] !== undefined),
+    (filtered) => Object.fromEntries(filtered) as Partial<T>
+  );

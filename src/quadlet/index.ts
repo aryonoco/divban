@@ -9,6 +9,21 @@
  * Quadlet file generation module exports.
  */
 
+// Entry types (FP core)
+export type { Entries, Entry } from "./entry";
+export { empty } from "./entry";
+
+// Entry combinators (FP building blocks)
+export {
+  concat,
+  fromArray,
+  fromArrayWith,
+  fromMaybe,
+  fromRecord,
+  fromValue,
+  when,
+} from "./entry-combinators";
+
 // Types
 export type {
   ContainerQuadlet,
@@ -81,19 +96,19 @@ export {
   buildContainerSection,
   generateContainerQuadlet,
   // Image
-  addImageEntries,
+  getImageEntries,
   buildImageReference,
   parseImageReference,
   Registries,
   // Network
-  addNetworkEntries,
+  getNetworkEntries,
   CommonPorts,
   createLocalhostPort,
   createPort,
   formatNetworkMode,
   formatPortMapping,
   // Volumes
-  addVolumeEntries,
+  getVolumeEntries,
   CommonMounts,
   createBindMount,
   createNamedVolumeMount,
@@ -107,19 +122,19 @@ export {
   withOwnershipFlag,
   withSELinuxRelabel,
   // Environment
-  addEnvironmentEntries,
+  getEnvironmentEntries,
   CommonEnvVars,
   filterEnvByPrefix,
   formatEnvironmentFile,
   mergeEnvironments,
   // Secrets
-  addSecretEntries,
+  getSecretEntries,
   createEnvSecret,
   createMountedSecret,
   formatSecretMount,
   getSecretMountPath,
   // Health
-  addHealthCheckEntries,
+  getHealthCheckEntries,
   createHealthCheck,
   createHttpHealthCheck,
   createNoopHealthCheck,
@@ -128,24 +143,24 @@ export {
   createWgetHealthCheck,
   HealthOnFailure,
   // Security
-  addSecurityEntries,
+  getSecurityEntries,
   createHardenedSecurity,
   createMinimalSecurity,
   SeccompProfiles,
   SecurityProfiles,
   // Capabilities
-  addCapabilityEntries,
+  getCapabilityEntries,
   CapabilityProfiles,
   Capabilities,
   dropAllExcept,
   isValidCapability,
   // Resources
-  addResourceEntries,
+  getResourceEntries,
   formatMemorySize,
   parseMemorySize,
   ResourceProfiles,
   // User namespace
-  addUserNsEntries,
+  getUserNsEntries,
   createAutoNs,
   createHostNs,
   createKeepIdNs,
@@ -154,7 +169,7 @@ export {
   recommendUserNs,
   UserNsModes,
   // Misc
-  addMiscEntries,
+  getMiscEntries,
   CommonDevices,
   LogDrivers,
   PullPolicies,

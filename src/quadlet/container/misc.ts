@@ -9,81 +9,62 @@
  * Miscellaneous container configuration for quadlet files.
  */
 
-import { addEntries, addEntry } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromArray, fromRecord, fromValue } from "../entry-combinators";
 
 export interface ContainerMiscConfig {
   /** Run an init process */
-  init?: boolean | undefined;
+  readonly init?: boolean | undefined;
   /** Log driver */
-  logDriver?: string | undefined;
+  readonly logDriver?: string | undefined;
   /** Custom entrypoint */
-  entrypoint?: string | undefined;
+  readonly entrypoint?: string | undefined;
   /** Command to execute */
-  exec?: string | undefined;
+  readonly exec?: string | undefined;
   /** Working directory inside container */
-  workdir?: string | undefined;
+  readonly workdir?: string | undefined;
   /** Stop signal */
-  stopSignal?: string | undefined;
+  readonly stopSignal?: string | undefined;
   /** Stop timeout in seconds */
-  stopTimeout?: number | undefined;
+  readonly stopTimeout?: number | undefined;
   /** Container labels */
-  labels?: Record<string, string> | undefined;
+  readonly labels?: Readonly<Record<string, string>> | undefined;
   /** Annotations */
-  annotations?: Record<string, string> | undefined;
+  readonly annotations?: Readonly<Record<string, string>> | undefined;
   /** Devices to add */
-  devices?: string[] | undefined;
+  readonly devices?: readonly string[] | undefined;
   /** Pull policy */
-  pull?: "always" | "missing" | "never" | "newer" | undefined;
+  readonly pull?: "always" | "missing" | "never" | "newer" | undefined;
   /** Container name (if different from unit name) */
-  containerName?: string | undefined;
+  readonly containerName?: string | undefined;
   /** Pod name to join */
-  pod?: string | undefined;
+  readonly pod?: string | undefined;
   /** Sysctl settings for the container */
-  sysctl?: Record<string, string | number> | undefined;
+  readonly sysctl?: Readonly<Record<string, string | number>> | undefined;
 }
 
 /**
- * Add miscellaneous entries to a section.
+ * Pure function: Config → Entries
+ * No side effects, explicit return type.
+ * Eliminates 3 for-loops with fromRecord.
  */
-export const addMiscEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerMiscConfig
-): void => {
-  addEntry(entries, "Init", config.init);
-  addEntry(entries, "LogDriver", config.logDriver);
-  addEntry(entries, "Entrypoint", config.entrypoint);
-  addEntry(entries, "Exec", config.exec);
-  addEntry(entries, "WorkingDir", config.workdir);
-  addEntry(entries, "StopSignal", config.stopSignal);
-  addEntry(entries, "StopTimeout", config.stopTimeout);
-  addEntry(entries, "Pull", config.pull);
-  addEntry(entries, "ContainerName", config.containerName);
-  addEntry(entries, "Pod", config.pod);
-
-  // Devices
-  addEntries(entries, "AddDevice", config.devices);
-
-  // Labels
-  if (config.labels) {
-    for (const [key, value] of Object.entries(config.labels)) {
-      entries.push({ key: "Label", value: `${key}=${value}` });
-    }
-  }
-
-  // Annotations
-  if (config.annotations) {
-    for (const [key, value] of Object.entries(config.annotations)) {
-      entries.push({ key: "Annotation", value: `${key}=${value}` });
-    }
-  }
-
-  // Sysctl settings
-  if (config.sysctl) {
-    for (const [key, value] of Object.entries(config.sysctl)) {
-      entries.push({ key: "Sysctl", value: `${key}=${value}` });
-    }
-  }
-};
+export const getMiscEntries = (config: ContainerMiscConfig): Entries =>
+  concat(
+    fromValue("Init", config.init),
+    fromValue("LogDriver", config.logDriver),
+    fromValue("Entrypoint", config.entrypoint),
+    fromValue("Exec", config.exec),
+    fromValue("WorkingDir", config.workdir),
+    fromValue("StopSignal", config.stopSignal),
+    fromValue("StopTimeout", config.stopTimeout),
+    fromValue("Pull", config.pull),
+    fromValue("ContainerName", config.containerName),
+    fromValue("Pod", config.pod),
+    fromArray("AddDevice", config.devices),
+    fromRecord("Label", config.labels),
+    fromRecord("Annotation", config.annotations),
+    fromRecord("Sysctl", config.sysctl)
+  );
 
 /**
  * Common log drivers.

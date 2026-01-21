@@ -10,143 +10,91 @@
  * Combines all container configuration modules into a single builder.
  */
 
-import { Option } from "effect";
+import { concat } from "../entry-combinators";
 import type { IniSection } from "../format";
 import { createQuadletFile } from "../format";
 import { buildInstallSection } from "../install";
 import { buildServiceSection } from "../service";
 import type { ContainerQuadlet, GeneratedQuadlet } from "../types";
 import { buildUnitDependencies, buildUnitSection } from "../unit";
-import { addCapabilityEntries } from "./capabilities";
-import { addEnvironmentEntries } from "./environment";
-import { addHealthCheckEntries } from "./health";
-import { addImageEntries } from "./image";
-import { addMiscEntries } from "./misc";
-import { addNetworkEntries } from "./network";
-import { addResourceEntries } from "./resources";
-import { addSecretEntries } from "./secrets";
-import { addSecurityEntries } from "./security";
-import { addUserNsEntries } from "./user";
-import { addVolumeEntries } from "./volumes";
+import { getCapabilityEntries } from "./capabilities";
+import { getEnvironmentEntries } from "./environment";
+import { getHealthCheckEntries } from "./health";
+import { getImageEntries } from "./image";
+import { getMiscEntries } from "./misc";
+import { getNetworkEntries } from "./network";
+import { getResourceEntries } from "./resources";
+import { getSecretEntries } from "./secrets";
+import { getSecurityEntries } from "./security";
+import { getUserNsEntries } from "./user";
+import { getVolumeEntries } from "./volumes";
 
 /**
- * Create an object with only defined properties.
- * Useful for passing objects to functions with optional properties
- * when exactOptionalPropertyTypes is enabled in TypeScript.
+ * Build container section by composing all entry generators.
+ * Pure function: Config → IniSection
+ *
+ * Architecture:
+ * - Each getXxxEntries is a pure function: Config → Entries
+ * - concat is the monoid operation combining all entries
  */
-const defined = <T extends Record<string, unknown>>(obj: T): T => {
-  const result = {} as T;
-  for (const key of Object.keys(obj) as (keyof T)[]) {
-    if (Option.isSome(Option.fromNullable(obj[key]))) {
-      result[key] = obj[key];
-    }
-  }
-  return result;
-};
-
-/**
- * Build the [Container] section for a container quadlet.
- */
-export const buildContainerSection = (config: ContainerQuadlet): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
-
-  // Image configuration
-  addImageEntries(
-    entries,
-    defined({
+export const buildContainerSection = (config: ContainerQuadlet): IniSection => ({
+  name: "Container",
+  entries: concat(
+    getImageEntries({
       image: config.image,
-      imageDigest: config.imageDigest,
-      autoUpdate: config.autoUpdate,
-    })
-  );
-
-  // Network configuration
-  addNetworkEntries(
-    entries,
-    defined({
-      network: config.network,
-      networkMode: config.networkMode,
-      mapHostLoopback: config.mapHostLoopback,
-      ports: config.ports,
-      hostname: config.hostname,
-      dns: config.dns,
-    })
-  );
-
-  // Volume configuration
-  addVolumeEntries(
-    entries,
-    defined({
-      volumes: config.volumes,
-      tmpfs: config.tmpfs,
-    })
-  );
-
-  // Environment configuration
-  addEnvironmentEntries(
-    entries,
-    defined({
-      environmentFiles: config.environmentFiles,
-      environment: config.environment,
-    })
-  );
-
-  // Secrets configuration
-  addSecretEntries(entries, defined({ secrets: config.secrets }));
-
-  // User namespace configuration
-  addUserNsEntries(entries, config.userNs);
-
-  // Health check configuration
-  addHealthCheckEntries(entries, config.healthCheck);
-
-  // Security configuration
-  addSecurityEntries(
-    entries,
-    defined({
-      readOnlyRootfs: config.readOnlyRootfs,
-      noNewPrivileges: config.noNewPrivileges,
-      seccompProfile: config.seccompProfile,
-    })
-  );
-
-  // Capability configuration
-  addCapabilityEntries(
-    entries,
-    defined({
-      capAdd: config.capAdd,
-      capDrop: config.capDrop,
-    })
-  );
-
-  // Resource configuration
-  addResourceEntries(
-    entries,
-    defined({
-      shmSize: config.shmSize,
-      memory: config.memory,
-      pidsLimit: config.pidsLimit,
-    })
-  );
-
-  // Misc configuration
-  // Default containerName to name for DNS resolution in podman networks
-  addMiscEntries(
-    entries,
-    defined({
-      init: config.init,
-      logDriver: config.logDriver,
-      entrypoint: config.entrypoint,
-      exec: config.exec,
-      workdir: config.workdir,
-      devices: config.devices,
-      sysctl: config.sysctl,
+      ...(config.imageDigest !== undefined && { imageDigest: config.imageDigest }),
+      ...(config.autoUpdate !== undefined && { autoUpdate: config.autoUpdate }),
+    }),
+    getNetworkEntries({
+      ...(config.network !== undefined && { network: config.network }),
+      ...(config.networkMode !== undefined && { networkMode: config.networkMode }),
+      ...(config.mapHostLoopback !== undefined && { mapHostLoopback: config.mapHostLoopback }),
+      ...(config.ports !== undefined && { ports: config.ports }),
+      ...(config.exposePort !== undefined && { exposePort: config.exposePort }),
+      ...(config.hostname !== undefined && { hostname: config.hostname }),
+      ...(config.dns !== undefined && { dns: config.dns }),
+    }),
+    getVolumeEntries({
+      ...(config.volumes !== undefined && { volumes: config.volumes }),
+      ...(config.tmpfs !== undefined && { tmpfs: config.tmpfs }),
+    }),
+    getEnvironmentEntries({
+      ...(config.environmentFiles !== undefined && { environmentFiles: config.environmentFiles }),
+      ...(config.environment !== undefined && { environment: config.environment }),
+    }),
+    getSecretEntries({
+      ...(config.secrets !== undefined && { secrets: config.secrets }),
+    }),
+    getUserNsEntries(config.userNs),
+    getHealthCheckEntries(config.healthCheck),
+    getSecurityEntries({
+      ...(config.readOnlyRootfs !== undefined && { readOnlyRootfs: config.readOnlyRootfs }),
+      ...(config.noNewPrivileges !== undefined && { noNewPrivileges: config.noNewPrivileges }),
+      ...(config.seccompProfile !== undefined && { seccompProfile: config.seccompProfile }),
+      ...(config.user !== undefined && { user: config.user }),
+      ...(config.group !== undefined && { group: config.group }),
+    }),
+    getCapabilityEntries({
+      ...(config.capAdd !== undefined && { capAdd: config.capAdd }),
+      ...(config.capDrop !== undefined && { capDrop: config.capDrop }),
+    }),
+    getResourceEntries({
+      ...(config.shmSize !== undefined && { shmSize: config.shmSize }),
+      ...(config.memory !== undefined && { memory: config.memory }),
+      ...(config.pidsLimit !== undefined && { pidsLimit: config.pidsLimit }),
+    }),
+    getMiscEntries({
+      ...(config.init !== undefined && { init: config.init }),
+      ...(config.logDriver !== undefined && { logDriver: config.logDriver }),
+      ...(config.entrypoint !== undefined && { entrypoint: config.entrypoint }),
+      ...(config.exec !== undefined && { exec: config.exec }),
+      ...(config.workdir !== undefined && { workdir: config.workdir }),
+      ...(config.devices !== undefined && { devices: config.devices }),
+      ...(config.sysctl !== undefined && { sysctl: config.sysctl }),
       containerName: config.containerName ?? config.name,
     })
-  );
-
-  return { name: "Container", entries };
-};
+  ) as Array<{ key: string; value: string }>,
+});
 
 /**
  * Generate a complete container quadlet file.
@@ -176,7 +124,11 @@ export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQua
   sections.push(buildServiceSection(config.service));
 
   // Install section
-  sections.push(buildInstallSection(defined({ wantedBy: config.wantedBy })));
+  sections.push(
+    buildInstallSection({
+      ...(config.wantedBy !== undefined && { wantedBy: config.wantedBy }),
+    })
+  );
 
   return {
     filename: `${config.name}.container`,
@@ -190,7 +142,7 @@ export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQua
 // capabilities.ts
 export type { ContainerCapabilitiesConfig } from "./capabilities";
 export {
-  addCapabilityEntries,
+  getCapabilityEntries,
   Capabilities,
   dropAllExcept,
   CapabilityProfiles,
@@ -200,7 +152,7 @@ export {
 // environment.ts
 export type { ContainerEnvironmentConfig } from "./environment";
 export {
-  addEnvironmentEntries,
+  getEnvironmentEntries,
   formatEnvironmentFile,
   CommonEnvVars,
   mergeEnvironments,
@@ -210,7 +162,7 @@ export {
 // secrets.ts
 export type { ContainerSecretsConfig } from "./secrets";
 export {
-  addSecretEntries,
+  getSecretEntries,
   createEnvSecret,
   createMountedSecret,
   formatSecretMount,
@@ -219,7 +171,7 @@ export {
 
 // health.ts
 export {
-  addHealthCheckEntries,
+  getHealthCheckEntries,
   createHealthCheck,
   createHttpHealthCheck,
   createWgetHealthCheck,
@@ -231,18 +183,29 @@ export {
 
 // image.ts
 export type { ImageConfig } from "./image";
-export { addImageEntries, parseImageReference, buildImageReference, Registries } from "./image";
+export {
+  getImageEntries,
+  parseImageReference,
+  buildImageReference,
+  Registries,
+} from "./image";
 
 // misc.ts
 export type { ContainerMiscConfig } from "./misc";
-export { addMiscEntries, LogDrivers, StopSignals, PullPolicies, CommonDevices } from "./misc";
+export {
+  getMiscEntries,
+  LogDrivers,
+  StopSignals,
+  PullPolicies,
+  CommonDevices,
+} from "./misc";
 
 // network.ts
 export type { ContainerNetworkConfig } from "./network";
 export {
   formatPortMapping,
   formatNetworkMode,
-  addNetworkEntries,
+  getNetworkEntries,
   createPort,
   createLocalhostPort,
   CommonPorts,
@@ -251,7 +214,7 @@ export {
 // resources.ts
 export type { ContainerResourcesConfig } from "./resources";
 export {
-  addResourceEntries,
+  getResourceEntries,
   parseMemorySize,
   formatMemorySize,
   ResourceProfiles,
@@ -260,7 +223,7 @@ export {
 // security.ts
 export type { ContainerSecurityConfig } from "./security";
 export {
-  addSecurityEntries,
+  getSecurityEntries,
   createHardenedSecurity,
   createMinimalSecurity,
   SecurityProfiles,
@@ -269,7 +232,7 @@ export {
 
 // user.ts
 export {
-  addUserNsEntries,
+  getUserNsEntries,
   createAutoNs,
   createHostNs,
   createKeepIdNs,
@@ -282,7 +245,7 @@ export {
 // volumes.ts
 export type { ContainerVolumeConfig, VolumeProcessingOptions } from "./volumes";
 export {
-  addVolumeEntries,
+  getVolumeEntries,
   CommonMounts,
   createBindMount,
   createNamedVolumeMount,

@@ -138,6 +138,8 @@ FSETID
 PERFMON
 
 # Programming
+fmap
+mconcat
 nonexistent
 nothrow
 teardown

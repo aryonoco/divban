@@ -9,129 +9,148 @@
  * Container image configuration for quadlet files.
  */
 
-import { Option } from "effect";
-import { addEntry } from "../format";
+import { Option, pipe } from "effect";
+import type { Entries } from "../entry";
+import { concat, fromMaybe, fromValue } from "../entry-combinators";
 
 export interface ImageConfig {
-  /** Container image reference */
-  image: string;
-  /** Optional image digest for pinning */
-  imageDigest?: string | undefined;
-  /** Auto-update configuration */
-  autoUpdate?: "registry" | "local" | false | undefined;
+  readonly image: string;
+  readonly imageDigest?: string | undefined;
+  readonly autoUpdate?: "registry" | "local" | false | undefined;
 }
 
-/**
- * Add image-related entries to a section.
- */
-export const addImageEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ImageConfig
-): void => {
-  addEntry(entries, "Image", config.image);
+// ─────────────────────────────────────────────────────────────────────────────
+// State type for parsing
+// ─────────────────────────────────────────────────────────────────────────────
 
-  if (config.imageDigest) {
-    // Note: Podman uses the digest in the image reference
-    // Format: image@sha256:digest
-    addEntry(entries, "Image", `${config.image}@${config.imageDigest}`);
-  }
+interface ParseState {
+  readonly remaining: string;
+  readonly digest: Option.Option<string>;
+  readonly tag: Option.Option<string>;
+  readonly registry: Option.Option<string>;
+}
 
-  // Auto-update label
-  if (config.autoUpdate === "registry") {
-    entries.push({ key: "AutoUpdate", value: "registry" });
-  } else if (config.autoUpdate === "local") {
-    entries.push({ key: "AutoUpdate", value: "local" });
+const initialState = (ref: string): ParseState => ({
+  remaining: ref,
+  digest: Option.none(),
+  tag: Option.none(),
+  registry: Option.none(),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State transitions
+// Each function: ParseState → ParseState
+// ─────────────────────────────────────────────────────────────────────────────
+
+const extractDigest = (state: ParseState): ParseState => {
+  const idx = state.remaining.indexOf("@");
+  if (idx === -1) {
+    return state;
   }
-  // false means no auto-update (don't add the entry)
+  return {
+    ...state,
+    digest: Option.some(state.remaining.slice(idx + 1)),
+    remaining: state.remaining.slice(0, idx),
+  };
 };
 
-/**
- * Parse an image reference into its components.
- */
-export const parseImageReference = (
-  ref: string
-): {
-  registry?: string;
-  name: string;
-  tag?: string;
-  digest?: string;
-} => {
-  let remaining = ref;
-  let digest: Option.Option<string> = Option.none();
-  let tag: Option.Option<string> = Option.none();
-  let registry: Option.Option<string> = Option.none();
-
-  // Extract digest
-  const digestIndex = remaining.indexOf("@");
-  if (digestIndex !== -1) {
-    digest = Option.some(remaining.slice(digestIndex + 1));
-    remaining = remaining.slice(0, digestIndex);
+const extractTag = (state: ParseState): ParseState => {
+  const tagIdx = state.remaining.lastIndexOf(":");
+  const lastSlash = state.remaining.lastIndexOf("/");
+  if (tagIdx === -1 || tagIdx <= lastSlash) {
+    return state;
   }
-
-  // Extract tag
-  const tagIndex = remaining.lastIndexOf(":");
-  // Only treat as tag if it's after the last slash (not a port)
-  const lastSlash = remaining.lastIndexOf("/");
-  if (tagIndex !== -1 && tagIndex > lastSlash) {
-    tag = Option.some(remaining.slice(tagIndex + 1));
-    remaining = remaining.slice(0, tagIndex);
-  }
-
-  // Extract registry (if contains a dot or colon before first slash)
-  const firstSlash = remaining.indexOf("/");
-  if (firstSlash !== -1) {
-    const potentialRegistry = remaining.slice(0, firstSlash);
-    if (potentialRegistry.includes(".") || potentialRegistry.includes(":")) {
-      registry = Option.some(potentialRegistry);
-      remaining = remaining.slice(firstSlash + 1);
-    }
-  }
-
-  const result: {
-    registry?: string;
-    name: string;
-    tag?: string;
-    digest?: string;
-  } = { name: remaining };
-
-  if (Option.isSome(registry)) {
-    result.registry = registry.value;
-  }
-  if (Option.isSome(tag)) {
-    result.tag = tag.value;
-  }
-  if (Option.isSome(digest)) {
-    result.digest = digest.value;
-  }
-
-  return result;
+  return {
+    ...state,
+    tag: Option.some(state.remaining.slice(tagIdx + 1)),
+    remaining: state.remaining.slice(0, tagIdx),
+  };
 };
 
-/**
- * Build a full image reference from components.
- */
-export const buildImageReference = (components: {
-  registry?: string;
-  name: string;
-  tag?: string;
-  digest?: string;
-}): string => {
-  let ref = components.name;
-
-  if (components.registry) {
-    ref = `${components.registry}/${ref}`;
+const extractRegistry = (state: ParseState): ParseState => {
+  const firstSlash = state.remaining.indexOf("/");
+  if (firstSlash === -1) {
+    return state;
   }
-
-  if (components.tag) {
-    ref = `${ref}:${components.tag}`;
+  const potential = state.remaining.slice(0, firstSlash);
+  if (!(potential.includes(".") || potential.includes(":"))) {
+    return state;
   }
-
-  if (components.digest) {
-    ref = `${ref}@${components.digest}`;
-  }
-
-  return ref;
+  return {
+    ...state,
+    registry: Option.some(potential),
+    remaining: state.remaining.slice(firstSlash + 1),
+  };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Final conversion (State → Result)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ImageComponents {
+  readonly name: string;
+  readonly registry?: string;
+  readonly tag?: string;
+  readonly digest?: string;
+}
+
+const toComponents = (state: ParseState): ImageComponents => ({
+  name: state.remaining,
+  ...pipe(
+    state.registry,
+    Option.map((registry) => ({ registry })),
+    Option.getOrElse(() => ({}))
+  ),
+  ...pipe(
+    state.tag,
+    Option.map((tag) => ({ tag })),
+    Option.getOrElse(() => ({}))
+  ),
+  ...pipe(
+    state.digest,
+    Option.map((digest) => ({ digest })),
+    Option.getOrElse(() => ({}))
+  ),
+});
+
+export const getImageEntries = (config: ImageConfig): Entries =>
+  concat(
+    fromValue("Image", config.image),
+    fromMaybe("Image", config.imageDigest, (d) => `${config.image}@${d}`),
+    fromMaybe("AutoUpdate", config.autoUpdate, (v) => (v === false ? "" : v))
+  ).filter((e) => e.value !== "");
+
+/**
+ * Parse image reference using state machine composition.
+ */
+export const parseImageReference = (ref: string): ImageComponents =>
+  pipe(initialState(ref), extractDigest, extractTag, extractRegistry, toComponents);
+
+/**
+ * Build image reference from components.
+ */
+export const buildImageReference = (components: ImageComponents): string =>
+  pipe(
+    components.name,
+    (ref) =>
+      pipe(
+        Option.fromNullable(components.registry),
+        Option.map((r) => `${r}/${ref}`),
+        Option.getOrElse(() => ref)
+      ),
+    (ref) =>
+      pipe(
+        Option.fromNullable(components.tag),
+        Option.map((t) => `${ref}:${t}`),
+        Option.getOrElse(() => ref)
+      ),
+    (ref) =>
+      pipe(
+        Option.fromNullable(components.digest),
+        Option.map((d) => `${ref}@${d}`),
+        Option.getOrElse(() => ref)
+      )
+  );
 
 /**
  * Common container registries.

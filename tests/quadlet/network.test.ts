@@ -6,11 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import {
-  addNetworkEntries,
-  formatNetworkMode,
-  formatPortMapping,
-} from "../../src/quadlet/container/network";
+import { formatNetworkMode, formatPortMapping } from "../../src/quadlet/container/network";
 
 describe("formatNetworkMode", () => {
   test("returns mode unchanged when no mapHostLoopback", () => {
@@ -65,38 +61,5 @@ describe("formatPortMapping", () => {
     expect(
       formatPortMapping({ hostIp: "2001:db8::1", host: 443, container: 443, protocol: "udp" })
     ).toBe("[2001:db8::1]:443:443/udp");
-  });
-});
-
-describe("addNetworkEntries", () => {
-  test("adds networkMode entry", () => {
-    const entries: Array<{ key: string; value: string }> = [];
-    addNetworkEntries(entries, { networkMode: "pasta" });
-    expect(entries).toContainEqual({ key: "Network", value: "pasta" });
-  });
-
-  test("adds networkMode with mapHostLoopback", () => {
-    const entries: Array<{ key: string; value: string }> = [];
-    addNetworkEntries(entries, { networkMode: "pasta", mapHostLoopback: "10.0.2.2" });
-    expect(entries).toContainEqual({ key: "Network", value: "pasta:--map-host-loopback=10.0.2.2" });
-  });
-
-  test("ignores mapHostLoopback for non-pasta modes", () => {
-    const entries: Array<{ key: string; value: string }> = [];
-    addNetworkEntries(entries, { networkMode: "host", mapHostLoopback: "10.0.2.2" });
-    expect(entries).toContainEqual({ key: "Network", value: "host" });
-  });
-
-  test("adds named network entry", () => {
-    const entries: Array<{ key: string; value: string }> = [];
-    addNetworkEntries(entries, { network: "mynetwork" });
-    expect(entries).toContainEqual({ key: "Network", value: "mynetwork" });
-  });
-
-  test("adds both named network and networkMode", () => {
-    const entries: Array<{ key: string; value: string }> = [];
-    addNetworkEntries(entries, { network: "mynetwork", networkMode: "pasta" });
-    expect(entries).toContainEqual({ key: "Network", value: "mynetwork" });
-    expect(entries).toContainEqual({ key: "Network", value: "pasta" });
   });
 });

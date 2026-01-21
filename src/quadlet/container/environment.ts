@@ -12,32 +12,26 @@
 import { Array as Arr, pipe } from "effect";
 
 import { mergeEnv } from "../../stack/environment";
-import { addEntries, escapeIniValue } from "../format";
+import type { Entries } from "../entry";
+import { concat, fromArray, fromRecord } from "../entry-combinators";
+import { escapeIniValue } from "../format";
 
 export interface ContainerEnvironmentConfig {
   /** Environment files to load */
-  environmentFiles?: string[] | undefined;
+  readonly environmentFiles?: readonly string[] | undefined;
   /** Environment variables */
-  environment?: Record<string, string> | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
 }
 
 /**
- * Add environment-related entries to a section.
+ * Pure function: Config → Entries
+ * No side effects, explicit return type.
  */
-export const addEnvironmentEntries = (
-  entries: Array<{ key: string; value: string }>,
-  config: ContainerEnvironmentConfig
-): void => {
-  // Environment files
-  addEntries(entries, "EnvironmentFile", config.environmentFiles);
-
-  // Individual environment variables
-  if (config.environment) {
-    for (const [key, value] of Object.entries(config.environment)) {
-      entries.push({ key: "Environment", value: `${key}=${escapeIniValue(value)}` });
-    }
-  }
-};
+export const getEnvironmentEntries = (config: ContainerEnvironmentConfig): Entries =>
+  concat(
+    fromArray("EnvironmentFile", config.environmentFiles),
+    fromRecord("Environment", config.environment, (k, v) => `${k}=${escapeIniValue(v)}`)
+  );
 
 /**
  * Format an environment file reference for quadlet.

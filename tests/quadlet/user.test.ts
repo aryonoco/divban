@@ -7,7 +7,6 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  addUserNsEntries,
   createAutoNs,
   createHostNs,
   createKeepIdNs,
@@ -64,26 +63,6 @@ describe("user namespace", () => {
 
     test("returns false for host", () => {
       expect(hasUidGidMapping(createHostNs())).toBe(false);
-    });
-  });
-
-  describe("addUserNsEntries", () => {
-    test("adds basic keep-id entry", () => {
-      const entries: Array<{ key: string; value: string }> = [];
-      addUserNsEntries(entries, createKeepIdNs());
-      expect(entries).toEqual([{ key: "UserNS", value: "keep-id" }]);
-    });
-
-    test("adds keep-id with uid and gid entry", () => {
-      const entries: Array<{ key: string; value: string }> = [];
-      addUserNsEntries(entries, createRootMappedNs());
-      expect(entries).toEqual([{ key: "UserNS", value: "keep-id:uid=0,gid=0" }]);
-    });
-
-    test("adds nothing for undefined", () => {
-      const entries: Array<{ key: string; value: string }> = [];
-      addUserNsEntries(entries, undefined);
-      expect(entries).toEqual([]);
     });
   });
 });
