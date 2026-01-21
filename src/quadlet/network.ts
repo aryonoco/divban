@@ -9,7 +9,7 @@
  * Network quadlet file generation.
  */
 
-import { Option } from "effect";
+import { Array as Arr, Option, identity, pipe } from "effect";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromRecord, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
@@ -38,26 +38,23 @@ export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
  */
 export const buildNetworkSection = (config: NetworkQuadlet): IniSection => ({
   name: "Network",
-  entries: getNetworkSectionEntries(config) as Array<{ key: string; value: string }>,
+  entries: getNetworkSectionEntries(config),
 });
 
 /**
  * Generate a complete network quadlet file.
  */
 export const generateNetworkQuadlet = (config: NetworkQuadlet): GeneratedQuadlet => {
-  const sections: IniSection[] = [];
-
-  // Unit section
-  if (config.description) {
-    sections.push(
-      buildUnitSection({
-        description: config.description,
-      })
-    );
-  }
-
-  // Network section
-  sections.push(buildNetworkSection(config));
+  const sections = pipe(
+    [
+      pipe(
+        Option.fromNullable(config.description),
+        Option.map((description) => buildUnitSection({ description }))
+      ),
+      Option.some(buildNetworkSection(config)),
+    ],
+    Arr.filterMap(identity)
+  );
 
   return {
     filename: `${config.name}.network`,
@@ -87,26 +84,12 @@ export const createExternalNetwork = (
     gateway?: string;
     ipv6?: boolean;
   }
-): NetworkQuadlet => {
-  const result: NetworkQuadlet = {
-    name,
-    description: options?.description ?? `Network ${name}`,
-    internal: false,
-    driver: "bridge",
-  };
-
-  const subnetOpt = Option.fromNullable(options?.subnet);
-  if (Option.isSome(subnetOpt)) {
-    result.subnet = subnetOpt.value;
-  }
-  const gatewayOpt = Option.fromNullable(options?.gateway);
-  if (Option.isSome(gatewayOpt)) {
-    result.gateway = gatewayOpt.value;
-  }
-  const ipv6Opt = Option.fromNullable(options?.ipv6);
-  if (Option.isSome(ipv6Opt)) {
-    result.ipv6 = ipv6Opt.value;
-  }
-
-  return result;
-};
+): NetworkQuadlet => ({
+  name,
+  description: options?.description ?? `Network ${name}`,
+  internal: false,
+  driver: "bridge",
+  ...(options?.subnet !== undefined && { subnet: options.subnet }),
+  ...(options?.gateway !== undefined && { gateway: options.gateway }),
+  ...(options?.ipv6 !== undefined && { ipv6: options.ipv6 }),
+});

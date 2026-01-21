@@ -9,6 +9,7 @@
  * Volume quadlet file generation.
  */
 
+import { Array as Arr, Option, identity, pipe } from "effect";
 import type { Entries } from "./entry";
 import { concat, fromRecord, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
@@ -32,26 +33,23 @@ export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
  */
 export const buildVolumeSection = (config: VolumeQuadlet): IniSection => ({
   name: "Volume",
-  entries: getVolumeSectionEntries(config) as Array<{ key: string; value: string }>,
+  entries: getVolumeSectionEntries(config),
 });
 
 /**
  * Generate a complete volume quadlet file.
  */
 export const generateVolumeQuadlet = (config: VolumeQuadlet): GeneratedQuadlet => {
-  const sections: IniSection[] = [];
-
-  // Unit section
-  if (config.description) {
-    sections.push(
-      buildUnitSection({
-        description: config.description,
-      })
-    );
-  }
-
-  // Volume section
-  sections.push(buildVolumeSection(config));
+  const sections = pipe(
+    [
+      pipe(
+        Option.fromNullable(config.description),
+        Option.map((description) => buildUnitSection({ description }))
+      ),
+      Option.some(buildVolumeSection(config)),
+    ],
+    Arr.filterMap(identity)
+  );
 
   return {
     filename: `${config.name}.volume`,

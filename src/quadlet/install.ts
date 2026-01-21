@@ -9,8 +9,9 @@
  * [Install] section builder for quadlet files.
  */
 
+import type { Entries } from "./entry";
+import { fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
-import { addEntry } from "./format";
 
 export interface InstallConfig {
   /** Target to install to (default: default.target) */
@@ -18,16 +19,18 @@ export interface InstallConfig {
 }
 
 /**
+ * Pure function: InstallConfig → Entries
+ */
+export const getInstallSectionEntries = (config: InstallConfig): Entries =>
+  fromValue("WantedBy", config.wantedBy ?? "default.target");
+
+/**
  * Build the [Install] section for a quadlet file.
  */
-export const buildInstallSection = (config: InstallConfig = {}): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
-
-  // Default to default.target for user services
-  addEntry(entries, "WantedBy", config.wantedBy ?? "default.target");
-
-  return { name: "Install", entries };
-};
+export const buildInstallSection = (config: InstallConfig = {}): IniSection => ({
+  name: "Install",
+  entries: getInstallSectionEntries(config),
+});
 
 /**
  * Common install targets.

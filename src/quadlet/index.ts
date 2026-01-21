@@ -40,9 +40,6 @@ export type {
 
 // Format utilities
 export {
-  addEntries,
-  addEntry,
-  addEnvironment,
   createQuadletFile,
   escapeIniValue,
   formatQuadletFile,
@@ -57,6 +54,7 @@ export {
   buildUnitDependencies,
   buildUnitSection,
   fromUnitName,
+  getUnitSectionEntries,
   toUnitName,
 } from "./unit";
 export type { UnitConfig } from "./unit";
@@ -65,12 +63,14 @@ export type { UnitConfig } from "./unit";
 export {
   buildServiceSection,
   defaultServiceConfig,
+  getServiceSectionEntries,
   mergeServiceConfig,
 } from "./service";
 
 // Install section
 export {
   buildInstallSection,
+  getInstallSectionEntries,
   InstallTargets,
 } from "./install";
 export type { InstallConfig } from "./install";

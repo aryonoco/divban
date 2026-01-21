@@ -23,10 +23,6 @@ export interface ContainerEnvironmentConfig {
   readonly environment?: Readonly<Record<string, string>> | undefined;
 }
 
-/**
- * Pure function: Config → Entries
- * No side effects, explicit return type.
- */
 export const getEnvironmentEntries = (config: ContainerEnvironmentConfig): Entries =>
   concat(
     fromArray("EnvironmentFile", config.environmentFiles),

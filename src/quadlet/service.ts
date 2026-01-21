@@ -9,24 +9,29 @@
  * [Service] section builder for quadlet files.
  */
 
-import { Option } from "effect";
+import type { Entries } from "./entry";
+import { concat, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
-import { addEntry } from "./format";
 import type { ServiceConfig } from "./types";
+
+/**
+ * Pure function: ServiceConfig → Entries
+ */
+export const getServiceSectionEntries = (config: ServiceConfig): Entries =>
+  concat(
+    fromValue("Restart", config.restart),
+    fromValue("RestartSec", config.restartSec),
+    fromValue("TimeoutStartSec", config.timeoutStartSec),
+    fromValue("TimeoutStopSec", config.timeoutStopSec)
+  );
 
 /**
  * Build the [Service] section for a quadlet file.
  */
-export const buildServiceSection = (config: ServiceConfig): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
-
-  addEntry(entries, "Restart", config.restart);
-  addEntry(entries, "RestartSec", config.restartSec);
-  addEntry(entries, "TimeoutStartSec", config.timeoutStartSec);
-  addEntry(entries, "TimeoutStopSec", config.timeoutStopSec);
-
-  return { name: "Service", entries };
-};
+export const buildServiceSection = (config: ServiceConfig): IniSection => ({
+  name: "Service",
+  entries: getServiceSectionEntries(config),
+});
 
 /**
  * Create a default service configuration.
@@ -47,29 +52,13 @@ export const mergeServiceConfig = (
   stackDefaults: Partial<ServiceConfig> = {}
 ): ServiceConfig => {
   const systemDefaults = defaultServiceConfig();
-  const result: ServiceConfig = {
+
+  return {
     restart: config.restart ?? stackDefaults.restart ?? systemDefaults.restart ?? "on-failure",
+    restartSec: config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec,
+    timeoutStartSec:
+      config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec,
+    timeoutStopSec:
+      config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec,
   };
-
-  const restartSecOpt = Option.fromNullable(
-    config.restartSec ?? stackDefaults.restartSec ?? systemDefaults.restartSec
-  );
-  const timeoutStartSecOpt = Option.fromNullable(
-    config.timeoutStartSec ?? stackDefaults.timeoutStartSec ?? systemDefaults.timeoutStartSec
-  );
-  const timeoutStopSecOpt = Option.fromNullable(
-    config.timeoutStopSec ?? stackDefaults.timeoutStopSec ?? systemDefaults.timeoutStopSec
-  );
-
-  if (Option.isSome(restartSecOpt)) {
-    result.restartSec = restartSecOpt.value;
-  }
-  if (Option.isSome(timeoutStartSecOpt)) {
-    result.timeoutStartSec = timeoutStartSecOpt.value;
-  }
-  if (Option.isSome(timeoutStopSecOpt)) {
-    result.timeoutStopSec = timeoutStopSecOpt.value;
-  }
-
-  return result;
 };

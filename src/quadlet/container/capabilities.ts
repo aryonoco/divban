@@ -19,10 +19,6 @@ export interface ContainerCapabilitiesConfig {
   readonly capDrop?: readonly string[] | undefined;
 }
 
-/**
- * Pure function: Config → Entries
- * No side effects, explicit return type.
- */
 export const getCapabilityEntries = (config: ContainerCapabilitiesConfig): Entries =>
   concat(fromArray("AddCapability", config.capAdd), fromArray("DropCapability", config.capDrop));
 

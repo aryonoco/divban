@@ -15,10 +15,6 @@ import { empty } from "../entry";
 import { concat, fromValue } from "../entry-combinators";
 import type { HealthCheck } from "../types";
 
-/**
- * Pure function: HealthCheck | undefined → Entries
- * No side effects, explicit return type.
- */
 export const getHealthCheckEntries = (config: HealthCheck | undefined): Entries =>
   pipe(
     Option.fromNullable(config),

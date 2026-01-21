@@ -93,7 +93,7 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => (
       ...(config.sysctl !== undefined && { sysctl: config.sysctl }),
       containerName: config.containerName ?? config.name,
     })
-  ) as Array<{ key: string; value: string }>,
+  ),
 });
 
 /**

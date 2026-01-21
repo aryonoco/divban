@@ -29,10 +29,6 @@ export interface ContainerSecurityConfig {
   readonly group?: string | undefined;
 }
 
-/**
- * Pure function: Config → Entries
- * No side effects, explicit return type.
- */
 export const getSecurityEntries = (config: ContainerSecurityConfig): Entries =>
   concat(
     fromValue("ReadOnly", config.readOnlyRootfs),

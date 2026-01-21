@@ -9,9 +9,10 @@
  * [Unit] section builder for quadlet files.
  */
 
-import { Option, pipe } from "effect";
+import { Array as Arr, Option, pipe } from "effect";
+import type { Entries } from "./entry";
+import { concat, fromArray, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
-import { addEntries, addEntry } from "./format";
 
 /**
  * Top-level regex for unit name suffix removal.
@@ -20,40 +21,57 @@ const SERVICE_SUFFIX_REGEX = /\.service$/;
 
 export interface UnitConfig {
   /** Human-readable description */
-  description: string;
+  readonly description: string;
   /** Hard dependencies - unit fails if these fail */
-  requires?: string[];
+  readonly requires?: readonly string[] | undefined;
   /** Soft dependencies - unit doesn't fail if these fail */
-  wants?: string[];
+  readonly wants?: readonly string[] | undefined;
   /** Order: start after these units */
-  after?: string[];
+  readonly after?: readonly string[] | undefined;
   /** Order: start before these units */
-  before?: string[];
+  readonly before?: readonly string[] | undefined;
   /** Start limit configuration */
-  startLimitIntervalSec?: number;
-  startLimitBurst?: number;
+  readonly startLimitIntervalSec?: number | undefined;
+  readonly startLimitBurst?: number | undefined;
 }
+
+/**
+ * Helper: create optional field from Option.
+ * Stays in Option until the final extraction.
+ */
+const optionalField = <K extends string, V>(
+  key: K,
+  opt: Option.Option<V>
+): { readonly [P in K]?: V } =>
+  pipe(
+    opt,
+    Option.match({
+      onNone: (): { readonly [P in K]?: V } => ({}) as { readonly [P in K]?: V },
+      onSome: (v): { readonly [P in K]?: V } => ({ [key]: v }) as { readonly [P in K]?: V },
+    })
+  );
+
+/**
+ * Pure function: UnitConfig → Entries
+ */
+export const getUnitSectionEntries = (config: UnitConfig): Entries =>
+  concat(
+    fromValue("Description", config.description),
+    fromArray("Requires", config.requires),
+    fromArray("Wants", config.wants),
+    fromArray("After", config.after),
+    fromArray("Before", config.before),
+    fromValue("StartLimitIntervalSec", config.startLimitIntervalSec),
+    fromValue("StartLimitBurst", config.startLimitBurst)
+  );
 
 /**
  * Build the [Unit] section for a quadlet file.
  */
-export const buildUnitSection = (config: UnitConfig): IniSection => {
-  const entries: Array<{ key: string; value: string }> = [];
-
-  addEntry(entries, "Description", config.description);
-
-  // Dependencies
-  addEntries(entries, "Requires", config.requires);
-  addEntries(entries, "Wants", config.wants);
-  addEntries(entries, "After", config.after);
-  addEntries(entries, "Before", config.before);
-
-  // Start limits
-  addEntry(entries, "StartLimitIntervalSec", config.startLimitIntervalSec);
-  addEntry(entries, "StartLimitBurst", config.startLimitBurst);
-
-  return { name: "Unit", entries };
-};
+export const buildUnitSection = (config: UnitConfig): IniSection => ({
+  name: "Unit",
+  entries: getUnitSectionEntries(config),
+});
 
 /**
  * Convert container names to systemd unit names.
@@ -74,44 +92,24 @@ export const fromUnitName = (unitName: string): string => {
  * Build unit dependencies from container names.
  */
 export const buildUnitDependencies = (
-  requires?: string[],
-  wants?: string[],
-  after?: string[],
-  before?: string[]
+  requires?: readonly string[],
+  wants?: readonly string[],
+  after?: readonly string[],
+  before?: readonly string[]
 ): Pick<UnitConfig, "requires" | "wants" | "after" | "before"> => {
-  const result: Pick<UnitConfig, "requires" | "wants" | "after" | "before"> = {};
+  // Compute each mapping exactly once
+  const mapped = {
+    requires: pipe(Option.fromNullable(requires), Option.map(Arr.map(toUnitName))),
+    wants: pipe(Option.fromNullable(wants), Option.map(Arr.map(toUnitName))),
+    after: pipe(Option.fromNullable(after), Option.map(Arr.map(toUnitName))),
+    before: pipe(Option.fromNullable(before), Option.map(Arr.map(toUnitName))),
+  };
 
-  const reqOpt = pipe(
-    Option.fromNullable(requires),
-    Option.map((r) => r.map(toUnitName))
-  );
-  if (Option.isSome(reqOpt)) {
-    result.requires = reqOpt.value;
-  }
-
-  const wantsOpt = pipe(
-    Option.fromNullable(wants),
-    Option.map((w) => w.map(toUnitName))
-  );
-  if (Option.isSome(wantsOpt)) {
-    result.wants = wantsOpt.value;
-  }
-
-  const afterOpt = pipe(
-    Option.fromNullable(after),
-    Option.map((a) => a.map(toUnitName))
-  );
-  if (Option.isSome(afterOpt)) {
-    result.after = afterOpt.value;
-  }
-
-  const beforeOpt = pipe(
-    Option.fromNullable(before),
-    Option.map((b) => b.map(toUnitName))
-  );
-  if (Option.isSome(beforeOpt)) {
-    result.before = beforeOpt.value;
-  }
-
-  return result;
+  // Extract at the boundary
+  return {
+    ...optionalField("requires", mapped.requires),
+    ...optionalField("wants", mapped.wants),
+    ...optionalField("after", mapped.after),
+    ...optionalField("before", mapped.before),
+  };
 };

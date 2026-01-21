@@ -9,16 +9,17 @@
  * INI file formatting utilities for quadlet files.
  */
 
-import { Option } from "effect";
+import { Array as Arr, Order, pipe } from "effect";
+import type { Entry } from "./entry";
 
 /**
  * Section in an INI file.
  */
 export interface IniSection {
   /** Section name (e.g., "Container", "Service") */
-  name: string;
+  readonly name: string;
   /** Key-value entries */
-  entries: Array<{ key: string; value: string }>;
+  readonly entries: readonly Entry[];
 }
 
 /**
@@ -38,81 +39,25 @@ export const escapeIniValue = (value: string): string => {
 /**
  * Format a single INI section.
  */
-export const formatSection = (section: IniSection): string => {
-  if (section.entries.length === 0) {
-    return "";
-  }
-
-  const lines: string[] = [`[${section.name}]`];
-
-  for (const { key, value } of section.entries) {
-    // Quadlet uses = without spaces around it
-    lines.push(`${key}=${value}`);
-  }
-
-  return lines.join("\n");
-};
+export const formatSection = (section: IniSection): string =>
+  section.entries.length === 0
+    ? ""
+    : pipe(
+        section.entries,
+        Arr.map(({ key, value }) => `${key}=${value}`),
+        (lines) => [`[${section.name}]`, ...lines].join("\n")
+      );
 
 /**
  * Format multiple sections into a complete INI file.
  */
-export const formatQuadletFile = (sections: IniSection[]): string => {
-  const nonEmptySections = sections.filter((s) => s.entries.length > 0);
-
-  return `${nonEmptySections.map(formatSection).join("\n\n")}\n`;
-};
-
-/**
- * Add an entry to a section if the value is defined.
- */
-export const addEntry = (
-  entries: Array<{ key: string; value: string }>,
-  key: string,
-  value: string | number | boolean | undefined
-): void => {
-  if (Option.isNone(Option.fromNullable(value))) {
-    return;
-  }
-
-  if (typeof value === "boolean") {
-    entries.push({ key, value: value ? "true" : "false" });
-  } else {
-    entries.push({ key, value: String(value) });
-  }
-};
-
-/**
- * Add multiple entries with the same key (for arrays).
- */
-export const addEntries = (
-  entries: Array<{ key: string; value: string }>,
-  key: string,
-  values: readonly string[] | undefined
-): void => {
-  if (!values) {
-    return;
-  }
-
-  for (const value of values) {
-    entries.push({ key, value });
-  }
-};
-
-/**
- * Add environment variable entries.
- */
-export const addEnvironment = (
-  entries: Array<{ key: string; value: string }>,
-  env: Record<string, string> | undefined
-): void => {
-  if (!env) {
-    return;
-  }
-
-  for (const [key, value] of Object.entries(env)) {
-    entries.push({ key: "Environment", value: `${key}=${escapeIniValue(value)}` });
-  }
-};
+export const formatQuadletFile = (sections: readonly IniSection[]): string =>
+  pipe(
+    sections,
+    Arr.filter((s) => s.entries.length > 0),
+    Arr.map(formatSection),
+    (formatted) => `${formatted.join("\n\n")}\n`
+  );
 
 /**
  * Standard section ordering for quadlet files.
@@ -127,24 +72,26 @@ export const SECTION_ORDER: readonly string[] = [
 ] as const satisfies readonly string[];
 
 /**
+ * Get the sort order index for a section (unknown sections go at the end).
+ */
+const sectionOrderIndex = (section: IniSection): number => {
+  const index = SECTION_ORDER.indexOf(section.name as (typeof SECTION_ORDER)[number]);
+  return index === -1 ? SECTION_ORDER.length : index;
+};
+
+/**
+ * Order instance for IniSection based on standard quadlet section ordering.
+ */
+const sectionOrder: Order.Order<IniSection> = Order.mapInput(Order.number, sectionOrderIndex);
+
+/**
  * Sort sections in the standard order.
  */
-export const sortSections = (sections: IniSection[]): IniSection[] => {
-  return [...sections].sort((a, b) => {
-    const aIndex = SECTION_ORDER.indexOf(a.name as (typeof SECTION_ORDER)[number]);
-    const bIndex = SECTION_ORDER.indexOf(b.name as (typeof SECTION_ORDER)[number]);
-
-    // Unknown sections go at the end
-    const aOrder = aIndex === -1 ? SECTION_ORDER.length : aIndex;
-    const bOrder = bIndex === -1 ? SECTION_ORDER.length : bIndex;
-
-    return aOrder - bOrder;
-  });
-};
+export const sortSections = (sections: readonly IniSection[]): readonly IniSection[] =>
+  Arr.sort(sections, sectionOrder);
 
 /**
  * Create a formatted quadlet file with properly ordered sections.
  */
-export const createQuadletFile = (sections: IniSection[]): string => {
-  return formatQuadletFile(sortSections(sections));
-};
+export const createQuadletFile = (sections: readonly IniSection[]): string =>
+  formatQuadletFile(sortSections(sections));
