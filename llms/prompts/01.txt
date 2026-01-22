@@ -18,10 +18,11 @@ I have previously been provided with the following report. Read the Comprehensiv
 I have already implemented the following: 
 Priority 1: Effect Config
 Priority 2: Schema.brand
+Priority 3: Effect.retry with Schedule
 I now want to implement 
-Priority 3: Effect.retry with Schedule
+Priority 4: Effect Logging
 Focus on 
-Priority 3: Effect.retry with Schedule
+Priority 4: Effect Logging
 Provide me with a full plan to completely and fully replace current code with the recommended approach from the report using Effect. 
 
 Your plan should be complete. Once the plan is fully executed, there should be no sign of the legacy code left. No compatibility bridges or shims or wrappers. It should be a complete and clean refactor. 
