@@ -105,6 +105,7 @@ export {
   UID_RANGE,
   userExists,
 } from "./uid-allocator";
+export type { SubidRange } from "./uid-allocator";
 
 // User - Service user management
 export {

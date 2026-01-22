@@ -10,7 +10,17 @@
  * Cross-distribution compatible using POSIX-standard mechanisms.
  */
 
-import { Effect } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
+import {
+  type SubidRange,
+  findFirstAvailableUid,
+  findGapForRange,
+  parsePasswdUids,
+  parseSubidRanges,
+} from "../lib/file-parsers";
+
+// Re-export SubidRange for public API consumers
+export type { SubidRange } from "../lib/file-parsers";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
 import type { SubordinateId, UserId } from "../lib/types";
@@ -38,7 +48,7 @@ export const DEFAULT_SUBUID_RANGE = {
   maxEnd: 4294967294,
 } as const;
 
-// Keep old names as aliases for backwards compatibility in tests
+/** Canonical UID range constants - used throughout the codebase */
 export const UID_RANGE: typeof DEFAULT_UID_RANGE = DEFAULT_UID_RANGE;
 export const SUBUID_RANGE: typeof DEFAULT_SUBUID_RANGE = DEFAULT_SUBUID_RANGE;
 
@@ -52,78 +62,33 @@ export interface UidAllocationSettings {
   subuidRangeSize: number;
 }
 
-/**
- * Parse /etc/passwd file and extract UIDs.
- */
-const parsePasswdFile = (content: string): Set<number> => {
-  const uids = new Set<number>();
-
-  for (const line of content.split("\n")) {
-    if (!line.trim() || line.startsWith("#")) {
-      continue;
-    }
-    const parts = line.split(":");
-    const uid = Number.parseInt(parts[2] ?? "", 10);
-    if (!Number.isNaN(uid)) {
-      uids.add(uid);
-    }
-  }
-
-  return uids;
-};
+/** Pure function returning ReadonlySet (immutable type) */
+const parsePasswdFile = (content: string): ReadonlySet<number> => new Set(parsePasswdUids(content));
 
 /**
  * Get all UIDs currently in use on the system.
  * Works across all major Linux distributions.
+ * Applicative style with Effect.all for parallel fetching.
  */
-export const getUsedUids = (): Effect.Effect<Set<number>, never> =>
-  Effect.gen(function* () {
-    const usedUids = new Set<number>();
-
-    // Method 1: Parse /etc/passwd directly (always available, all distros)
-    const passwdContent = yield* readFileOrEmpty(SYSTEM_PATHS.passwd);
-    for (const uid of parsePasswdFile(passwdContent)) {
-      usedUids.add(uid);
-    }
-
-    // Method 2: Use getent for NSS sources (handles LDAP, NIS, SSSD)
-    // Not available on musl-based distros (Alpine) - fails gracefully
-    const getentResult = yield* Effect.either(execOutput(["getent", "passwd"]));
-    if (getentResult._tag === "Right") {
-      for (const uid of parsePasswdFile(getentResult.right)) {
-        usedUids.add(uid);
-      }
-    }
-    // Note: getent failure is not an error - Alpine doesn't have it
-
-    return usedUids;
-  });
+export const getUsedUids = (): Effect.Effect<ReadonlySet<number>, never> =>
+  pipe(
+    Effect.all({
+      passwd: Effect.map(readFileOrEmpty(SYSTEM_PATHS.passwd), parsePasswdFile),
+      getent: pipe(
+        execOutput(["getent", "passwd"]),
+        Effect.map(parsePasswdFile),
+        Effect.orElseSucceed((): ReadonlySet<number> => new Set())
+      ),
+    }),
+    Effect.map(({ passwd, getent }) => new Set([...passwd, ...getent]))
+  );
 
 /**
  * Get all subuid ranges currently allocated.
+ * Point-free with shared parser, returns readonly array.
  */
-export const getUsedSubuidRanges = (): Effect.Effect<
-  Array<{ user: string; start: number; end: number }>,
-  never
-> =>
-  Effect.gen(function* () {
-    const ranges: Array<{ user: string; start: number; end: number }> = [];
-
-    const content = yield* readFileOrEmpty(SYSTEM_PATHS.subuid);
-    for (const line of content.split("\n")) {
-      if (!line.trim() || line.startsWith("#")) {
-        continue;
-      }
-      const [user, startStr, countStr] = line.split(":");
-      const start = Number.parseInt(startStr ?? "", 10);
-      const count = Number.parseInt(countStr ?? "", 10);
-      if (user && !Number.isNaN(start) && !Number.isNaN(count)) {
-        ranges.push({ user, start, end: start + count - 1 });
-      }
-    }
-
-    return ranges;
-  });
+export const getUsedSubuidRanges = (): Effect.Effect<readonly SubidRange[], never> =>
+  Effect.map(readFileOrEmpty(SYSTEM_PATHS.subuid), parseSubidRanges);
 
 /**
  * Allocate the next available UID in the range.
@@ -141,16 +106,17 @@ export const allocateUid = (
       // Re-read after acquiring lock to get fresh state
       const usedUids = yield* getUsedUids();
 
-      for (let uid = start; uid <= end; uid++) {
-        if (!usedUids.has(uid)) {
-          return uid as UserId;
-        }
-      }
-
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
-          message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+      return yield* pipe(
+        findFirstAvailableUid(start, end, usedUids),
+        Option.match({
+          onNone: (): Effect.Effect<UserId, SystemError> =>
+            Effect.fail(
+              new SystemError({
+                code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+                message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+              })
+            ),
+          onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
         })
       );
     })
@@ -169,16 +135,17 @@ export const allocateUidInternal = (
 
     const usedUids = yield* getUsedUids();
 
-    for (let uid = start; uid <= end; uid++) {
-      if (!usedUids.has(uid)) {
-        return uid as UserId;
-      }
-    }
-
-    return yield* Effect.fail(
-      new SystemError({
-        code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
-        message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+    return yield* pipe(
+      findFirstAvailableUid(start, end, usedUids),
+      Option.match({
+        onNone: (): Effect.Effect<UserId, SystemError> =>
+          Effect.fail(
+            new SystemError({
+              code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+              message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
+            })
+          ),
+        onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
       })
     );
   });
@@ -199,28 +166,20 @@ export const allocateSubuidRange = (
       const rangeSize = size ?? settings?.subuidRangeSize ?? DEFAULT_SUBUID_RANGE.size;
 
       // Re-read after acquiring lock to get fresh state
-      const usedRanges = (yield* getUsedSubuidRanges()).sort((a, b) => a.start - b.start);
+      const usedRanges = yield* getUsedSubuidRanges();
 
-      let candidate = rangeStart;
-
-      for (const range of usedRanges) {
-        // Check if candidate range fits before this used range
-        if (candidate + rangeSize - 1 < range.start) {
-          return { start: candidate as SubordinateId, size: rangeSize };
-        }
-        // Move candidate past this used range
-        candidate = Math.max(candidate, range.end + 1);
-      }
-
-      // Check if candidate fits after all used ranges
-      if (candidate + rangeSize - 1 <= DEFAULT_SUBUID_RANGE.maxEnd) {
-        return { start: candidate as SubordinateId, size: rangeSize };
-      }
-
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.SUBUID_RANGE_EXHAUSTED as 25,
-          message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
+      return yield* pipe(
+        findGapForRange(usedRanges, rangeStart, rangeSize, DEFAULT_SUBUID_RANGE.maxEnd),
+        Option.match({
+          onNone: (): Effect.Effect<{ start: SubordinateId; size: number }, SystemError> =>
+            Effect.fail(
+              new SystemError({
+                code: ErrorCode.SUBUID_RANGE_EXHAUSTED as 25,
+                message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
+              })
+            ),
+          onSome: (start): Effect.Effect<{ start: SubordinateId; size: number }, never> =>
+            Effect.succeed({ start: start as SubordinateId, size: rangeSize }),
         })
       );
     })
@@ -272,35 +231,47 @@ export const userExists = (username: string): Effect.Effect<boolean, never> =>
 export const getExistingSubuidStart = (
   username: string
 ): Effect.Effect<SubordinateId, GeneralError> =>
-  Effect.gen(function* () {
-    const ranges = yield* getUsedSubuidRanges();
-
-    const range = ranges.find((r) => r.user === username);
-    if (range === undefined) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `No subuid range found for ${username}`,
+  pipe(
+    getUsedSubuidRanges(),
+    Effect.flatMap((ranges) =>
+      pipe(
+        ranges,
+        Arr.findFirst((r) => r.user === username),
+        Option.match({
+          onNone: (): Effect.Effect<SubordinateId, GeneralError> =>
+            Effect.fail(
+              new GeneralError({
+                code: ErrorCode.GENERAL_ERROR as 1,
+                message: `No subuid range found for ${username}`,
+              })
+            ),
+          onSome: (range): Effect.Effect<SubordinateId, never> =>
+            Effect.succeed(range.start as SubordinateId),
         })
-      );
-    }
-
-    return range.start as SubordinateId;
-  });
+      )
+    )
+  );
 
 /**
  * Get nologin shell path (distribution-independent).
  */
 export const getNologinShell = (): Effect.Effect<string, never> =>
-  Effect.promise(async () => {
-    // Check standard nologin locations first
-    for (const path of SYSTEM_PATHS.nologinPaths) {
-      const file = Bun.file(path);
-      if (await file.exists()) {
-        return path;
-      }
-    }
-
-    // Fallback (POSIX)
-    return "/bin/false";
-  });
+  pipe(
+    Effect.forEach(
+      SYSTEM_PATHS.nologinPaths,
+      (path) =>
+        pipe(
+          Effect.promise(() => Bun.file(path).exists()),
+          Effect.map((exists) => ({ path, exists }))
+        ),
+      { concurrency: 1 } // Sequential: check in priority order
+    ),
+    Effect.map((results) =>
+      pipe(
+        results,
+        Arr.findFirst((r) => r.exists),
+        Option.map((r) => r.path),
+        Option.getOrElse(() => "/bin/false")
+      )
+    )
+  );

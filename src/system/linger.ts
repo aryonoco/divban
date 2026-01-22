@@ -10,7 +10,7 @@
  * Enables services to run without an active login session.
  */
 
-import { Effect, pipe } from "effect";
+import { Array as Arr, Effect, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
 import {
@@ -200,10 +200,11 @@ export const getLingeringUsers = (): Effect.Effect<string[], never> =>
       return [];
     }
 
-    return result.right.stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    return pipe(
+      result.right.stdout.split("\n"),
+      Arr.map((line) => line.trim()),
+      Arr.filter((line) => line.length > 0)
+    );
   });
 
 /**

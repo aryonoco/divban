@@ -360,15 +360,11 @@ export const ensureDirectory = (path: AbsolutePath): Effect.Effect<void, SystemE
 /**
  * List files in a directory.
  */
-export const listDirectory = (path: AbsolutePath): Effect.Effect<string[], SystemError> =>
+export const listDirectory = (path: AbsolutePath): Effect.Effect<readonly string[], SystemError> =>
   Effect.tryPromise({
-    try: async (): Promise<string[]> => {
+    try: async (): Promise<readonly string[]> => {
       const glob = new Glob("*");
-      const entries: string[] = [];
-      for await (const entry of glob.scan({ cwd: path, onlyFiles: false })) {
-        entries.push(entry);
-      }
-      return entries;
+      return await Array.fromAsync(glob.scan({ cwd: path, onlyFiles: false }));
     },
     catch: (e): SystemError => fileReadError(path, e),
   });
@@ -378,20 +374,16 @@ export const listDirectory = (path: AbsolutePath): Effect.Effect<string[], Syste
  */
 export const globFiles = (
   pattern: string,
-  options: { cwd?: string; onlyFiles?: boolean } = {}
-): Effect.Effect<string[], never> =>
-  Effect.promise(async () => {
+  options: { readonly cwd?: string; readonly onlyFiles?: boolean } = {}
+): Effect.Effect<readonly string[], never> =>
+  Effect.promise(async (): Promise<readonly string[]> => {
     const glob = new Glob(pattern);
-    const files: string[] = [];
-
-    for await (const file of glob.scan({
-      cwd: options.cwd ?? ".",
-      onlyFiles: options.onlyFiles ?? true,
-    })) {
-      files.push(file);
-    }
-
-    return files;
+    return await Array.fromAsync(
+      glob.scan({
+        cwd: options.cwd ?? ".",
+        onlyFiles: options.onlyFiles ?? true,
+      })
+    );
   });
 
 /**

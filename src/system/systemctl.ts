@@ -9,7 +9,7 @@
  * Systemd systemctl wrapper using Effect for error handling.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { heavyRetrySchedule, isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import type { UserId, Username } from "../lib/types";
@@ -285,16 +285,18 @@ export const journalctl = (
   options: SystemctlOptions & { follow?: boolean; lines?: number }
 ): Effect.Effect<void, never> =>
   Effect.promise(async () => {
-    const args = ["journalctl", "--user", "-u", unit];
-
-    const lines = Option.fromNullable(options.lines);
-    if (Option.isSome(lines)) {
-      args.push("-n", String(lines.value));
-    }
-
-    if (options.follow) {
-      args.push("-f");
-    }
+    const args: readonly string[] = [
+      "journalctl",
+      "--user",
+      "-u",
+      unit,
+      ...pipe(
+        Option.fromNullable(options.lines),
+        Option.map((n): readonly string[] => ["-n", String(n)]),
+        Option.getOrElse((): readonly string[] => [])
+      ),
+      ...(options.follow ? ["-f" as const] : []),
+    ];
 
     const proc = Bun.spawn(["sudo", "-u", options.user, ...args], {
       env: {

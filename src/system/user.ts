@@ -10,7 +10,7 @@
  * Creates isolated users with proper subuid/subgid configuration.
  */
 
-import { Effect, Exit, Option, Schedule, pipe } from "effect";
+import { Array as Arr, Effect, Exit, Option, Schedule, pipe } from "effect";
 import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
@@ -196,10 +196,10 @@ const removeSubidEntry = (
     }
 
     // Filter out the user's line(s)
-    const filtered = content
-      .split("\n")
-      .filter((line) => !line.startsWith(`${username}:`))
-      .join("\n");
+    const filtered = pipe(
+      content.split("\n"),
+      Arr.filter((line) => !line.startsWith(`${username}:`))
+    ).join("\n");
 
     // Preserve trailing newline if content remains
     const newContent = filtered.trim() ? `${filtered.trimEnd()}\n` : "";

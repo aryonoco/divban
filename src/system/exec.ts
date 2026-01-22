@@ -73,20 +73,17 @@ export const exec = (
       ...options.env,
     };
 
-    let finalCommand: string[];
-    if (options.user) {
-      finalCommand = [
-        "sudo",
-        "--preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS",
-        "-u",
-        options.user,
-        "--",
-        cmd,
-        ...args,
-      ];
-    } else {
-      finalCommand = [cmd, ...args];
-    }
+    const finalCommand: readonly string[] = options.user
+      ? [
+          "sudo",
+          "--preserve-env=XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS",
+          "-u",
+          options.user,
+          "--",
+          cmd,
+          ...args,
+        ]
+      : [cmd, ...args];
 
     return yield* Effect.tryPromise({
       try: async (): Promise<ExecResult> => {
@@ -107,7 +104,7 @@ export const exec = (
           spawnOptions.signal = options.signal;
         }
 
-        const proc = Bun.spawn(finalCommand, spawnOptions);
+        const proc = Bun.spawn([...finalCommand], spawnOptions);
         const exitCode = await proc.exited;
 
         const stdout =
@@ -254,9 +251,9 @@ export const shellText = (
 export const shellLines = (
   command: string,
   options: ShellOptions = {}
-): Effect.Effect<string[], SystemError> =>
+): Effect.Effect<readonly string[], SystemError> =>
   Effect.tryPromise({
-    try: async (): Promise<string[]> => {
+    try: async (): Promise<readonly string[]> => {
       let cmd = $`${{ raw: command }}`.quiet();
 
       if (options.cwd) {
@@ -265,11 +262,7 @@ export const shellLines = (
 
       cmd = cmd.env(buildShellEnv(options));
 
-      const lines: string[] = [];
-      for await (const line of cmd.lines()) {
-        lines.push(line);
-      }
-      return lines;
+      return await Array.fromAsync(cmd.lines());
     },
     catch: (e): SystemError => execError(command, e),
   });

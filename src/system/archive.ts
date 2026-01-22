@@ -10,7 +10,7 @@
  * MUST be used for ALL archive operations - no external tar commands.
  */
 
-import { Effect, Option } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
@@ -40,24 +40,21 @@ export const createArchive = (
   options?: { compress?: "gzip" | "zstd"; metadata?: ArchiveMetadata }
 ): Effect.Effect<Uint8Array, never> =>
   Effect.promise(async () => {
-    // Prepare files object with proper content types
-    const archiveFiles: Record<string, string | Uint8Array> = {};
+    // Convert all file contents to string or Uint8Array using Promise.all
+    const processedEntries = await Promise.all(
+      Object.entries(files).map(
+        async ([name, content]): Promise<readonly [string, string | Uint8Array]> => {
+          const processed =
+            content instanceof Blob ? new Uint8Array(await content.arrayBuffer()) : content;
+          return [name, processed] as const;
+        }
+      )
+    );
 
-    // Always include metadata if provided
-    if (options?.metadata) {
-      archiveFiles["metadata.json"] = JSON.stringify(options.metadata, null, 2);
-    }
-
-    // Convert all file contents to string or Uint8Array
-    for (const [name, content] of Object.entries(files)) {
-      if (typeof content === "string") {
-        archiveFiles[name] = content;
-      } else if (content instanceof Blob) {
-        archiveFiles[name] = new Uint8Array(await content.arrayBuffer());
-      } else {
-        archiveFiles[name] = content;
-      }
-    }
+    const archiveFiles: Record<string, string | Uint8Array> = {
+      ...(options?.metadata ? { "metadata.json": JSON.stringify(options.metadata, null, 2) } : {}),
+      ...Object.fromEntries(processedEntries),
+    };
 
     // Create archive with optional gzip compression using Bun.Archive constructor
     // Note: Bun.Archive only supports "gzip" compression natively
@@ -98,11 +95,13 @@ export const extractArchive = (
     const archive = new Bun.Archive(archiveData);
     const filesMap = await archive.files();
 
-    const result = new Map<string, Uint8Array>();
-    for (const [name, file] of filesMap) {
-      result.set(name, await file.bytes());
-    }
-    return result;
+    const entries = await Promise.all(
+      [...filesMap].map(
+        async ([name, file]): Promise<readonly [string, Uint8Array]> =>
+          [name, await file.bytes()] as const
+      )
+    );
+    return new Map(entries);
   });
 
 /**
@@ -160,23 +159,32 @@ export const createArchiveFromDirectory = (
 ): Effect.Effect<Uint8Array, never> =>
   Effect.promise(async () => {
     const glob = new Bun.Glob("**/*");
-    const files: Record<string, Uint8Array> = {};
+    const allPaths = await Array.fromAsync(glob.scan({ cwd: directory, onlyFiles: true }));
 
-    for await (const path of glob.scan({ cwd: directory, onlyFiles: true })) {
-      // Skip excluded paths
-      if (options?.exclude?.some((pattern) => path.startsWith(pattern) || path === pattern)) {
-        continue;
-      }
+    // Pure filter using Arr.filter
+    const includedPaths = pipe(
+      allPaths,
+      Arr.filter(
+        (path) => !options?.exclude?.some((pattern) => path.startsWith(pattern) || path === pattern)
+      )
+    );
 
-      const fullPath = `${directory}/${path}`;
-      files[path] = await Bun.file(fullPath).bytes();
-    }
+    // Parallel file reading
+    const fileEntries = await Promise.all(
+      includedPaths.map(
+        async (path): Promise<readonly [string, Uint8Array]> => [
+          path,
+          await Bun.file(`${directory}/${path}`).bytes(),
+        ]
+      )
+    );
+    const files: Record<string, Uint8Array> = Object.fromEntries(fileEntries);
 
     // Prepare files object with metadata
-    const archiveFiles: Record<string, string | Uint8Array> = { ...files };
-    if (options?.metadata) {
-      archiveFiles["metadata.json"] = JSON.stringify(options.metadata, null, 2);
-    }
+    const archiveFiles: Record<string, string | Uint8Array> = {
+      ...files,
+      ...(options?.metadata ? { "metadata.json": JSON.stringify(options.metadata, null, 2) } : {}),
+    };
 
     // Create archive with optional compression
     if (options?.compress === "gzip") {

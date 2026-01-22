@@ -10,7 +10,7 @@
  * Handles generation, podman secret creation, and encrypted backup.
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
 import { generatePassword } from "../lib/crypto";
 import { ContainerError, ErrorCode, type GeneralError, type SystemError } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
@@ -179,29 +179,34 @@ export const ensureServiceSecrets = (
       // If decryption fails, we'll regenerate secrets
     }
 
-    // Generate or reuse secrets
-    const secrets: Record<string, string> = {};
-    for (const def of definitions) {
-      const podmanName = getPodmanSecretName(serviceName, def.name);
+    // Generate or reuse secrets using Effect.forEach
+    const results = yield* Effect.forEach(
+      definitions,
+      (def) =>
+        Effect.gen(function* () {
+          const podmanName = getPodmanSecretName(serviceName, def.name);
+          const secretExists = yield* podmanSecretExists(podmanName, user, uid);
+          const existingValue = existingSecrets[def.name];
 
-      // Check if podman secret already exists
-      const secretExists = yield* podmanSecretExists(podmanName, user, uid);
+          if (secretExists && existingValue !== undefined) {
+            return { name: def.name, value: existingValue };
+          }
 
-      const existingValue = existingSecrets[def.name];
-      if (secretExists && existingValue !== undefined) {
-        // Reuse existing secret
-        secrets[def.name] = existingValue;
-      } else {
-        // Generate new secret or use existing backup value
-        const value = existingValue ?? generatePassword(def.length ?? 32);
-        secrets[def.name] = value;
+          const value = existingValue ?? generatePassword(def.length ?? 32);
+          if (!secretExists) {
+            yield* createPodmanSecret(podmanName, value, user, uid);
+          }
+          return { name: def.name, value };
+        }),
+      { concurrency: 1 } // Sequential: must create secrets in order
+    );
 
-        // Create podman secret if it doesn't exist
-        if (!secretExists) {
-          yield* createPodmanSecret(podmanName, value, user, uid);
-        }
-      }
-    }
+    // Pure transformation: readonly array → Record
+    const secrets: Record<string, string> = pipe(
+      results,
+      Arr.map((r) => [r.name, r.value] as const),
+      Object.fromEntries
+    );
 
     // Write encrypted backup
     yield* encryptSecretsToFile(secrets, keypair.publicKey, paths.secretsBackupPath);
@@ -369,19 +374,22 @@ export const ensureServiceSecretsTracked = (
     );
 
     // Build secrets record - pure transformation
-    const secrets: Record<string, string> = {};
-    for (const r of results) {
-      secrets[r.name] = r.value;
-    }
+    const secrets: Record<string, string> = pipe(
+      results,
+      Arr.map((r) => [r.name, r.value] as const),
+      Object.fromEntries
+    );
 
     yield* encryptSecretsToFile(secrets, keypair.publicKey, paths.secretsBackupPath);
 
     return {
       secrets: { values: secrets, keypair },
-      createdSecrets: results
-        .map((r) => r.created)
-        .filter(Option.isSome)
-        .map((o) => o.value),
+      createdSecrets: pipe(
+        results,
+        Arr.map((r) => r.created),
+        Arr.filter(Option.isSome),
+        Arr.map((o) => o.value)
+      ),
     };
   });
 

@@ -9,7 +9,7 @@
  * Directory management using Effect for error handling.
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
 import { isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
@@ -224,7 +224,11 @@ export const ensureDirectoriesTracked = (
       { concurrency: 1 } // Sequential for parent-before-child ordering
     ),
     Effect.map((results) => ({
-      createdPaths: results.filter(Option.isSome).map((o) => o.value),
+      createdPaths: pipe(
+        results,
+        Arr.filter(Option.isSome),
+        Arr.map((o) => o.value)
+      ),
     }))
   );
 

@@ -11,8 +11,9 @@
  */
 
 import { Decrypter, Encrypter, generateIdentity, identityToRecipient } from "age-encryption";
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, GeneralError, type SystemError, errorMessage } from "../lib/errors";
+import { parseKeyValue } from "../lib/file-parsers";
 import type { AbsolutePath } from "../lib/types";
 import { chmod } from "./directories";
 import { readFile, writeFile, writeFileExclusive } from "./fs";
@@ -167,20 +168,9 @@ export const decryptSecretsFromFile = (
   inputPath: AbsolutePath,
   secretKey: string
 ): Effect.Effect<Record<string, string>, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const ciphertext = yield* readFile(inputPath);
-    const plaintext = yield* decrypt(ciphertext.trim(), secretKey);
-
-    // Parse KEY=VALUE lines
-    const secrets: Record<string, string> = {};
-    for (const line of plaintext.split("\n")) {
-      const eqIndex = line.indexOf("=");
-      if (eqIndex > 0) {
-        const key = line.slice(0, eqIndex);
-        const value = line.slice(eqIndex + 1);
-        secrets[key] = value;
-      }
-    }
-
-    return secrets;
-  });
+  pipe(
+    readFile(inputPath),
+    Effect.map((content) => content.trim()),
+    Effect.flatMap((ciphertext) => decrypt(ciphertext, secretKey)),
+    Effect.map(parseKeyValue)
+  );
