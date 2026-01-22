@@ -138,6 +138,7 @@ FSETID
 PERFMON
 
 # Programming
+aabb
 asum
 fiber
 Fiber
@@ -148,7 +149,10 @@ nums
 typeclass
 nonexistent
 nothrow
+pred
+Punc
 teardown
+uncons
 vars
 quot
 millis
@@ -159,6 +163,7 @@ subtyping
 
 # Misc
 Filenaming
+userexample
 justfile
 Perepelitsa
 testuser

@@ -9,9 +9,17 @@
  * Branded/Nominal types for type-safe identifiers.
  */
 
-import { type Brand, Effect, ParseResult, Schema, type SchemaAST } from "effect";
+import { type Brand, Effect, Option, ParseResult, Schema, type SchemaAST, pipe } from "effect";
 
 import { ErrorCode, GeneralError } from "./errors";
+import {
+  isValidContainerName,
+  isValidPosixUsername,
+  isValidServiceName,
+  parseIPv4,
+  parseIPv6Groups,
+} from "./schema-utils";
+import { collapseChar } from "./str-transform";
 
 // ============================================================================
 // Branded Type Definitions
@@ -106,36 +114,33 @@ export const AbsolutePathSchema: Schema.BrandSchema<AbsolutePath, string, never>
 
 /** POSIX username schema (lowercase, starts with letter or underscore, max 32 chars) */
 export const UsernameSchema: Schema.BrandSchema<Username, string, never> = Schema.String.pipe(
-  Schema.pattern(/^[a-z_][a-z0-9_-]*$/, { message: usernamePatternMsg }),
+  Schema.filter(isValidPosixUsername, { message: usernamePatternMsg }),
   Schema.maxLength(32, { message: usernameMaxLenMsg }),
   Schema.brand("Username")
 );
 
 /** Service name schema */
 export const ServiceNameSchema: Schema.BrandSchema<ServiceName, string, never> = Schema.String.pipe(
-  Schema.pattern(/^[a-z][a-z0-9-]*$/, { message: serviceNamePatternMsg }),
+  Schema.filter(isValidServiceName, { message: serviceNamePatternMsg }),
   Schema.brand("ServiceName")
 );
-
-/** Shared pattern for container/network/volume names */
-const containerNetworkVolumePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
 /** Container name schema */
 export const ContainerNameSchema: Schema.BrandSchema<ContainerName, string, never> =
   Schema.String.pipe(
-    Schema.pattern(containerNetworkVolumePattern, { message: containerNameMsg }),
+    Schema.filter(isValidContainerName, { message: containerNameMsg }),
     Schema.brand("ContainerName")
   );
 
 /** Network name schema */
 export const NetworkNameSchema: Schema.BrandSchema<NetworkName, string, never> = Schema.String.pipe(
-  Schema.pattern(containerNetworkVolumePattern, { message: networkNameMsg }),
+  Schema.filter(isValidContainerName, { message: networkNameMsg }),
   Schema.brand("NetworkName")
 );
 
 /** Volume name schema */
 export const VolumeNameSchema: Schema.BrandSchema<VolumeName, string, never> = Schema.String.pipe(
-  Schema.pattern(containerNetworkVolumePattern, { message: volumeNameMsg }),
+  Schema.filter(isValidContainerName, { message: volumeNameMsg }),
   Schema.brand("VolumeName")
 );
 
@@ -143,46 +148,20 @@ export const VolumeNameSchema: Schema.BrandSchema<VolumeName, string, never> = S
 // PrivateIP Branded Schema
 // ============================================================================
 
-/** Top-level regex for IPv4 validation (performance) */
-const IPV4_REGEX = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-
-/** Top-level regex for IPv6 hex group validation (performance) */
-const IPV6_HEX_GROUP_REGEX = /^[0-9a-fA-F]{1,4}$/;
-
-/** Private IPv4 (RFC 1918) validation */
+/** Private IPv4 (RFC 1918) validation using parser */
 const isRfc1918IPv4 = (s: string): boolean => {
-  const match = s.match(IPV4_REGEX);
-  if (!match) {
+  const result = parseIPv4(s);
+  if (Option.isNone(result)) {
     return false;
   }
-  const [, ...parts] = match;
-  if (parts.length !== 4) {
-    return false;
-  }
-  const nums = parts.map(Number);
-  const [a, b, c, d] = nums as [number, number, number, number];
-  if (a > 255 || b > 255 || c > 255 || d > 255) {
-    return false;
-  }
+  const [a, b] = result.value;
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 };
 
-/** Private IPv6 (RFC 4193 ULA) validation */
+/** Private IPv6 (RFC 4193 ULA) validation using parser */
 const isRfc4193IPv6 = (s: string): boolean => {
-  if (!s.includes(":")) {
-    return false;
-  }
-  const groups = s.split("::");
-  if (groups.length > 2) {
-    return false;
-  }
-  const allGroups = groups.flatMap((g) => (g === "" ? [] : g.split(":")));
-  const isValidHex = (g: string): boolean => IPV6_HEX_GROUP_REGEX.test(g);
-  if (!allGroups.every(isValidHex)) {
-    return false;
-  }
-  const maxGroups = groups.length === 2 ? 7 : 8;
-  if (allGroups.length > maxGroups) {
+  const result = parseIPv6Groups(s);
+  if (Option.isNone(result)) {
     return false;
   }
   const firstGroup = s.split(":")[0];
@@ -383,9 +362,8 @@ export function pathJoin(base: string, ...segments: string[]): string {
   if (segments.length === 0) {
     return base;
   }
-  const joined = [base, ...segments].join("/");
-  // Normalize multiple slashes but preserve leading slash
-  return joined.replace(/\/+/g, "/");
+  // Normalize multiple slashes using fold-based collapseChar
+  return pipe([base, ...segments].join("/"), collapseChar("/"));
 }
 
 /**
@@ -415,7 +393,7 @@ export const joinPath = (...segments: string[]): Effect.Effect<AbsolutePath, Gen
           message: "No path segments provided",
         })
       )
-    : decodeAbsolutePath(segments.join("/").replace(/\/+/g, "/")).pipe(
+    : decodeAbsolutePath(pipe(segments.join("/"), collapseChar("/"))).pipe(
         Effect.mapError(parseErrorToGeneralError)
       );
 

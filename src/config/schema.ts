@@ -12,18 +12,13 @@
 
 import { Effect, Schema } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
-import { isValidIP } from "../lib/schema-utils";
+import { isValidContainerImage, isValidIP, isValidPosixUsername } from "../lib/schema-utils";
 import {
   type AbsolutePath,
   type Username,
   decodeAbsolutePath,
   parseErrorToGeneralError,
 } from "../lib/types";
-
-/**
- * Top-level regex patterns for validation (better performance).
- */
-const POSIX_USERNAME_REGEX = /^[a-z_][a-z0-9_-]*$/;
 
 /**
  * Reusable schema components
@@ -35,13 +30,13 @@ export const absolutePathSchema: Schema.Schema<string> = Schema.String.pipe(
 );
 
 export const usernameSchema: Schema.Schema<string> = Schema.String.pipe(
-  Schema.pattern(/^[a-z_][a-z0-9_-]*$/, {
+  Schema.filter(isValidPosixUsername, {
     message: (): string => "Username must match [a-z_][a-z0-9_-]*",
   })
 );
 
 export const containerImageSchema: Schema.Schema<string> = Schema.String.pipe(
-  Schema.pattern(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
+  Schema.filter(isValidContainerImage, {
     message: (): string => "Invalid container image format",
   })
 );
@@ -446,7 +441,7 @@ export const getServiceUsername = (serviceName: string): Effect.Effect<Username,
   const username = `divban-${serviceName}`;
 
   // Validate against POSIX username rules
-  if (!POSIX_USERNAME_REGEX.test(username)) {
+  if (!isValidPosixUsername(username)) {
     return Effect.fail(
       new GeneralError({
         code: ErrorCode.INVALID_ARGS as 2,

@@ -12,6 +12,7 @@
 import { Glob } from "bun";
 import { Effect, Option } from "effect";
 import { getServiceUsername } from "../../config/schema";
+import { createBackupTimestamp } from "../../lib/backup-utils";
 import {
   type ConfigError,
   ErrorCode,
@@ -243,7 +244,7 @@ const prepareOutputPath = (
     }
 
     // Generate timestamped default path
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const timestamp = createBackupTimestamp();
     const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
     const backupDir = pathJoin(configDir, "backups");
 

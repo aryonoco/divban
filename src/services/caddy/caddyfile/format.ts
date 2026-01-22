@@ -6,10 +6,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { mapOr, nonEmpty } from "../../../lib/option-helpers";
+import { escapeWith } from "../../../lib/str-transform";
 
 /**
  * Caddyfile formatting utilities.
  */
+
+/** Escape double quotes with backslash */
+const QUOTE_ESCAPE_MAP: ReadonlyMap<string, string> = new Map([['"', '\\"']]);
+const escapeQuotes = escapeWith(QUOTE_ESCAPE_MAP);
 
 /**
  * Escape a value for Caddyfile format.
@@ -23,9 +28,7 @@ export const escapeValue = (value: string): string => {
     value.includes("}") ||
     value.includes("#")
   ) {
-    // Escape existing quotes
-    const escaped = value.replace(/"/g, '\\"');
-    return `"${escaped}"`;
+    return `"${escapeQuotes(value)}"`;
   }
   return value;
 };

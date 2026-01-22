@@ -10,15 +10,11 @@
  */
 
 import { Array as Arr, Option, pipe } from "effect";
+import { stripSuffix } from "../lib/str-transform";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromValue } from "./entry-combinators";
 import { makeSection } from "./factory";
 import type { IniSection } from "./format";
-
-/**
- * Top-level regex for unit name suffix removal.
- */
-const SERVICE_SUFFIX_REGEX = /\.service$/;
 
 export interface UnitConfig {
   /** Human-readable description */
@@ -82,9 +78,7 @@ export const toUnitName = (containerName: string): string => {
 /**
  * Convert unit names back to container names.
  */
-export const fromUnitName = (unitName: string): string => {
-  return unitName.replace(SERVICE_SUFFIX_REGEX, "");
-};
+export const fromUnitName = (unitName: string): string => pipe(unitName, stripSuffix(".service"));
 
 /**
  * Build unit dependencies from container names.

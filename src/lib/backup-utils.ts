@@ -17,13 +17,18 @@ import { createArchive } from "../system/archive";
 import { directoryExists, ensureDirectory } from "../system/fs";
 import { BackupError, ErrorCode, type SystemError, errorMessage } from "./errors";
 import type { Logger } from "./logger";
+import { mapCharsToString } from "./str-transform";
 import type { AbsolutePath } from "./types";
+
+/** Sanitize ISO timestamp for filenames: replace : and . with - */
+const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" : c));
 
 /**
  * Create a backup-safe timestamp string.
  * Format: YYYY-MM-DDTHH-mm-ss-sssZ (ISO with colons/periods replaced)
  */
-export const createBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
+export const createBackupTimestamp = (): string =>
+  pipe(new Date().toISOString(), sanitizeTimestamp);
 
 /**
  * Ensure backup directory exists with proper error mapping.

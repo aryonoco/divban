@@ -10,6 +10,7 @@
  */
 
 import { Array as Arr, Order, pipe } from "effect";
+import { escapeWith } from "../lib/str-transform";
 import type { Entry } from "./entry";
 
 /**
@@ -22,18 +23,19 @@ export interface IniSection {
   readonly entries: readonly Entry[];
 }
 
+/** Escape double quotes with backslash */
+const QUOTE_ESCAPE_MAP: ReadonlyMap<string, string> = new Map([['"', '\\"']]);
+const escapeQuotes = escapeWith(QUOTE_ESCAPE_MAP);
+
 /**
  * Escape a value for INI file format.
  * Handles special characters and quoting.
  */
 export const escapeIniValue = (value: string): string => {
-  // If value contains special characters, quote it
-  if (value.includes(" ") || value.includes('"') || value.includes("'") || value.includes("=")) {
-    // Escape existing quotes
-    const escaped = value.replace(/"/g, '\\"');
-    return `"${escaped}"`;
-  }
-  return value;
+  const needsQuoting =
+    value.includes(" ") || value.includes('"') || value.includes("'") || value.includes("=");
+
+  return needsQuoting ? `"${escapeQuotes(value)}"` : value;
 };
 
 /**

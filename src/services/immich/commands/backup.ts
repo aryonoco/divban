@@ -14,6 +14,7 @@ import { Glob } from "bun";
 import { Effect } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
+import { createBackupTimestamp } from "../../../lib/backup-utils";
 import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import {
@@ -43,11 +44,6 @@ export type CompressionMethod = "zstd" | "gzip";
 const getCompressionExtension = (method: CompressionMethod): string => {
   return method === "zstd" ? ".zst" : ".gz";
 };
-
-/**
- * Create a backup-safe timestamp string.
- */
-const createBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
 
 /**
  * Create archive metadata for a backup.

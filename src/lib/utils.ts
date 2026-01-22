@@ -10,6 +10,8 @@
  */
 
 import { peek } from "bun";
+import { pipe } from "effect";
+import { filterCharsToString, mapCharsToString } from "./str-transform";
 
 // ============================================================================
 // UUID Generation
@@ -51,7 +53,7 @@ export const sleep = (ms: number): Promise<void> => Bun.sleep(ms);
 export const sleepSync = (ms: number): void => Bun.sleepSync(ms);
 
 // ============================================================================
-// Terminal String Width 
+// Terminal String Width
 // ============================================================================
 
 export interface StringWidthOptions {
@@ -198,7 +200,7 @@ export const isRejected = (promise: Promise<unknown>): boolean => {
 };
 
 // ============================================================================
-// HTML Escaping 
+// HTML Escaping
 // ============================================================================
 
 /**
@@ -346,15 +348,28 @@ export const base64DecodeBytes = (encoded: string): Uint8Array => {
   return Buffer.from(encoded, "base64");
 };
 
+/** Remove padding chars */
+const stripPadding = filterCharsToString((c) => c !== "=");
+
+/** Convert +/ to URL-safe -_ */
+const toUrlSafe = mapCharsToString((c) => {
+  if (c === "+") {
+    return "-";
+  }
+  if (c === "/") {
+    return "_";
+  }
+  return c;
+});
+
 /**
  * URL-safe base64 encoding.
+ * Uses composed transformations: strip padding, then convert to URL-safe chars.
  */
-export const base64UrlEncode = (data: string): string => {
-  return btoa(data).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-};
+export const base64UrlEncode = (data: string): string => pipe(btoa(data), stripPadding, toUrlSafe);
 
 // ============================================================================
-// ANSI Color Utilities 
+// ANSI Color Utilities
 // ============================================================================
 
 /**
@@ -379,7 +394,7 @@ export const colorize = (text: string, color: string): string => {
 };
 
 // ============================================================================
-// Buffer Building 
+// Buffer Building
 // ============================================================================
 
 /**

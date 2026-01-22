@@ -11,9 +11,72 @@
  */
 
 import { Array as Arr, Match, Option, Predicate, pipe } from "effect";
+import { chars } from "../lib/str";
 
 /** Characters requiring quoting in shell environment values */
 const ENV_SPECIAL_CHARS = [" ", '"', "'", "$", "`", "\\", "\n"] as const;
+
+// ============================================================================
+// Escape/Unescape via Fold (State Machine Pattern)
+// ============================================================================
+
+/** Escape mapping: char -> escaped representation */
+const ESCAPE_MAP: ReadonlyMap<string, string> = new Map([
+  ["\\", "\\\\"],
+  ['"', '\\"'],
+  ["$", "\\$"],
+  ["`", "\\`"],
+  ["\n", "\\n"],
+]);
+
+/** Unescape mapping: char after backslash -> unescaped char */
+const UNESCAPE_MAP: ReadonlyMap<string, string> = new Map([
+  ["n", "\n"],
+  ['"', '"'],
+  ["$", "$"],
+  ["`", "`"],
+  ["\\", "\\"],
+]);
+
+/** Escape a single character (total: unmapped chars pass through) */
+const escapeChar = (c: string): string => ESCAPE_MAP.get(c) ?? c;
+
+/**
+ * State for unescape fold.
+ * - escaped: true if previous char was backslash
+ * - result: accumulated output characters
+ */
+type UnescapeState = {
+  readonly escaped: boolean;
+  readonly result: readonly string[];
+};
+
+/**
+ * Step function for unescape fold (state machine transition).
+ */
+const unescapeStep = (state: UnescapeState, c: string): UnescapeState => {
+  if (state.escaped) {
+    // We're in escape mode: look up the char, or pass through
+    const unescaped = UNESCAPE_MAP.get(c) ?? c;
+    return { escaped: false, result: [...state.result, unescaped] };
+  }
+  if (c === "\\") {
+    // Enter escape mode
+    return { escaped: true, result: state.result };
+  }
+  // Normal char: accumulate
+  return { escaped: false, result: [...state.result, c] };
+};
+
+/**
+ * Unescape string using fold-based state machine.
+ * Handles: \n -> newline, \" -> ", \$ -> $, \` -> `, \\ -> \
+ */
+const unescapeString = (s: string): string => {
+  const initial: UnescapeState = { escaped: false, result: [] };
+  const final = chars(s).reduce(unescapeStep, initial);
+  return final.result.join("");
+};
 
 /**
  * Environment variable group.
@@ -48,31 +111,28 @@ const formatValue = (value: string | number | boolean): string =>
  * Unquote and unescape a parsed env value.
  */
 const unquoteAndUnescape = (value: string): string => {
+  // Remove surrounding quotes if present
   const unquoted =
     (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
       ? value.slice(1, -1)
       : value;
 
-  return unquoted
-    .replace(/\\n/g, "\n")
-    .replace(/\\"/g, '"')
-    .replace(/\\\$/g, "$")
-    .replace(/\\`/g, "`")
-    .replace(/\\\\/g, "\\");
+  return unescapeString(unquoted);
 };
 
 /**
  * Escape a value for environment file format.
+ * Uses fold to map chars through ESCAPE_MAP.
  */
-export const escapeEnvValue = (value: string): string =>
-  Arr.some(ENV_SPECIAL_CHARS, (char) => value.includes(char))
-    ? `"${value
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, '\\"')
-        .replace(/\$/g, "\\$")
-        .replace(/`/g, "\\`")
-        .replace(/\n/g, "\\n")}"`
-    : value;
+export const escapeEnvValue = (value: string): string => {
+  // Early exit: no special chars -> return as-is
+  if (!Arr.some(ENV_SPECIAL_CHARS, (char) => value.includes(char))) {
+    return value;
+  }
+  // Escape by mapping each char through ESCAPE_MAP
+  const escaped = chars(value).map(escapeChar).join("");
+  return `"${escaped}"`;
+};
 
 /**
  * Format a single environment variable line.

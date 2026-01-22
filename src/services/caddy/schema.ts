@@ -20,7 +20,7 @@ import {
   absolutePathSchema,
   portSchema,
 } from "../../config/schema";
-import { isValidEmail, isValidUrl } from "../../lib/schema-utils";
+import { isValidContainerImage, isValidEmail, isValidUrl } from "../../lib/schema-utils";
 
 // The interface must explicitly include undefined for exactOptionalPropertyTypes
 // Use readonly arrays to match Effect Schema's default behavior
@@ -272,7 +272,7 @@ export interface CaddyContainerConfigInput {
 export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyContainerConfigInput> =
   Schema.Struct({
     image: Schema.String.pipe(
-      Schema.pattern(/^[\w./-]+(:[\w.-]+)?(@sha256:[a-f0-9]+)?$/, {
+      Schema.filter(isValidContainerImage, {
         message: (): string => "Invalid container image format",
       })
     ),

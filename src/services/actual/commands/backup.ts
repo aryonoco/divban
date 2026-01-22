@@ -13,6 +13,7 @@
 import { Glob } from "bun";
 import { Effect, Option } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
+import { createBackupTimestamp } from "../../../lib/backup-utils";
 import { BackupError, ErrorCode, type GeneralError, SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
@@ -36,11 +37,6 @@ export interface BackupOptions {
   /** Logger instance */
   logger: Logger;
 }
-
-/**
- * Create a backup-safe timestamp string.
- */
-const createBackupTimestamp = (): string => new Date().toISOString().replace(/[:.]/g, "-");
 
 /**
  * Create archive metadata for a backup.
