@@ -113,6 +113,7 @@ export const center = (text: string, width: number): string => {
 /**
  * Truncate a string to fit within a specific display width.
  * Adds ellipsis if truncated.
+ * Uses tail recursion with accumulator (OCaml idiom).
  */
 export const truncate = (text: string, maxWidth: number, ellipsis = "..."): string => {
   const textWidth = Bun.stringWidth(text);
@@ -127,20 +128,27 @@ export const truncate = (text: string, maxWidth: number, ellipsis = "..."): stri
     return ellipsis.slice(0, maxWidth);
   }
 
-  // Truncate character by character until we fit
-  let result = "";
-  let currentWidth = 0;
+  const chars = Array.from(text);
 
-  for (const char of text) {
-    const charWidth = Bun.stringWidth(char);
-    if (currentWidth + charWidth > targetWidth) {
-      break;
+  /**
+   * Tail-recursive accumulator: collect chars while width budget remains.
+   */
+  const go = (i: number, width: number, acc: string): string => {
+    if (i >= chars.length) {
+      return acc + ellipsis;
     }
-    result += char;
-    currentWidth += charWidth;
-  }
+    const char = chars[i];
+    if (char === undefined) {
+      return acc + ellipsis;
+    }
+    const charWidth = Bun.stringWidth(char);
+    if (width + charWidth > targetWidth) {
+      return acc + ellipsis;
+    }
+    return go(i + 1, width + charWidth, acc + char);
+  };
 
-  return result + ellipsis;
+  return go(0, 0, "");
 };
 
 // ============================================================================

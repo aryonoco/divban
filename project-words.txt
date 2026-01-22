@@ -139,9 +139,13 @@ PERFMON
 
 # Programming
 asum
+fiber
+Fiber
 fmap
 foldl
 mconcat
+nums
+typeclass
 nonexistent
 nothrow
 teardown

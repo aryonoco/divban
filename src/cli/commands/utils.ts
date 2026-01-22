@@ -6,7 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based shared utilities for CLI commands.
+ * Shared utilities for CLI commands.
  */
 
 import { Effect, Schema, pipe } from "effect";
@@ -86,7 +86,6 @@ const tryLoadConfigFromPath = (
 
 /**
  * Find and load a service configuration file.
- * Uses Effect.firstSuccessOf (asum pattern) instead of loop.
  */
 export const resolveServiceConfig = (
   service: AnyServiceEffect,
@@ -163,7 +162,6 @@ export const getDataDirFromConfig = (
     typeof config.paths.dataDir === "string"
   ) {
     // Validate the path, falling back to default if invalid
-    // Schema.is returns a type guard - if true, TypeScript narrows the type
     return Schema.is(AbsolutePathSchema)(config.paths.dataDir) ? config.paths.dataDir : fallback;
   }
   return fallback;

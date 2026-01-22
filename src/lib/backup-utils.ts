@@ -11,7 +11,7 @@
  */
 
 import { Glob } from "bun";
-import { Effect, Option } from "effect";
+import { Array as Arr, Effect, Option, Order, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
 import { createArchive } from "../system/archive";
 import { directoryExists, ensureDirectory } from "../system/fs";
@@ -79,6 +79,7 @@ export const writeBackupArchive = (
 
 /**
  * List backup files in a directory, sorted by modification time (newest first).
+ * Uses Effect.forEach for concurrent stat calls and immutable sort with Order typeclass.
  * @param backupDir - Directory containing backups
  * @param pattern - Glob pattern (default: "*.tar.{gz,zst}" for both formats)
  */
@@ -95,25 +96,33 @@ export const listBackupFiles = (
     const glob = new Glob(pattern);
     const files: string[] = [];
 
-    // Wrap async iterator in Effect.promise
     yield* Effect.promise(async () => {
       for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
         files.push(file);
       }
     });
 
-    // Sort by modification time (newest first)
-    const withStats = yield* Effect.promise(async () => {
-      return await Promise.all(
-        files.map(async (f) => ({
-          name: f,
-          mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
-        }))
-      );
-    });
+    const withStats = yield* Effect.forEach(
+      files,
+      (name) =>
+        Effect.promise(async () => ({
+          name,
+          mtime: (await Bun.file(`${backupDir}/${name}`).stat())?.mtimeMs ?? 0,
+        })),
+      { concurrency: 10 }
+    );
 
-    withStats.sort((a, b) => b.mtime - a.mtime);
-    return withStats.map((f) => f.name);
+    const byMtimeDesc: Order.Order<{ mtime: number }> = pipe(
+      Order.number,
+      Order.mapInput((f: { mtime: number }) => f.mtime),
+      Order.reverse
+    );
+
+    return pipe(
+      withStats,
+      Arr.sort(byMtimeDesc),
+      Arr.map((f) => f.name)
+    );
   });
 
 /**

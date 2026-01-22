@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { normalize, resolve } from "node:path";
-import { Effect, Schema } from "effect";
+import { Array as Arr, Effect, Option, Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, type GeneralError } from "./errors";
 import {
   path,
@@ -53,38 +53,59 @@ export const SYSTEM_PATHS: {
 const homeCache = new Map<string, AbsolutePathType>();
 
 /**
+ * Pure function: parse passwd content to find user's home directory.
+ * Total function - returns Option.none() if not found.
+ */
+export const lookupUserHomeFromPasswd = (
+  passwdContent: string,
+  username: string
+): Option.Option<AbsolutePathType> =>
+  pipe(
+    passwdContent.split("\n"),
+    Arr.findFirst((line) => {
+      const fields = line.split(":");
+      return pipe(
+        Arr.get(fields, 0),
+        Option.map((name) => name === username),
+        Option.getOrElse(() => false)
+      );
+    }),
+    Option.flatMap((line) => {
+      const fields = line.split(":");
+      return pipe(
+        Arr.get(fields, 5),
+        Option.filter((p) => Schema.is(AbsolutePathSchema)(p))
+      );
+    })
+  );
+
+/**
  * Get user's home directory from /etc/passwd.
  * Falls back to /home/<username> if user not found.
  *
- * Reads /etc/passwd directly to handle non-standard home directories
- * (e.g., /var/home on Fedora Silverblue/Atomic).
+ * Imperative shell: caches for performance, delegates to pure lookupUserHomeFromPasswd.
  */
 export const userHomeDir = (username: string): AbsolutePathType => {
   const cached = homeCache.get(username);
-  if (cached) {
+  if (cached !== undefined) {
     return cached;
   }
 
+  const fallback = pathJoin(path("/home"), username);
+
+  let result: AbsolutePathType;
   try {
     const content = readFileSync("/etc/passwd", "utf-8");
-
-    for (const line of content.split("\n")) {
-      const fields = line.split(":");
-      // passwd format: username:x:uid:gid:gecos:home:shell
-      // Validate path from passwd file using Schema.is for type narrowing
-      if (fields[0] === username && fields[5] && Schema.is(AbsolutePathSchema)(fields[5])) {
-        homeCache.set(username, fields[5]);
-        return fields[5];
-      }
-    }
+    result = pipe(
+      lookupUserHomeFromPasswd(content, username),
+      Option.getOrElse(() => fallback)
+    );
   } catch {
-    // Fall through to default
+    result = fallback;
   }
 
-  // Fallback to /home/<username> if user not found or error reading passwd
-  const fallback = pathJoin(path("/home"), username);
-  homeCache.set(username, fallback);
-  return fallback;
+  homeCache.set(username, result);
+  return result;
 };
 
 export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>

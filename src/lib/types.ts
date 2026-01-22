@@ -159,8 +159,12 @@ const isRfc1918IPv4 = (s: string): boolean => {
     return false;
   }
   const [, ...parts] = match;
-  const [a, b, c, d] = parts.map(Number) as [number, number, number, number];
-  if ([a, b, c, d].some((n) => n > 255)) {
+  if (parts.length !== 4) {
+    return false;
+  }
+  const nums = parts.map(Number);
+  const [a, b, c, d] = nums as [number, number, number, number];
+  if (a > 255 || b > 255 || c > 255 || d > 255) {
     return false;
   }
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);

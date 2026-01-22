@@ -41,9 +41,8 @@ export const formatSchemaError = (error: ParseResult.ParseError, context: string
  * Decode unknown data synchronously, throwing on error.
  * Use only when input is known valid (e.g., empty object with defaults).
  */
-export const decodeOrThrow = <A, I = A>(schema: Schema.Schema<A, I, never>, data: unknown): A => {
-  return Schema.decodeUnknownSync(schema)(data);
-};
+export const decodeUnsafe = <A, I = A>(schema: Schema.Schema<A, I, never>, data: unknown): A =>
+  Schema.decodeUnknownSync(schema)(data);
 
 /**
  * Decode unknown data with a schema, returning Effect.

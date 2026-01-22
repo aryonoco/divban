@@ -89,7 +89,7 @@ export const DebugModeConfig: Config.Config<boolean> = Config.nested(
 );
 
 // ============================================================================
-// Composite Config 
+// Composite Config
 // ============================================================================
 
 /**

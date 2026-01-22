@@ -17,6 +17,8 @@
  * not for generating random passwords. We need crypto.getRandomValues for that.
  */
 
+import { Array as Arr, Option, pipe } from "effect";
+
 /**
  * Character set for password generation.
  * Alphanumeric only - safe for env vars, shell, and all contexts.
@@ -26,27 +28,43 @@ const PASSWORD_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
 /**
  * Generate a cryptographically secure random password.
  * Uses rejection sampling to avoid modulo bias.
+ * Tail-recursive implementation (OCaml idiom).
  *
  * @param length Password length (default: 32)
  * @returns Secure random password string
  */
 export const generatePassword = (length = 32): string => {
   const charsetLength = PASSWORD_CHARSET.length;
-  const maxValid = 256 - (256 % charsetLength); // Avoid modulo bias
-  const result: string[] = [];
+  const maxValid = 256 - (256 % charsetLength);
 
-  while (result.length < length) {
-    const randomBytes = new Uint8Array(length - result.length);
-    crypto.getRandomValues(randomBytes);
+  /**
+   * Generate valid characters from random bytes.
+   * Uses Arr.filterMap for single-pass filter + map.
+   */
+  const charsFromBytes = (bytes: Uint8Array): string =>
+    pipe(
+      Array.from(bytes),
+      Arr.filterMap((byte) =>
+        byte < maxValid ? Option.some(PASSWORD_CHARSET.charAt(byte % charsetLength)) : Option.none()
+      )
+    ).join("");
 
-    for (const byte of randomBytes) {
-      if (byte < maxValid && result.length < length) {
-        result.push(PASSWORD_CHARSET.charAt(byte % charsetLength));
-      }
+  /**
+   * Tail-recursive accumulator pattern.
+   * Generates random bytes, filters valid chars, recurses until done.
+   */
+  const go = (needed: number, acc: string): string => {
+    if (needed <= 0) {
+      return acc;
     }
-  }
+    const bytes = new Uint8Array(needed * 2);
+    crypto.getRandomValues(bytes);
+    const chars = charsFromBytes(bytes);
+    const taken = chars.slice(0, needed);
+    return go(needed - taken.length, acc + taken);
+  };
 
-  return result.join("");
+  return go(length, "");
 };
 
 /**

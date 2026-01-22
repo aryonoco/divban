@@ -70,10 +70,12 @@ export type {
 // Option - Re-exported from Effect with helpers
 export { Option } from "effect";
 export {
-  expectOption,
+  expectOptionEffect,
   mapOr,
   mapOrElse,
   nonEmpty,
+  optionalProp,
+  buildObject,
   xorOption,
 } from "./option-helpers";
 
@@ -93,18 +95,27 @@ export {
 export type { DivbanEffectError, ErrorCodeValue } from "./errors";
 
 // Logger - Structured logging
-export { createLogger, getLogger, setDefaultLogger } from "./logger";
+export {
+  createLogger,
+  getLogger,
+  getLoggerEffect,
+  LoggerFiberRef,
+  setDefaultLogger,
+  withLogger,
+} from "./logger";
 export type { Logger, LoggerOptions, LogLevel } from "./logger";
 
 // Assert - Runtime assertions and type guards
 export {
-  assert,
-  assertNonEmpty,
+  assertEffect,
+  assertNonEmptyEffect,
+  toNonEmpty,
   hasKeys,
   isNonEmptyArray,
   isNonEmptyString,
   isNonNegativeInteger,
   isOneOf,
+  isPlainObject,
   isPositiveInteger,
 } from "./assert";
 export type { NonEmptyArray } from "./assert";
@@ -174,6 +185,7 @@ export {
 
 // Timing - High-precision timing utilities
 export {
+  createStopwatchEffect,
   debounce,
   delay,
   formatDuration,
@@ -186,13 +198,14 @@ export {
   throttle,
   withDeadline,
 } from "./timing";
-export type { Stopwatch, TimedResult } from "./timing";
+export type { EffectStopwatch, Stopwatch, TimedResult } from "./timing";
 
 // Paths - Centralized path construction
 export {
   buildServicePaths,
   configFilePath,
   lingerFile,
+  lookupUserHomeFromPasswd,
   outputConfigDir,
   outputQuadletDir,
   quadletFilePath,

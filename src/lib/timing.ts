@@ -10,7 +10,7 @@
  * Provides nanosecond-precision timing for performance measurement.
  */
 
-import { Option } from "effect";
+import { Duration, Effect, Option, Ref, pipe } from "effect";
 
 /**
  * Get the current time in nanoseconds since process start.
@@ -89,6 +89,9 @@ export const measureSync = <T>(fn: () => T): TimedResult<T> => {
 /**
  * Create a stopwatch for measuring multiple intervals.
  *
+ * This is intentionally stateful for CLI timing displays and performance
+ * profiling outside Effect. For Effect pipelines, use createStopwatchEffect().
+ *
  * @example
  * const sw = stopwatch();
  * await operation1();
@@ -151,6 +154,32 @@ export const stopwatch = (): Stopwatch => {
     },
   };
 };
+
+// ─── Effect Alternative ──────────────────────────────────────────────────────
+
+export interface EffectStopwatch {
+  readonly elapsed: Effect.Effect<Duration.Duration>;
+  readonly lap: Effect.Effect<Duration.Duration>;
+  readonly reset: Effect.Effect<void>;
+}
+
+/**
+ * Stopwatch for Effect pipelines using Ref for managed state.
+ */
+export const createStopwatchEffect = (): Effect.Effect<EffectStopwatch> =>
+  Effect.gen(function* () {
+    const startNs = Bun.nanoseconds();
+    const lastLapRef = yield* Ref.make(startNs);
+
+    return {
+      elapsed: Effect.sync(() => Duration.nanos(BigInt(Bun.nanoseconds() - startNs))),
+      lap: pipe(
+        Ref.getAndUpdate(lastLapRef, () => Bun.nanoseconds()),
+        Effect.map((last) => Duration.nanos(BigInt(Bun.nanoseconds() - last)))
+      ),
+      reset: Ref.set(lastLapRef, Bun.nanoseconds()),
+    };
+  });
 
 /**
  * Format a duration in nanoseconds to a human-readable string.

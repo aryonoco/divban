@@ -10,17 +10,15 @@
  * or have different signatures than our previous custom implementation.
  */
 
-import { Option, pipe } from "effect";
+import { Effect, Option, pipe } from "effect";
 
 /**
- * Like Rust's expect - unwrap with custom error message.
+ * Total: Option → Effect conversion with custom error.
  */
-export const expectOption = <T>(opt: Option.Option<T>, message: string): T => {
-  if (Option.isSome(opt)) {
-    return opt.value;
-  }
-  throw new Error(message);
-};
+export const expectOptionEffect = <T, E>(
+  opt: Option.Option<T>,
+  onNone: () => E
+): Effect.Effect<T, E> => (Option.isSome(opt) ? Effect.succeed(opt.value) : Effect.fail(onNone()));
 
 /**
  * Filter to non-empty arrays.
@@ -52,17 +50,18 @@ export const mapOrElse = <T, U>(
 ): U => pipe(opt, Option.map(fn), Option.getOrElse(defaultFn));
 
 /**
- * XOR combinator - Some if exactly one is Some.
+ * XOR combinator using nested Option.match (ML-style pattern matching).
+ * Returns Some if exactly one is Some, None otherwise.
  */
-export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.Option<T> => {
-  if (Option.isSome(a) && Option.isNone(b)) {
-    return a;
-  }
-  if (Option.isNone(a) && Option.isSome(b)) {
-    return b;
-  }
-  return Option.none();
-};
+export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.Option<T> =>
+  Option.match(a, {
+    onNone: (): Option.Option<T> => b,
+    onSome: (): Option.Option<T> =>
+      Option.match(b, {
+        onNone: (): Option.Option<T> => a,
+        onSome: (): Option.Option<T> => Option.none(),
+      }),
+  });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Object Construction Helpers (for exactOptionalPropertyTypes compatibility)

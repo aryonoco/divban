@@ -10,7 +10,7 @@
  * Uses Bun.color() for automatic terminal capability detection.
  */
 
-import { Option } from "effect";
+import { Effect, FiberRef, Option } from "effect";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -193,3 +193,21 @@ export const getLogger = (): Logger =>
 export const setDefaultLogger = (logger: Logger): void => {
   defaultLogger = Option.some(logger);
 };
+
+// ─── Effect Alternative ──────────────────────────────────────────────────────
+
+/**
+ * Fiber-local logger for Effect pipelines.
+ */
+export const LoggerFiberRef: FiberRef.FiberRef<Logger> = FiberRef.unsafeMake(
+  createLogger({ level: "info", format: "pretty" })
+);
+
+/** Get logger from current fiber context */
+export const getLoggerEffect: Effect.Effect<Logger> = FiberRef.get(LoggerFiberRef);
+
+/** Run effect with specific logger in scope */
+export const withLogger = <A, E, R>(
+  logger: Logger
+): ((effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>) =>
+  Effect.locally(LoggerFiberRef, logger);

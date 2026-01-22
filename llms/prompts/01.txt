@@ -41,28 +41,21 @@ Your report should indicate exactly how Effect is already used, and it should pr
 --- 
 
 
+Refactor and rewrite everything in 
+to eliminate all loops, minimise mutable data structures, eliminate throws and align it with FP principles 
 
-ensure the plan is exhaustive and idempotent. do not leave any decisions for later. Do the
-  required investigation now and ensure the plan is deterministic and complete
-
----
-
-Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. 
-
----
-
-
-Refactor and rewrite every file in 
-to eliminate all loops, minimise mutable data structures, and align it with FP principles 
-
-Ensure the plan, as much as is practical, aligns with a "functional core, imperative shell" philosophy and is uses classical FP concepts and idiomatic Effect patterns and is FP-aligned where practical and uses the features of the Effect library to achieve its goal where possible.
+Ensure the plan, as much as is practical, aligns with a "functional core, imperative shell" philosophy and railway oriented programming and uses classical FP concepts and idiomatic Effect patterns and is FP-aligned where practical and uses the features of the Effect library to achieve its goal where possible.
 
 Read @llms/effect.llms.headline.txt 
 
 To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
 
+You can refactor or restructure any part of the codebase if required to avhieve this. You can refactor by merging or breaking existing modules if such an action would faclitate achiving better alignment with the principles discussed. 
+
 --- 
 
+
+Refine and enhance the plan
 Ensure the plan fully leverages all the relevant facilities available in Effect
 
 Read @llms/effect.llms.headline.txt 
@@ -70,15 +63,24 @@ Read @llms/effect.llms.headline.txt
 To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
 
 
---- 
-
-ensure you plan leverages as much of the existing codebase as possible, is DRY and aligns with software engineering best practices. You can refactor any part of the codebase if required to avhieve this. You can refactor by merging or breaking existing modules if such an action would faclitate achiving better alignment with the principles discussed. 
+ensure your plan leverages as much of the existing codebase as possible, is DRY and aligns with software engineering best practices. Ensure the plan achieves maximal code reuse and code deduplication as much as possible. 
 
 ---
 
+I still think the plan is not optimal. Refine and enhance the plan. 
 Think like a senior Haskell/Ocaml developer. Ensure your plan aligns with how a senior haskell/ocaml programmer would structure the code, while also respecting my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)
 
 ----
+
+ensure the plan is exhaustive and idempotent. do not leave any decisions for later. Do the
+  required investigation now and ensure the plan is deterministic and complete
+
+---
+
+
+Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. If there are breaking changes ensure all the callers and tests are updated instead. 
+
+---
 
  I still feel like there is a lot of duplication in
 

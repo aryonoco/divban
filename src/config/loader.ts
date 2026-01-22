@@ -6,7 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration file loading 
+ * Configuration file loading
  * Supports TOML format with Effect Schema validation.
  * Uses Bun's native TOML parser for optimal performance.
  */
@@ -14,7 +14,7 @@
 import { Config, Effect, type Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { toAbsolutePathEffect } from "../lib/paths";
-import { decodeOrThrow, decodeToEffect } from "../lib/schema-utils";
+import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
 import type { AbsolutePath } from "../lib/types";
 import { fileExists } from "../system/fs";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
@@ -110,7 +110,7 @@ export const loadGlobalConfigWithHome = (
 
   return pipe(
     Effect.firstSuccessOf(defaultPaths.map(tryLoadPath)),
-    Effect.orElseSucceed(() => decodeOrThrow(globalConfigSchema, {}) as GlobalConfig)
+    Effect.orElseSucceed(() => decodeUnsafe(globalConfigSchema, {}) as GlobalConfig)
   );
 };
 
@@ -174,7 +174,7 @@ export const findServiceConfig = (
     );
 
   // paths is non-empty (either caller-provided or 3 defaults)
-  // Edge case: caller passes empty array 
+  // Edge case: caller passes empty array
   // This is intentional: empty searchPaths is a programmer error
   return pipe(
     Effect.firstSuccessOf(paths.map(tryPath)),

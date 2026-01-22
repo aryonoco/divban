@@ -14,6 +14,7 @@
  */
 
 import { Option, pipe } from "effect";
+import { optionalProp } from "./option-helpers";
 
 /**
  * Error code interface for isolatedDeclarations compatibility.
@@ -419,26 +420,20 @@ export const makeGeneralError = (
     : new GeneralError({ code, message });
 
 /**
- * Create a ConfigError from an ErrorCode constant and message.
+ * Create a ConfigError with exactOptionalPropertyTypes compliance.
  */
 export const makeConfigError = (
   code: ConfigErrorCode,
   message: string,
   path?: string,
   cause?: Error
-): ConfigError => {
-  const base = { code, message } as const;
-  if (path !== undefined && cause !== undefined) {
-    return new ConfigError({ ...base, path, cause });
-  }
-  if (path !== undefined) {
-    return new ConfigError({ ...base, path });
-  }
-  if (cause !== undefined) {
-    return new ConfigError({ ...base, cause });
-  }
-  return new ConfigError(base);
-};
+): ConfigError =>
+  new ConfigError({
+    code,
+    message,
+    ...optionalProp("path", path),
+    ...optionalProp("cause", cause),
+  });
 
 /**
  * Create a SystemError from an ErrorCode constant and message.
@@ -453,67 +448,49 @@ export const makeSystemError = (
     : new SystemError({ code, message });
 
 /**
- * Create a ServiceError from an ErrorCode constant and message.
+ * Create a ServiceError with exactOptionalPropertyTypes compliance.
  */
 export const makeServiceError = (
   code: ServiceErrorCode,
   message: string,
   service?: string,
   cause?: Error
-): ServiceError => {
-  const base = { code, message } as const;
-  if (service !== undefined && cause !== undefined) {
-    return new ServiceError({ ...base, service, cause });
-  }
-  if (service !== undefined) {
-    return new ServiceError({ ...base, service });
-  }
-  if (cause !== undefined) {
-    return new ServiceError({ ...base, cause });
-  }
-  return new ServiceError(base);
-};
+): ServiceError =>
+  new ServiceError({
+    code,
+    message,
+    ...optionalProp("service", service),
+    ...optionalProp("cause", cause),
+  });
 
 /**
- * Create a ContainerError from an ErrorCode constant and message.
+ * Create a ContainerError with exactOptionalPropertyTypes compliance.
  */
 export const makeContainerError = (
   code: ContainerErrorCode,
   message: string,
   container?: string,
   cause?: Error
-): ContainerError => {
-  const base = { code, message } as const;
-  if (container !== undefined && cause !== undefined) {
-    return new ContainerError({ ...base, container, cause });
-  }
-  if (container !== undefined) {
-    return new ContainerError({ ...base, container });
-  }
-  if (cause !== undefined) {
-    return new ContainerError({ ...base, cause });
-  }
-  return new ContainerError(base);
-};
+): ContainerError =>
+  new ContainerError({
+    code,
+    message,
+    ...optionalProp("container", container),
+    ...optionalProp("cause", cause),
+  });
 
 /**
- * Create a BackupError from an ErrorCode constant and message.
+ * Create a BackupError with exactOptionalPropertyTypes compliance.
  */
 export const makeBackupError = (
   code: BackupErrorCode,
   message: string,
   path?: string,
   cause?: Error
-): BackupError => {
-  const base = { code, message } as const;
-  if (path !== undefined && cause !== undefined) {
-    return new BackupError({ ...base, path, cause });
-  }
-  if (path !== undefined) {
-    return new BackupError({ ...base, path });
-  }
-  if (cause !== undefined) {
-    return new BackupError({ ...base, cause });
-  }
-  return new BackupError(base);
-};
+): BackupError =>
+  new BackupError({
+    code,
+    message,
+    ...optionalProp("path", path),
+    ...optionalProp("cause", cause),
+  });
