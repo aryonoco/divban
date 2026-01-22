@@ -199,23 +199,27 @@ export const padToWidth = (text: string, width: number): string => {
   return text + " ".repeat(Math.max(0, width - currentWidth));
 };
 
+/** State for width-bounded truncation */
+type TruncState = { readonly width: number; readonly chars: readonly string[] };
+
+/** Step function: accumulate chars while under width limit */
+const truncStep =
+  (maxWidth: number) =>
+  (state: TruncState, c: string): TruncState => {
+    const charWidth = Bun.stringWidth(c);
+    return state.width + charWidth > maxWidth - 1
+      ? state
+      : { width: state.width + charWidth, chars: [...state.chars, c] };
+  };
+
 /**
  * Truncate text to a maximum display width using Bun.stringWidth().
  * Handles Unicode and emoji correctly.
  */
-export const truncateToWidth = (text: string, maxWidth: number): string => {
-  if (Bun.stringWidth(text) <= maxWidth) {
-    return text;
-  }
-  let result = "";
-  for (const char of text) {
-    if (Bun.stringWidth(result + char) > maxWidth - 1) {
-      break;
-    }
-    result += char;
-  }
-  return `${result}…`;
-};
+export const truncateToWidth = (text: string, maxWidth: number): string =>
+  Bun.stringWidth(text) <= maxWidth
+    ? text
+    : `${Array.from(text).reduce(truncStep(maxWidth), { width: 0, chars: [] }).chars.join("")}…`;
 
 // ============================================================================
 // System Capabilities

@@ -11,7 +11,7 @@
  * Uses Effect's context system - dependencies accessed via yield*.
  */
 
-import { Effect, Exit } from "effect";
+import { Array as Arr, Effect, Exit, pipe } from "effect";
 import {
   type BackupError,
   type ContainerError,
@@ -482,17 +482,18 @@ const start = (): Effect.Effect<
     const user = yield* ServiceUser;
     const logger = yield* AppLogger;
 
-    const containers: StackContainer[] = [
+    const mlEnabled = config.containers?.machineLearning?.enabled !== false;
+    const baseContainers: StackContainer[] = [
       { name: CONTAINERS.redis, image: "", requires: [] },
       { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
       { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
     ];
+    const containers = pipe(
+      baseContainers,
+      Arr.appendAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "", requires: [] }] : [])
+    );
 
-    if (config.containers?.machineLearning?.enabled !== false) {
-      containers.push({ name: CONTAINERS.ml, image: "", requires: [] });
-    }
-
-    const stack = createStack({ name: "immich", containers });
+    const stack = createStack({ name: "immich", containers: [...containers] });
     yield* startStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
@@ -510,17 +511,18 @@ const stop = (): Effect.Effect<
     const user = yield* ServiceUser;
     const logger = yield* AppLogger;
 
-    const containers: StackContainer[] = [
+    const mlEnabled = config.containers?.machineLearning?.enabled !== false;
+    const baseContainers: StackContainer[] = [
       { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
       { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
       { name: CONTAINERS.redis, image: "" },
     ];
+    const containers = pipe(
+      baseContainers,
+      Arr.prependAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "" }] : [])
+    );
 
-    if (config.containers?.machineLearning?.enabled !== false) {
-      containers.unshift({ name: CONTAINERS.ml, image: "" });
-    }
-
-    const stack = createStack({ name: "immich", containers });
+    const stack = createStack({ name: "immich", containers: [...containers] });
     yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
@@ -553,17 +555,18 @@ const status = (): Effect.Effect<
     const config = yield* ImmichConfigTag;
     const user = yield* ServiceUser;
 
-    const containers: StackContainer[] = [
+    const mlEnabled = config.containers?.machineLearning?.enabled !== false;
+    const baseContainers: StackContainer[] = [
       { name: CONTAINERS.redis, image: "" },
       { name: CONTAINERS.postgres, image: "" },
       { name: CONTAINERS.server, image: "" },
     ];
+    const containers = pipe(
+      baseContainers,
+      Arr.appendAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "" }] : [])
+    );
 
-    if (config.containers?.machineLearning?.enabled !== false) {
-      containers.push({ name: CONTAINERS.ml, image: "" });
-    }
-
-    const stack = createStack({ name: "immich", containers });
+    const stack = createStack({ name: "immich", containers: [...containers] });
     // Note: getStackStatus requires logger but we can use a no-op one since status is just a query
     const noopLogger: Logger = {
       debug: () => undefined,

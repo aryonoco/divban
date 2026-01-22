@@ -95,21 +95,19 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
 
     if (args.dryRun) {
       logger.info("Would generate the following files:");
-      for (const [name] of files.quadlets) {
-        logger.info(`  quadlets/${name}`);
-      }
-      for (const [name] of files.networks) {
-        logger.info(`  quadlets/${name}`);
-      }
-      for (const [name] of files.volumes) {
-        logger.info(`  quadlets/${name}`);
-      }
-      for (const [name] of files.environment) {
-        logger.info(`  config/${name}`);
-      }
-      for (const [name] of files.other) {
-        logger.info(`  config/${name}`);
-      }
+
+      const logLines = [
+        ...[...files.quadlets].map(([name]) => `  quadlets/${name}`),
+        ...[...files.networks].map(([name]) => `  quadlets/${name}`),
+        ...[...files.volumes].map(([name]) => `  quadlets/${name}`),
+        ...[...files.environment].map(([name]) => `  config/${name}`),
+        ...[...files.other].map(([name]) => `  config/${name}`),
+      ];
+
+      yield* Effect.forEach(logLines, (line) => Effect.sync(() => logger.info(line)), {
+        discard: true,
+      });
+
       return;
     }
 

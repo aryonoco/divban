@@ -10,9 +10,10 @@
  */
 
 import { Glob } from "bun";
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import { createBackupTimestamp } from "../../lib/backup-utils";
+import { collectAsyncOrDie } from "../../lib/collection-utils";
 import {
   type ConfigError,
   ErrorCode,
@@ -106,15 +107,7 @@ const scanAndReadFiles = (
 ): Effect.Effect<FileEntry[], SystemError | GeneralError> =>
   Effect.gen(function* () {
     const glob = new Glob(pattern);
-
-    // Collect all file paths first (using Effect.promise to wrap async iteration)
-    const files = yield* Effect.promise(async () => {
-      const result: string[] = [];
-      for await (const file of glob.scan({ cwd: baseDir, onlyFiles: true })) {
-        result.push(file);
-      }
-      return result;
-    });
+    const files = yield* collectAsyncOrDie(glob.scan({ cwd: baseDir, onlyFiles: true }));
 
     // Read all files in parallel
     const results = yield* Effect.all(
@@ -126,7 +119,7 @@ const scanAndReadFiles = (
       { concurrency: "unbounded" }
     );
 
-    return results;
+    return [...results];
   });
 
 /**
@@ -192,29 +185,29 @@ const getServiceConfigDir = (
 /**
  * Find first valid config directory from known services.
  */
-const findConfigDir = (): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const knownServices: ServiceName[] = [
-      "immich" as ServiceName,
-      "caddy" as ServiceName,
-      "actual" as ServiceName,
-    ];
+const findConfigDir = (): Effect.Effect<
+  AbsolutePath,
+  ServiceError | SystemError | GeneralError
+> => {
+  const knownServices: ServiceName[] = [
+    "immich" as ServiceName,
+    "caddy" as ServiceName,
+    "actual" as ServiceName,
+  ];
 
-    for (const svc of knownServices) {
-      const result = yield* Effect.either(getServiceConfigDir(svc));
-      if (result._tag === "Right") {
-        return result.right;
-      }
-    }
-
-    return yield* Effect.fail(
-      new ServiceError({
-        code: ErrorCode.SERVICE_NOT_FOUND as 30,
-        message: "No configured services found. Run 'divban <service> setup' first.",
-        service: "all",
-      })
-    );
-  });
+  return pipe(
+    Effect.firstSuccessOf(knownServices.map((svc) => getServiceConfigDir(svc))),
+    Effect.catchAll(() =>
+      Effect.fail(
+        new ServiceError({
+          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          message: "No configured services found. Run 'divban <service> setup' first.",
+          service: "all",
+        })
+      )
+    )
+  );
+};
 
 /**
  * Resolve config directory based on service (single or "all").
@@ -292,9 +285,9 @@ export const executeBackupConfig = (
     if (args.dryRun) {
       logger.info(`Dry run - would create backup at: ${outputPath}`);
       logger.info("Files to include:");
-      for (const file of fileNames) {
-        logger.info(`  - ${file}`);
-      }
+      yield* Effect.forEach(fileNames, (file) => Effect.sync(() => logger.info(`  - ${file}`)), {
+        discard: true,
+      });
       return;
     }
 

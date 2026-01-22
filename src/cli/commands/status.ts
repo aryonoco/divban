@@ -134,9 +134,9 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
         });
 
         // Single side effect: log all lines
-        for (const line of containerLines) {
-          logger.raw(line);
-        }
+        yield* Effect.forEach(containerLines, (line) => Effect.sync(() => logger.raw(line)), {
+          discard: true,
+        });
       }
     }
   });

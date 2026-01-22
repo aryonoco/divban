@@ -146,21 +146,24 @@ export const isValidIPv4 = (s: string): boolean => Option.isSome(parseIPv4(s));
 /** Check if string is valid hex group (1-4 hex digits) */
 const isHexGroup = (s: string): boolean => s.length > 0 && s.length <= 4 && all(isHexDigit)(s);
 
+/** State for substring counting */
+type CountState = { readonly pos: number; readonly count: number };
+
+/** Step function: find next match and advance state */
+const countStep =
+  (sub: string, s: string) =>
+  (state: CountState): CountState => {
+    const idx = s.indexOf(sub, state.pos);
+    return idx === -1
+      ? state
+      : countStep(sub, s)({ pos: idx + sub.length, count: state.count + 1 });
+  };
+
 /** Count non-overlapping occurrences of substring */
 const countSubstring =
   (sub: string) =>
-  (s: string): number => {
-    if (sub.length === 0) {
-      return 0;
-    }
-    let count = 0;
-    let pos = s.indexOf(sub, 0);
-    while (pos !== -1) {
-      count++;
-      pos = s.indexOf(sub, pos + sub.length);
-    }
-    return count;
-  };
+  (s: string): number =>
+    sub.length === 0 ? 0 : countStep(sub, s)({ pos: 0, count: 0 }).count;
 
 /**
  * Validate IPv6 address (allows :: compression).

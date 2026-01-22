@@ -130,8 +130,8 @@ const executeSecretList = (
       logger.raw(JSON.stringify({ service: serviceName, secrets }));
     } else {
       logger.info(`Secrets for ${serviceName}:`);
-      for (const name of secrets) {
-        logger.raw(`  - ${name}`);
-      }
+      yield* Effect.forEach(secrets, (name) => Effect.sync(() => logger.raw(`  - ${name}`)), {
+        discard: true,
+      });
     }
   });

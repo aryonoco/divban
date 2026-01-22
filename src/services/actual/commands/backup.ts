@@ -9,7 +9,7 @@
  * Actual Budget backup command.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import {
   collectFilesWithContent,
@@ -123,6 +123,84 @@ export const listBackups = (
     return [...files]; // Convert readonly to mutable for return type compatibility
   });
 
+// ============================================================================
+// Restore Helper Functions
+// ============================================================================
+
+/** Predicate: filename contains path traversal attack vectors */
+const isUnsafeFilename = (name: string): boolean =>
+  name.includes("..") || name.startsWith("/") || name.includes("\x00");
+
+/** Predicate: parent dir differs from data dir and needs creation */
+const needsParentDir = (parentDir: string, dataDir: string): boolean =>
+  parentDir.length > 0 && parentDir !== dataDir;
+
+/** Extract parent directory from path, None if at root */
+const getParentDir = (fullPath: string): Option.Option<string> =>
+  pipe(fullPath.lastIndexOf("/"), (idx) =>
+    idx > 0 ? Option.some(fullPath.substring(0, idx)) : Option.none()
+  );
+
+/** Validate filename and fail with BackupError if unsafe */
+const validateFilename = (
+  name: string,
+  backupPath: AbsolutePath
+): Effect.Effect<void, BackupError> =>
+  isUnsafeFilename(name)
+    ? Effect.fail(
+        new BackupError({
+          code: ErrorCode.RESTORE_FAILED as 51,
+          message: `Invalid filename in backup archive: ${name}. Potential path traversal detected.`,
+          path: backupPath,
+        })
+      )
+    : Effect.void;
+
+/** Ensure parent directory exists if needed */
+const ensureParentIfNeeded = (
+  fullPath: string,
+  dataDir: string
+): Effect.Effect<void, SystemError | GeneralError> =>
+  pipe(
+    getParentDir(fullPath),
+    Option.match({
+      onNone: (): Effect.Effect<void, SystemError | GeneralError> => Effect.void,
+      onSome: (parentDir): Effect.Effect<void, SystemError | GeneralError> =>
+        needsParentDir(parentDir, dataDir)
+          ? ensureDirectory(parentDir as AbsolutePath)
+          : Effect.void,
+    })
+  );
+
+/** Write single file with validation */
+const writeValidatedFile =
+  (dataDir: string, backupPath: AbsolutePath) =>
+  ([name, content]: readonly [string, Uint8Array]): Effect.Effect<
+    void,
+    BackupError | SystemError | GeneralError
+  > => {
+    const fullPath = `${dataDir}/${name}`;
+    return pipe(
+      validateFilename(name, backupPath),
+      Effect.flatMap(() => ensureParentIfNeeded(fullPath, dataDir)),
+      Effect.flatMap(() =>
+        Effect.tryPromise({
+          try: (): Promise<number> => Bun.write(fullPath, content),
+          catch: (e): SystemError =>
+            new SystemError({
+              code: ErrorCode.FILE_WRITE_FAILED as 28,
+              message: `Failed to write file ${fullPath}: ${e}`,
+            }),
+        })
+      ),
+      Effect.asVoid
+    );
+  };
+
+// ============================================================================
+// Restore Command
+// ============================================================================
+
 /**
  * Restore from a backup archive.
  */
@@ -173,41 +251,13 @@ export const restoreActual = (
     // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: "gzip" });
 
-    // Write files to data directory
-    for (const [name, content] of files) {
-      // Skip metadata.json
-      if (name === "metadata.json") {
-        continue;
-      }
+    // Filter metadata, then write files sequentially
+    const filesToWrite = [...files].filter(([name]) => name !== "metadata.json");
 
-      // Validate filename doesn't contain path traversal
-      if (name.includes("..") || name.startsWith("/") || name.includes("\x00")) {
-        return yield* Effect.fail(
-          new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
-            message: `Invalid filename in backup archive: ${name}. Potential path traversal detected.`,
-            path: backupPath,
-          })
-        );
-      }
-
-      const fullPath = `${dataDir}/${name}`;
-
-      // Ensure parent directory exists
-      const parentDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-      if (parentDir && parentDir !== dataDir) {
-        yield* ensureDirectory(parentDir as AbsolutePath);
-      }
-
-      yield* Effect.tryPromise({
-        try: (): Promise<number> => Bun.write(fullPath, content),
-        catch: (e): SystemError =>
-          new SystemError({
-            code: ErrorCode.FILE_WRITE_FAILED as 28,
-            message: `Failed to write file ${fullPath}: ${e}`,
-          }),
-      });
-    }
+    yield* Effect.forEach(filesToWrite, writeValidatedFile(dataDir, backupPath), {
+      concurrency: 1,
+      discard: true,
+    });
 
     logger.success("Restore completed successfully");
   });

@@ -15,6 +15,7 @@ import { Array as Arr, Effect, Option, Order, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
 import { createArchive } from "../system/archive";
 import { directoryExists, ensureDirectory } from "../system/fs";
+import { collectAsyncOrDie } from "./collection-utils";
 import { BackupError, ErrorCode, type SystemError, errorMessage } from "./errors";
 import type { Logger } from "./logger";
 import { mapCharsToString } from "./str-transform";
@@ -98,13 +99,7 @@ export const listBackupFiles = (
     }
 
     const glob = new Glob(pattern);
-    const files: string[] = [];
-
-    yield* Effect.promise(async () => {
-      for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
-        files.push(file);
-      }
-    });
+    const files = yield* collectAsyncOrDie(glob.scan({ cwd: backupDir, onlyFiles: true }));
 
     const withStats = yield* Effect.forEach(
       files,
@@ -216,13 +211,7 @@ export const scanDirectoryFiles = (
 ): Effect.Effect<readonly string[], never> =>
   Effect.gen(function* () {
     const glob = new Glob("**/*");
-    const files: string[] = [];
-
-    yield* Effect.promise(async () => {
-      for await (const file of glob.scan({ cwd: dir, onlyFiles: true })) {
-        files.push(file);
-      }
-    });
+    const files = yield* collectAsyncOrDie(glob.scan({ cwd: dir, onlyFiles: true }));
 
     return files.filter(notExcluded(exclude));
   });
@@ -259,13 +248,7 @@ export const listFilesByMtime = (
 ): Effect.Effect<readonly string[], never> =>
   Effect.gen(function* () {
     const glob = new Glob(pattern);
-    const files: string[] = [];
-
-    yield* Effect.promise(async () => {
-      for await (const file of glob.scan({ cwd: dir, onlyFiles: true })) {
-        files.push(file);
-      }
-    });
+    const files = yield* collectAsyncOrDie(glob.scan({ cwd: dir, onlyFiles: true }));
 
     const withStats = yield* Effect.forEach(files, (f) => getFileMtime(dir, f), {
       concurrency: 10,

@@ -61,35 +61,21 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => (
  * Generate a complete container quadlet file.
  */
 export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQuadlet => {
-  const sections: IniSection[] = [];
-
-  // Unit section with dependencies
   const unitDeps = buildUnitDependencies(
     config.requires,
     config.wants,
-    config.after ?? config.requires, // Default: after = requires
+    config.after ?? config.requires,
     config.before
   );
 
-  sections.push(
-    buildUnitSection({
-      description: config.description,
-      ...unitDeps,
-    })
-  );
-
-  // Container section
-  sections.push(buildContainerSection(config));
-
-  // Service section
-  sections.push(buildServiceSection(config.service));
-
-  // Install section
-  sections.push(
+  const sections: IniSection[] = [
+    buildUnitSection({ description: config.description, ...unitDeps }),
+    buildContainerSection(config),
+    buildServiceSection(config.service),
     buildInstallSection({
       ...(config.wantedBy !== undefined && { wantedBy: config.wantedBy }),
-    })
-  );
+    }),
+  ];
 
   return {
     filename: `${config.name}.container`,

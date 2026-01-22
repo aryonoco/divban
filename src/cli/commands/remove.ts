@@ -213,19 +213,19 @@ const cleanupPodmanResources = (
             .map((n) => n.trim())
             .filter((n) => n && n !== "podman");
 
-          for (const network of networks) {
-            yield* Effect.ignore(
-              execAsUser(
-                username as unknown as Parameters<typeof execAsUser>[0],
-                uid,
-                ["podman", "network", "rm", network],
-                {
-                  captureStdout: true,
-                  captureStderr: true,
-                }
-              )
-            );
-          }
+          yield* Effect.forEach(
+            networks,
+            (network) =>
+              Effect.ignore(
+                execAsUser(
+                  username as unknown as Parameters<typeof execAsUser>[0],
+                  uid,
+                  ["podman", "network", "rm", network],
+                  { captureStdout: true, captureStderr: true }
+                )
+              ),
+            { discard: true }
+          );
         }),
     });
   });
