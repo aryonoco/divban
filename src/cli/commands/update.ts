@@ -19,14 +19,13 @@ import {
   type SystemError,
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import { exec } from "../../system/exec";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { resolveServiceConfig } from "./utils";
 
 export interface UpdateOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -54,10 +53,7 @@ export const executeUpdate = (
       );
     }
 
-    const { uid, homeDir } = userResult.right;
-
-    // Resolve config
-    yield* resolveServiceConfig(service, homeDir);
+    const { uid } = userResult.right;
 
     logger.info(`Updating ${service.definition.name} containers...`);
 

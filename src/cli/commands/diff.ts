@@ -34,14 +34,14 @@ import type {
   Username as UsernameType,
 } from "../../lib/types";
 import { GroupIdSchema, UserIdSchema } from "../../lib/types";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService, GeneratedFiles } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 import { createServiceLayer, detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface DiffOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -65,7 +65,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
 
     const validPath = yield* toAbsolutePathEffect(configPath);
     logger.info(`Comparing configuration for ${service.definition.name}...`);
-    const config = yield* loadServiceConfig(validPath, service.definition.configSchema);
 
     // Get service username
     const username = yield* getServiceUsername(service.definition.name);
@@ -115,29 +114,35 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
           homeDir: TEMP_PATHS.nonexistent,
         };
 
-    // Build prerequisites for layer creation
-    const prereqs = {
-      user,
-      config,
-      system,
-      paths: {
-        dataDir: TEMP_PATHS.diffDataDir,
-        quadletDir,
-        configDir,
-        homeDir: userInfo ? userInfo.homeDir : TEMP_PATHS.nonexistent,
-      },
-    };
+    // Enter existential for typed config loading
+    const files: GeneratedFiles = yield* service.apply((s) =>
+      Effect.gen(function* () {
+        const config = yield* loadServiceConfig(validPath, s.configSchema);
 
-    const layer = createServiceLayer(
-      config,
-      service.configTag,
-      prereqs,
-      getContextOptions(args),
-      logger
+        // Build prerequisites for layer creation
+        const prereqs = {
+          user,
+          system,
+          paths: {
+            dataDir: TEMP_PATHS.diffDataDir,
+            quadletDir,
+            configDir,
+            homeDir: userInfo ? userInfo.homeDir : TEMP_PATHS.nonexistent,
+          },
+        };
+
+        const layer = createServiceLayer(
+          config,
+          s.configTag,
+          prereqs,
+          getContextOptions(args),
+          logger
+        );
+
+        // Generate files
+        return yield* s.generate().pipe(Effect.provide(layer));
+      })
     );
-
-    // Generate files
-    const files = yield* service.generate().pipe(Effect.provide(layer));
 
     // Collect all file entries
     const fileEntries: readonly { path: AbsolutePath; content: string }[] = [

@@ -14,7 +14,7 @@ import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { AbsolutePath } from "../../lib/types";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import { removeDirectory } from "../../system/directories";
 import { exec, execAsUser } from "../../system/exec";
 import { directoryExists } from "../../system/fs";
@@ -24,7 +24,7 @@ import { deleteServiceUser, getUserByName, requireRoot } from "../../system/user
 import type { ParsedArgs } from "../parser";
 
 export interface RemoveOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }

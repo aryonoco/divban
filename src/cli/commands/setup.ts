@@ -25,7 +25,7 @@ import {
 } from "../../lib/paths";
 import { userIdToGroupId } from "../../lib/types";
 import { cleanupConfigBackup, copyConfigTracked, rollbackConfigCopy } from "../../services/helpers";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import {
   ensureServiceDirectoriesTracked,
   removeDirectoriesReverse,
@@ -42,7 +42,7 @@ import {
 } from "./utils";
 
 export interface SetupOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
   globalConfig: GlobalConfig;
@@ -70,12 +70,15 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
 
     logger.info(`Setting up ${service.definition.name}...`);
 
-    // Chain: validate path → load config
+    // Validate path first
     const validConfigPath = yield* toAbsolutePathEffect(configPath);
-    const config = yield* loadServiceConfig(validConfigPath, service.definition.configSchema);
 
     // Get service username
     const username = yield* getServiceUsername(service.definition.name);
+
+    // For caddy, check if privileged port binding needs to be configured
+    const needsSysctl =
+      service.definition.name === "caddy" && !(yield* isUnprivilegedPortEnabled());
 
     if (args.dryRun) {
       logger.info("Dry run mode - showing what would be done:");
@@ -100,11 +103,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       return;
     }
 
-    // For caddy, check if privileged port binding needs to be configured
-    const needsSysctl =
-      service.definition.name === "caddy" && !(yield* isUnprivilegedPortEnabled());
     const totalSteps = needsSysctl ? 8 : 7;
-    let currentStep = 0;
 
     // Check if running as root (required for user creation and sysctl)
     if (process.getuid?.() !== 0) {
@@ -130,88 +129,97 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       }
     }
 
-    // Main scoped setup with automatic rollback on failure
-    yield* Effect.scoped(
+    // Enter existential for typed config loading
+    yield* service.apply((s) =>
       Effect.gen(function* () {
-        // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
-        if (needsSysctl) {
-          currentStep++;
-          logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
-          yield* ensureUnprivilegedPorts(70, service.definition.name);
-        }
+        // Load and validate config with typed schema
+        const config = yield* loadServiceConfig(validConfigPath, s.configSchema);
 
-        // Step 2: User - scoped resource with conditional rollback
-        currentStep++;
-        logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
-        const userAcq = yield* Effect.acquireRelease(
-          acquireServiceUser(service.definition.name, uidSettings),
-          (acq, exit) =>
-            Exit.isFailure(exit) && acq.wasCreated
-              ? releaseServiceUser(service.definition.name, true)
-              : Effect.void
+        let currentStep = 0;
+
+        // Main scoped setup with automatic rollback on failure
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
+            if (needsSysctl) {
+              currentStep++;
+              logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
+              yield* ensureUnprivilegedPorts(70, service.definition.name);
+            }
+
+            // Step 2: User - scoped resource with conditional rollback
+            currentStep++;
+            logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
+            const userAcq = yield* Effect.acquireRelease(
+              acquireServiceUser(service.definition.name, uidSettings),
+              (acq, exit) =>
+                Exit.isFailure(exit) && acq.wasCreated
+                  ? releaseServiceUser(service.definition.name, true)
+                  : Effect.void
+            );
+            const { uid, homeDir } = userAcq.value;
+            const gid = userIdToGroupId(uid);
+
+            // Step 3: Linger - scoped resource with conditional rollback
+            currentStep++;
+            logger.step(currentStep, totalSteps, "Enabling user linger...");
+            yield* Effect.acquireRelease(enableLingerTracked(username, uid), (acq, exit) =>
+              Exit.isFailure(exit) && acq.wasCreated
+                ? disableLinger(username).pipe(Effect.ignore)
+                : Effect.void
+            );
+
+            // Step 4: Directories - scoped resource with tracked rollback
+            currentStep++;
+            logger.step(currentStep, totalSteps, "Creating service directories...");
+            const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
+            yield* Effect.acquireRelease(
+              ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
+              (result, exit) =>
+                Exit.isFailure(exit) ? removeDirectoriesReverse(result.createdPaths) : Effect.void
+            );
+
+            // Step 5: Config copy - scoped resource with backup/restore
+            currentStep++;
+            logger.step(currentStep, totalSteps, "Copying configuration file...");
+            const configDestPath = configFilePath(
+              userConfigDir(homeDir),
+              `${service.definition.name}.toml`
+            );
+            yield* Effect.acquireRelease(
+              copyConfigTracked(validConfigPath, configDestPath, { uid, gid }),
+              (result, exit) =>
+                Exit.isFailure(exit)
+                  ? rollbackConfigCopy(configDestPath, result)
+                  : cleanupConfigBackup(result)
+            );
+
+            // Build service layer
+            const system = yield* detectSystemCapabilities();
+
+            const layer = createServiceLayer(
+              config,
+              s.configTag,
+              {
+                user: { name: username, uid, gid, homeDir },
+                system,
+                paths: {
+                  dataDir,
+                  quadletDir: userQuadletDir(homeDir),
+                  configDir: userConfigDir(homeDir),
+                  homeDir,
+                },
+              },
+              getContextOptions(args),
+              logger
+            );
+
+            // Step 6: Service-specific setup
+            currentStep++;
+            logger.step(currentStep, totalSteps, "Running service-specific setup...");
+            yield* s.setup().pipe(Effect.provide(layer));
+          })
         );
-        const { uid, homeDir } = userAcq.value;
-        const gid = userIdToGroupId(uid);
-
-        // Step 3: Linger - scoped resource with conditional rollback
-        currentStep++;
-        logger.step(currentStep, totalSteps, "Enabling user linger...");
-        yield* Effect.acquireRelease(enableLingerTracked(username, uid), (acq, exit) =>
-          Exit.isFailure(exit) && acq.wasCreated
-            ? disableLinger(username).pipe(Effect.ignore)
-            : Effect.void
-        );
-
-        // Step 4: Directories - scoped resource with tracked rollback
-        currentStep++;
-        logger.step(currentStep, totalSteps, "Creating service directories...");
-        const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
-        yield* Effect.acquireRelease(
-          ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
-          (result, exit) =>
-            Exit.isFailure(exit) ? removeDirectoriesReverse(result.createdPaths) : Effect.void
-        );
-
-        // Step 5: Config copy - scoped resource with backup/restore
-        currentStep++;
-        logger.step(currentStep, totalSteps, "Copying configuration file...");
-        const configDestPath = configFilePath(
-          userConfigDir(homeDir),
-          `${service.definition.name}.toml`
-        );
-        yield* Effect.acquireRelease(
-          copyConfigTracked(validConfigPath, configDestPath, { uid, gid }),
-          (result, exit) =>
-            Exit.isFailure(exit)
-              ? rollbackConfigCopy(configDestPath, result)
-              : cleanupConfigBackup(result)
-        );
-
-        // Build service layer
-        const system = yield* detectSystemCapabilities();
-
-        const layer = createServiceLayer(
-          config,
-          service.configTag,
-          {
-            config,
-            user: { name: username, uid, gid, homeDir },
-            system,
-            paths: {
-              dataDir,
-              quadletDir: userQuadletDir(homeDir),
-              configDir: userConfigDir(homeDir),
-              homeDir,
-            },
-          },
-          getContextOptions(args),
-          logger
-        );
-
-        // Step 6: Service-specific setup
-        currentStep++;
-        logger.step(currentStep, totalSteps, "Running service-specific setup...");
-        yield* service.setup().pipe(Effect.provide(layer));
       })
     );
 

@@ -81,7 +81,6 @@ const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Self-hosted photo and video management",
   version: "0.1.0",
-  configSchema: immichConfigSchema,
   capabilities: {
     multiContainer: true,
     hasReload: false,
@@ -674,6 +673,7 @@ const restore = (
 export const immichService: ServiceEffect<ImmichConfig, ImmichConfigTag, typeof ImmichConfigTag> = {
   definition,
   configTag: ImmichConfigTag,
+  configSchema: immichConfigSchema,
   validate,
   generate,
   setup,

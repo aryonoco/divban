@@ -24,7 +24,7 @@ import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect, userConfigDir } from "../../lib/paths";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { pathJoin } from "../../lib/types";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import { type ArchiveMetadata, createArchive } from "../../system/archive";
 import {
   directoryExists,
@@ -38,7 +38,7 @@ import type { ParsedArgs } from "../parser";
 import { formatBytes } from "./utils";
 
 export interface BackupConfigOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }

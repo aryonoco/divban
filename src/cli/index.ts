@@ -26,7 +26,7 @@ import {
 import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { getService, initializeServices, listServices } from "../services";
-import type { AnyServiceEffect, ServiceDefinition } from "../services/types";
+import type { ExistentialService, ServiceDefinition } from "../services/types";
 import { type Command, type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
 // Import Effect-based command handlers
@@ -150,7 +150,7 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
  * Uses Match.exhaustive for compile-time totality checking.
  */
 const executeCommand = (
-  service: AnyServiceEffect,
+  service: ExistentialService,
   args: ParsedArgs,
   logger: Logger,
   globalConfig: GlobalConfig

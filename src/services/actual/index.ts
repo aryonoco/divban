@@ -51,7 +51,6 @@ const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Self-hosted personal finance management",
   version: "0.1.0",
-  configSchema: actualConfigSchema,
   capabilities: {
     multiContainer: false,
     hasReload: false,
@@ -342,6 +341,7 @@ const restore = (
 export const actualService: ServiceEffect<ActualConfig, ActualConfigTag, typeof ActualConfigTag> = {
   definition,
   configTag: ActualConfigTag,
+  configSchema: actualConfigSchema,
   validate,
   generate,
   setup,

@@ -55,7 +55,6 @@ const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Caddy reverse proxy server with automatic HTTPS",
   version: "0.1.0",
-  configSchema: caddyConfigSchema,
   capabilities: {
     multiContainer: false,
     hasReload: true,
@@ -301,6 +300,7 @@ const reload = (): Effect.Effect<
 export const caddyService: ServiceEffect<CaddyConfig, CaddyConfigTag, typeof CaddyConfigTag> = {
   definition,
   configTag: CaddyConfigTag,
+  configSchema: caddyConfigSchema,
   validate,
   generate,
   setup,

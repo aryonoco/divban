@@ -38,11 +38,6 @@ export interface ServiceDefinition {
   description: string;
   /** Service version */
   version: string;
-
-  /** Effect Schema for service-specific configuration */
-  // biome-ignore lint/suspicious/noExplicitAny: Required for type-erased service registry
-  configSchema: Schema.Schema<any, any, never>;
-
   /** Service capabilities */
   capabilities: {
     /** Multi-container service (uses stack orchestration) */
@@ -149,6 +144,10 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
 
   /** Context tag for accessing this service's configuration */
   readonly configTag: ConfigTag;
+
+  /** Effect Schema for validating and decoding service configuration */
+  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type (invariant position)
+  readonly configSchema: Schema.Schema<C, any, never>;
 
   // === Lifecycle Methods ===
 
@@ -274,9 +273,68 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   >;
 }
 
-/** Type-erased service for registry and CLI usage */
-// biome-ignore lint/suspicious/noExplicitAny: Required for type-erased service registry
-export type AnyServiceEffect = ServiceEffect<any, any, Context.Tag<any, any>>;
+/**
+ * Existential service wrapper - type-safe heterogeneous service storage.
+ *
+ * This encodes the existential type: ∃C I Tag. ServiceEffect<C, I, Tag>
+ *
+ * In theory, the textbook CPS encoding would be:
+ *   ∀R. (∀C I Tag. ServiceEffect<C, I, Tag> → R) → R
+ *
+ * Translated to TypeScript:
+ *   apply: <R>(f: <C, I, Tag extends Context.Tag<I, C>>(service: ServiceEffect<C, I, Tag>) => R) => R
+ *
+ * However, TypeScript's type system cannot handle this properly. When a callback has
+ * fresh type parameters `<C, I, Tag>`, TypeScript treats them as entirely separate from
+ * the concrete types stored in the existential. This results in errors like:
+ *   "Type 'C' is not assignable to type 'C'. Two different types with this name exist."
+ *
+ * This is a fundamental limitation of TypeScript's type system, not specific to
+ * exactOptionalPropertyTypes. Haskell handles this correctly because it has impredicative
+ * instantiation and proper type application.
+ *
+ * The workaround uses `any` which is safe because:
+ * 1. Only `mkExistentialService` can construct an ExistentialService
+ * 2. The callback receives a concrete ServiceEffect (not any) at runtime
+ * 3. The callback must be written to work with any service type
+ */
+export interface ExistentialService {
+  /**
+   * Service definition metadata (name, description, capabilities, etc.)
+   * Available without entering the existential - for display and capability checks.
+   */
+  readonly definition: ServiceDefinition;
+
+  /**
+   * Apply a polymorphic function to this service, recovering full type information.
+   * The continuation receives the concrete ServiceEffect with full type info.
+   *
+   * @example
+   * ```typescript
+   * service.apply((s) =>
+   *   Effect.gen(function* () {
+   *     const config = yield* loadServiceConfig(path, s.configSchema);
+   *     const layer = Layer.succeed(s.configTag, config);
+   *     yield* s.start().pipe(Effect.provide(layer));
+   *   })
+   * );
+   * ```
+   */
+  // biome-ignore lint/suspicious/noExplicitAny: Required for existential type encoding - TypeScript's higher-rank polymorphism cannot unify fresh type variables with concrete existential types
+  readonly apply: <R>(f: (service: ServiceEffect<any, any, any>) => R) => R;
+}
+
+/**
+ * Wrap a concrete ServiceEffect into an ExistentialService.
+ * This is the only way to construct an ExistentialService.
+ */
+export const mkExistentialService = <C, I, Tag extends Context.Tag<I, C>>(
+  service: ServiceEffect<C, I, Tag>
+): ExistentialService => ({
+  definition: service.definition,
+  // The type assertion is safe because f is polymorphic - it must work for any types
+  apply: <R>(f: (s: ServiceEffect<C, I, Tag>) => R): R => f(service),
+});
 
 // ============================================================================
 // GeneratedFiles Operations

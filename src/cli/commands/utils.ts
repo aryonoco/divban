@@ -39,7 +39,6 @@ import {
   ServiceUser,
   SystemCapabilities,
 } from "../../services/context";
-import type { AnyServiceEffect } from "../../services/types";
 import { isSELinuxEnforcing } from "../../system/selinux";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
@@ -74,12 +73,13 @@ const getConfigPaths = (serviceName: string, homeDir: AbsolutePathType): string[
 ];
 
 /**
- * Try to load config from a single path.
+ * Try to load config from a single path with typed schema.
  */
-const tryLoadConfigFromPath = (
+const tryLoadConfigFromPath = <C>(
   path: string,
-  schema: Schema.Schema<unknown, unknown, never>
-): Effect.Effect<unknown, ConfigError | SystemError> =>
+  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type
+  schema: Schema.Schema<C, any, never>
+): Effect.Effect<C, ConfigError | SystemError> =>
   pipe(
     Effect.promise(() => Bun.file(path).exists()),
     Effect.flatMap((exists) =>
@@ -98,33 +98,28 @@ const tryLoadConfigFromPath = (
   );
 
 /**
- * Find and load a service configuration file.
+ * Search common config locations and load with typed schema.
+ * Used when no explicit config path is provided.
  */
-export const resolveServiceConfig = (
-  service: AnyServiceEffect,
+export const findAndLoadConfig = <C>(
+  serviceName: string,
   homeDir: AbsolutePathType,
-  explicitPath?: string
-): Effect.Effect<unknown, ConfigError | SystemError> =>
-  explicitPath !== undefined
-    ? pipe(
-        toAbsolutePathEffect(explicitPath),
-        Effect.flatMap((path) => loadServiceConfig(path, service.definition.configSchema))
+  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type
+  schema: Schema.Schema<C, any, never>
+): Effect.Effect<C, ConfigError | SystemError> =>
+  pipe(
+    Effect.firstSuccessOf(
+      getConfigPaths(serviceName, homeDir).map((p) => tryLoadConfigFromPath(p, schema))
+    ),
+    Effect.catchAll(() =>
+      Effect.fail(
+        new ConfigError({
+          code: ErrorCode.CONFIG_NOT_FOUND as 10,
+          message: `No configuration file found for ${serviceName}. Searched: ${getConfigPaths(serviceName, homeDir).join(", ")}`,
+        })
       )
-    : pipe(
-        Effect.firstSuccessOf(
-          getConfigPaths(service.definition.name, homeDir).map((p) =>
-            tryLoadConfigFromPath(p, service.definition.configSchema)
-          )
-        ),
-        Effect.catchAll(() =>
-          Effect.fail(
-            new ConfigError({
-              code: ErrorCode.CONFIG_NOT_FOUND as 10,
-              message: `No configuration file found for ${service.definition.name}. Searched: ${getConfigPaths(service.definition.name, homeDir).join(", ")}`,
-            })
-          )
-        )
-      );
+    )
+  );
 
 // ============================================================================
 // Formatting Utilities
@@ -162,24 +157,35 @@ export const formatBytes = (bytes: number): string => {
 };
 
 /**
+ * Interface for configs that may have a paths.dataDir property.
+ */
+interface ConfigWithPaths {
+  paths?: { dataDir?: string };
+}
+
+/**
+ * Type guard to check if config has paths.dataDir property.
+ */
+const hasPathsWithDataDir = (config: object): config is ConfigWithPaths =>
+  "paths" in config &&
+  config.paths !== null &&
+  typeof config.paths === "object" &&
+  "dataDir" in config.paths &&
+  typeof config.paths.dataDir === "string";
+
+/**
  * Safely extract dataDir from config.
  * Service configs may have a paths.dataDir property.
  */
-export const getDataDirFromConfig = (
-  config: unknown,
+export const getDataDirFromConfig = <C extends object>(
+  config: C,
   fallback: AbsolutePathType
 ): AbsolutePathType => {
-  if (
-    config !== null &&
-    typeof config === "object" &&
-    "paths" in config &&
-    config.paths !== null &&
-    typeof config.paths === "object" &&
-    "dataDir" in config.paths &&
-    typeof config.paths.dataDir === "string"
-  ) {
-    // Validate the path, falling back to default if invalid
-    return Schema.is(AbsolutePathSchema)(config.paths.dataDir) ? config.paths.dataDir : fallback;
+  if (hasPathsWithDataDir(config)) {
+    const dataDir = config.paths?.dataDir;
+    if (dataDir !== undefined && Schema.is(AbsolutePathSchema)(dataDir)) {
+      return dataDir;
+    }
   }
   return fallback;
 };
@@ -277,11 +283,11 @@ export const resolveServiceUser = (
 // ============================================================================
 
 /**
- * Prerequisites resolved for a service command.
+ * Prerequisites resolved for a service command (without config).
+ * Config is loaded inside the existential apply() with proper typing.
  */
-export interface Prerequisites<C> {
+export interface Prerequisites {
   user: ResolvedServiceUser;
-  config: C;
   system: { selinuxEnforcing: boolean };
   paths: {
     dataDir: AbsolutePathType;
@@ -313,69 +319,30 @@ export const buildServicePathsFromHome = (
 };
 
 /**
- * Resolve all prerequisites for a service command.
- * Returns user, config, system capabilities, and paths.
+ * Resolve user, system capabilities, and paths for a service.
+ * Config loading is handled separately inside apply().
  */
-export const resolvePrerequisites = <C>(
-  service: AnyServiceEffect,
-  configPath: string | undefined,
-  dataDirOverride?: string
-): Effect.Effect<Prerequisites<C>, ServiceError | ConfigError | SystemError | GeneralError> =>
+export const resolvePrerequisites = (
+  serviceName: string,
+  dataDirOverride: string | null
+): Effect.Effect<Prerequisites, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const user = yield* resolveServiceUser(service.definition.name);
-    const effectiveConfigPath = configPath ?? undefined;
-    const config = (yield* resolveServiceConfig(service, user.homeDir, effectiveConfigPath)) as C;
+    const user = yield* resolveServiceUser(serviceName);
     const system = yield* detectSystemCapabilities();
-
-    // Get dataDir from config if available, otherwise use default
     const baseDataDir = userDataDir(user.homeDir);
-    const configDataDir = getDataDirFromConfig(config, baseDataDir);
-    const finalDataDir = dataDirOverride ? (dataDirOverride as AbsolutePathType) : configDataDir;
-
+    const finalDataDir =
+      dataDirOverride !== null ? (dataDirOverride as AbsolutePathType) : baseDataDir;
     const paths = buildServicePathsFromHome(user.homeDir, finalDataDir);
-    return { user, config, system, paths };
-  });
-
-/**
- * Resolve prerequisites with optional config (config may not exist).
- */
-export const resolvePrerequisitesOptionalConfig = <C>(
-  service: AnyServiceEffect,
-  configPath: string | undefined,
-  dataDirOverride?: string
-): Effect.Effect<
-  Prerequisites<C | Record<string, never>>,
-  ServiceError | SystemError | GeneralError
-> =>
-  Effect.gen(function* () {
-    const user = yield* resolveServiceUser(service.definition.name);
-    const configResult = yield* Effect.either(
-      resolveServiceConfig(service, user.homeDir, configPath)
-    );
-
-    const config =
-      configResult._tag === "Right" ? (configResult.right as C) : ({} as Record<string, never>);
-    const system = yield* detectSystemCapabilities();
-
-    // Get dataDir from config if available, otherwise use default
-    const baseDataDir = userDataDir(user.homeDir);
-    const configDataDir =
-      configResult._tag === "Right"
-        ? getDataDirFromConfig(configResult.right, baseDataDir)
-        : baseDataDir;
-    const finalDataDir = dataDirOverride ? (dataDirOverride as AbsolutePathType) : configDataDir;
-
-    const paths = buildServicePathsFromHome(user.homeDir, finalDataDir);
-    return { user, config, system, paths };
+    return { user, system, paths };
   });
 
 /**
  * Create a Layer from resolved prerequisites and a service config tag.
  */
-export const createServiceLayer = <C, ConfigTag extends Context.Tag<ConfigTag, C>>(
+export const createServiceLayer = <C, I, ConfigTag extends Context.Tag<I, C>>(
   config: C,
   configTag: ConfigTag,
-  prereqs: Prerequisites<C>,
+  prereqs: Prerequisites,
   options: { dryRun: boolean; verbose: boolean; force: boolean },
   logger: Logger
 ): Layer.Layer<
@@ -388,27 +355,6 @@ export const createServiceLayer = <C, ConfigTag extends Context.Tag<ConfigTag, C
 > =>
   Layer.mergeAll(
     Layer.succeed(configTag, config),
-    Layer.succeed(ServicePaths, prereqs.paths),
-    Layer.succeed(ServiceUser, {
-      name: prereqs.user.name,
-      uid: prereqs.user.uid,
-      gid: prereqs.user.gid,
-    }),
-    Layer.succeed(ServiceOptions, options),
-    Layer.succeed(SystemCapabilities, prereqs.system),
-    Layer.succeed(AppLogger, logger)
-  );
-
-/**
- * Create a Layer without service-specific config.
- * Used for commands that don't need the full config.
- */
-export const createMinimalServiceLayer = (
-  prereqs: Prerequisites<unknown>,
-  options: { dryRun: boolean; verbose: boolean; force: boolean },
-  logger: Logger
-): Layer.Layer<ServicePaths | ServiceUser | ServiceOptions | SystemCapabilities | AppLogger> =>
-  Layer.mergeAll(
     Layer.succeed(ServicePaths, prereqs.paths),
     Layer.succeed(ServiceUser, {
       name: prereqs.user.name,

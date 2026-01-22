@@ -21,14 +21,14 @@ import {
 } from "../../lib/paths";
 import { GroupIdSchema, UserIdSchema, UsernameSchema } from "../../lib/types";
 import { writeGeneratedFilesPreview } from "../../services/helpers";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
 import { createServiceLayer, detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface GenerateOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -59,36 +59,39 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
     const gid = GroupIdSchema.make(1000);
 
     const validPath = yield* toAbsolutePathEffect(configPath);
-    const config = yield* loadServiceConfig(validPath, service.definition.configSchema);
-
     const quadletDir = yield* outputQuadletDir(outputDir);
     const configDir = yield* outputConfigDir(outputDir);
-
     const system = yield* detectSystemCapabilities();
 
-    // Build prerequisites for layer creation
-    const prereqs = {
-      user: { name: username, uid, gid, homeDir: TEMP_PATHS.generateDataDir },
-      config,
-      system,
-      paths: {
-        dataDir: TEMP_PATHS.generateDataDir,
-        quadletDir,
-        configDir,
-        homeDir: TEMP_PATHS.generateDataDir, // Pseudo-home for generation
-      },
-    };
+    // Enter existential for typed config loading
+    const files = yield* service.apply((s) =>
+      Effect.gen(function* () {
+        const config = yield* loadServiceConfig(validPath, s.configSchema);
 
-    const layer = createServiceLayer(
-      config,
-      service.configTag,
-      prereqs,
-      getContextOptions(args),
-      logger
+        // Build prerequisites for layer creation
+        const prereqs = {
+          user: { name: username, uid, gid, homeDir: TEMP_PATHS.generateDataDir },
+          system,
+          paths: {
+            dataDir: TEMP_PATHS.generateDataDir,
+            quadletDir,
+            configDir,
+            homeDir: TEMP_PATHS.generateDataDir, // Pseudo-home for generation
+          },
+        };
+
+        const layer = createServiceLayer(
+          config,
+          s.configTag,
+          prereqs,
+          getContextOptions(args),
+          logger
+        );
+
+        // Generate files
+        return yield* s.generate().pipe(Effect.provide(layer));
+      })
     );
-
-    // Generate files
-    const files = yield* service.generate().pipe(Effect.provide(layer));
 
     if (args.dryRun) {
       logger.info("Would generate the following files:");

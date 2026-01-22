@@ -20,13 +20,13 @@ import {
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { ServiceName } from "../../lib/types";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import { getServiceSecret, listServiceSecrets } from "../../system/secrets";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
 
 export interface SecretOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }

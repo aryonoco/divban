@@ -13,11 +13,11 @@ import { Effect } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
-import type { AnyServiceEffect } from "../../services/types";
+import type { ExistentialService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 
 export interface ValidateOptions {
-  service: AnyServiceEffect;
+  service: ExistentialService;
   args: ParsedArgs;
   logger: Logger;
 }
@@ -42,7 +42,8 @@ export const executeValidate = (options: ValidateOptions): Effect.Effect<void, D
     const validPath = yield* toAbsolutePathEffect(configPath);
     logger.info(`Validating configuration: ${validPath}`);
 
-    const result = yield* Effect.either(service.validate(validPath));
+    // validate() is context-free, use apply() to access the method
+    const result = yield* service.apply((s) => Effect.either(s.validate(validPath)));
 
     if (result._tag === "Left") {
       logger.fail(`Validation failed: ${result.left.message}`);

@@ -9,24 +9,32 @@
  * Service registry and exports - Effect-based.
  */
 
+import type { Context } from "effect";
 import { Effect } from "effect";
 import { ErrorCode, ServiceError } from "../lib/errors";
-import type { AnyServiceEffect, ServiceDefinition } from "./types";
+import {
+  type ExistentialService,
+  type ServiceDefinition,
+  type ServiceEffect,
+  mkExistentialService,
+} from "./types";
 
 // Service registry
-const services = new Map<string, AnyServiceEffect>();
+const services = new Map<string, ExistentialService>();
 
 /**
  * Register a service in the registry.
  */
-export const registerService = (service: AnyServiceEffect): void => {
-  services.set(service.definition.name, service);
+export const registerService = <C, I, Tag extends Context.Tag<I, C>>(
+  service: ServiceEffect<C, I, Tag>
+): void => {
+  services.set(service.definition.name, mkExistentialService(service));
 };
 
 /**
  * Get a service by name.
  */
-export const getService = (name: string): Effect.Effect<AnyServiceEffect, ServiceError> => {
+export const getService = (name: string): Effect.Effect<ExistentialService, ServiceError> => {
   const service = services.get(name);
   if (service === undefined) {
     const available = [...services.keys()].join(", ");
@@ -63,7 +71,7 @@ export const getServiceNames = (): string[] => {
 
 // Re-export types from Effect version
 export type {
-  AnyServiceEffect,
+  ExistentialService,
   BackupResult,
   GeneratedFiles,
   LogOptions,
@@ -71,6 +79,8 @@ export type {
   ServiceDefinition,
   ServiceStatus,
 } from "./types";
+
+export { mkExistentialService } from "./types";
 
 // Re-export context tags for CLI usage
 export {
