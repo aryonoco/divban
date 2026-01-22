@@ -9,100 +9,134 @@
  * Site block generation for Caddyfile.
  */
 
-import { Option } from "effect";
+import { Option, pipe } from "effect";
 import { nonEmpty } from "../../../lib/option-helpers";
 import type { Directive, Route, Site } from "../schema";
-import { renderDirectives } from "./directives";
-import { createBuilder } from "./format";
-import { generateNamedMatchers } from "./matchers";
+import { directivesOps } from "./directives";
+import { Caddy, type CaddyOp, caddyfile } from "./format";
+import { matchersOps } from "./matchers";
+
+// ============================================================================
+// CaddyOp Functions
+// ============================================================================
 
 /**
- * Generate a route block.
+ * Determine the route opener based on route config.
  */
-export const generateRoute = (route: Route): string => {
-  const builder = createBuilder();
-
-  // Route can be:
-  // - Named route: @name { ... }
-  // - Matched route: route /path { ... } or handle /path { ... }
-  // - Anonymous route: route { ... }
-
-  const matchOpt = nonEmpty(route.match);
-  if (route.name) {
-    // Named route
-    builder.open(`@${route.name}`);
-  } else if (Option.isSome(matchOpt)) {
-    // Matched route (using handle_path for path-based matching)
-    const matchStr = matchOpt.value.join(" ");
-    builder.open(`handle_path ${matchStr}`);
-  } else {
-    // Anonymous route using handle
-    builder.open("handle");
+const routeOpener = (route: Route): CaddyOp => {
+  if (route.name !== undefined) {
+    return Caddy.open(`@${route.name}`);
   }
 
-  const directivesContent = renderDirectives(route.directives, 1);
-  if (directivesContent) {
-    builder.raw(directivesContent.trim());
-  }
-
-  builder.close();
-
-  return builder.build();
+  return pipe(
+    nonEmpty(route.match),
+    Option.match({
+      onNone: (): CaddyOp => Caddy.open("handle"),
+      onSome: (matches): CaddyOp => Caddy.open(`handle_path ${matches.join(" ")}`),
+    })
+  );
 };
 
 /**
- * Generate a site block.
+ * Generate operations for a single route.
  */
-export const generateSite = (site: Site): string => {
-  const builder = createBuilder();
+export const routeOps = (route: Route): CaddyOp =>
+  Caddy.seq(routeOpener(route), directivesOps(route.directives, 1), Caddy.close);
 
-  // Site addresses
-  const addresses = site.addresses.join(", ");
-  builder.open(addresses);
-
-  // Named matchers (if any)
+/**
+ * Generate operations for a single site.
+ */
+export const siteOps = (site: Site): CaddyOp => {
   const matchersOpt = nonEmpty(site.matchers);
-  if (Option.isSome(matchersOpt)) {
-    const matchersContent = generateNamedMatchers(matchersOpt.value);
-    builder.blank();
-    builder.comment("Named matchers");
-    builder.raw(matchersContent.trim());
-  }
-
-  // Routes (if any)
   const routesOpt = nonEmpty(site.routes);
-  if (Option.isSome(routesOpt)) {
-    builder.blank();
-    builder.comment("Routes");
-    for (const route of routesOpt.value) {
-      builder.raw(generateRoute(route).trim());
-      builder.blank();
-    }
-  }
-
-  // Direct directives (if any)
   const directivesOpt = nonEmpty(site.directives);
-  if (Option.isSome(directivesOpt)) {
-    builder.blank();
-    const directivesContent = renderDirectives(directivesOpt.value, 1);
-    builder.raw(directivesContent.trim());
+
+  return Caddy.seq(
+    // Site address(es)
+    Caddy.open(site.addresses.join(", ")),
+
+    // Named matchers (if any)
+    pipe(
+      matchersOpt,
+      Option.match({
+        onNone: (): CaddyOp => Caddy.id,
+        onSome: (matchers): CaddyOp =>
+          Caddy.seq(Caddy.blank, Caddy.comment("Named matchers"), matchersOps(matchers)),
+      })
+    ),
+
+    // Routes (if any)
+    pipe(
+      routesOpt,
+      Option.match({
+        onNone: (): CaddyOp => Caddy.id,
+        onSome: (routes): CaddyOp =>
+          Caddy.seq(
+            Caddy.blank,
+            Caddy.comment("Routes"),
+            Caddy.forEach(routes, (route): CaddyOp => Caddy.seq(routeOps(route), Caddy.blank))
+          ),
+      })
+    ),
+
+    // Direct directives (if any)
+    pipe(
+      directivesOpt,
+      Option.match({
+        onNone: (): CaddyOp => Caddy.id,
+        onSome: (directives): CaddyOp => Caddy.seq(Caddy.blank, directivesOps(directives, 1)),
+      })
+    ),
+
+    Caddy.close
+  );
+};
+
+/**
+ * Generate operations for multiple sites.
+ * Intersperse with blank lines.
+ */
+export const sitesOps = (sites: readonly Site[]): CaddyOp => {
+  if (sites.length === 0) {
+    return Caddy.id;
   }
 
-  builder.close();
+  const firstSite = sites[0];
+  if (!firstSite) {
+    return Caddy.id;
+  }
 
-  return builder.build();
+  // First site without leading blank, remaining sites with leading blank
+  return Caddy.seq(
+    siteOps(firstSite),
+    ...sites.slice(1).map((site) => Caddy.seq(Caddy.blank, siteOps(site)))
+  );
 };
 
-/**
- * Generate all sites.
- */
-export const generateSites = (sites: readonly Site[]): string => {
-  return sites.map(generateSite).join("\n\n");
-};
+// ============================================================================
+// String-returning functions (backward compatibility)
+// ============================================================================
 
 /**
- * Common site builders.
+ * Generate a route block as string.
  */
+export const generateRoute = (route: Route): string => caddyfile(routeOps(route));
+
+/**
+ * Generate a site block as string.
+ */
+export const generateSite = (site: Site): string => caddyfile(siteOps(site));
+
+/**
+ * Generate all sites as string.
+ */
+export const generateSites = (sites: readonly Site[]): string =>
+  sites.map(generateSite).join("\n\n");
+
+// ============================================================================
+// Site Factory Helpers
+// ============================================================================
+
 export const Sites: Record<string, (...args: never[]) => Site> = {
   /**
    * Simple reverse proxy site

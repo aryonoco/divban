@@ -10,115 +10,113 @@
  */
 
 import { Option } from "effect";
+import { flatMapEntries } from "../../../lib/collection-utils";
 import type { GlobalOptions } from "../schema";
-import { createBuilder } from "./format";
+import { Caddy, type CaddyOp, caddyfile } from "./format";
 
 /**
- * Generate the global options block.
+ * Server configuration for Caddyfile global options.
+ * Defined locally as it's not exported from schema.
  */
-export const generateGlobalOptions = (options: GlobalOptions): string => {
-  const builder = createBuilder();
+interface ServerConfig {
+  readonly listen?: readonly string[] | undefined;
+  readonly protocols?: readonly string[] | undefined;
+  readonly strictSniHost?: boolean | undefined;
+}
 
-  builder.open("");
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
-  // Debug mode
-  if (options.debug) {
-    builder.directive("debug");
+/**
+ * Server config to operations.
+ * Uses flatMapEntries instead of for loop.
+ */
+const serverConfigOps = (name: string, config: ServerConfig): readonly CaddyOp[] =>
+  name === "*" || name === "default"
+    ? [
+        Caddy.when(config.protocols !== undefined, Caddy.directive("protocols", config.protocols)),
+        Caddy.when(config.strictSniHost === true, Caddy.directive("strict_sni_host")),
+      ]
+    : [
+        Caddy.open(name),
+        Caddy.when(config.listen !== undefined, Caddy.directive("listen", config.listen)),
+        Caddy.when(config.protocols !== undefined, Caddy.directive("protocols", config.protocols)),
+        Caddy.when(config.strictSniHost === true, Caddy.directive("strict_sni_host")),
+        Caddy.close,
+      ];
+
+/**
+ * Server block operations.
+ * Returns id (no-op) if no servers configured.
+ */
+const serversBlockOps = (servers: Record<string, ServerConfig> | undefined): CaddyOp =>
+  servers === undefined || Object.keys(servers).length === 0
+    ? Caddy.id
+    : Caddy.seq(
+        Caddy.open("servers"),
+        Caddy.all(flatMapEntries(servers, serverConfigOps)),
+        Caddy.close
+      );
+
+/**
+ * Log block operations.
+ */
+const logBlockOps = (options: GlobalOptions): CaddyOp =>
+  options.logFormat === undefined && options.logLevel === undefined
+    ? Caddy.id
+    : Caddy.seq(
+        Caddy.open("log"),
+        Caddy.maybeDirective("format", options.logFormat),
+        Caddy.maybeDirective("level", options.logLevel),
+        Caddy.close
+      );
+
+/**
+ * Admin block operations - uses pattern matching style.
+ */
+const adminBlockOps = (options: GlobalOptions): CaddyOp => {
+  if (options.adminOff === true) {
+    return Caddy.directive("admin", ["off"]);
   }
-
-  // Email for ACME
-  if (options.email) {
-    builder.directive("email", [options.email]);
+  if (options.adminEnforceOrigin === true) {
+    return Caddy.seq(Caddy.open("admin"), Caddy.directive("enforce_origin"), Caddy.close);
   }
-
-  // ACME CA
-  if (options.acmeCA) {
-    builder.directive("acme_ca", [options.acmeCA]);
-  }
-
-  // ACME CA root
-  if (options.acmeCaRoot) {
-    builder.directive("acme_ca_root", [options.acmeCaRoot]);
-  }
-
-  // Local certs (self-signed)
-  if (options.localCerts) {
-    builder.directive("local_certs");
-  }
-
-  // Skip install trust
-  if (options.skipInstallTrust) {
-    builder.directive("skip_install_trust");
-  }
-
-  // Admin endpoint
-  if (options.adminOff) {
-    builder.directive("admin", ["off"]);
-  } else if (options.adminEnforceOrigin) {
-    builder.open("admin");
-    builder.directive("enforce_origin");
-    builder.close();
-  }
-
-  // HTTP/HTTPS ports
-  if (options.httpPort) {
-    builder.directive("http_port", [String(options.httpPort)]);
-  }
-  if (options.httpsPort) {
-    builder.directive("https_port", [String(options.httpsPort)]);
-  }
-
-  // Auto HTTPS
-  if (options.autoHttps) {
-    builder.directive("auto_https", [options.autoHttps]);
-  }
-
-  // Server configuration
-  if (options.servers) {
-    builder.open("servers");
-    for (const [name, config] of Object.entries(options.servers)) {
-      if (name === "*" || name === "default") {
-        // Global server options
-        if (config.protocols) {
-          builder.directive("protocols", config.protocols);
-        }
-        if (config.strictSniHost) {
-          builder.directive("strict_sni_host");
-        }
-      } else {
-        // Named server
-        builder.open(name);
-        if (config.listen) {
-          builder.directive("listen", config.listen);
-        }
-        if (config.protocols) {
-          builder.directive("protocols", config.protocols);
-        }
-        if (config.strictSniHost) {
-          builder.directive("strict_sni_host");
-        }
-        builder.close();
-      }
-    }
-    builder.close();
-  }
-
-  // Logging
-  if (options.logFormat || options.logLevel) {
-    builder.open("log");
-    if (options.logFormat) {
-      builder.directive("format", [options.logFormat]);
-    }
-    if (options.logLevel) {
-      builder.directive("level", [options.logLevel]);
-    }
-    builder.close();
-  }
-
-  builder.close();
-
-  return builder.build();
+  return Caddy.id;
 };
+
+// ============================================================================
+// Main Functions
+// ============================================================================
+
+/**
+ * Generate global options operations.
+ * Returns CaddyOp for composition, not string.
+ */
+export const globalOps = (options: GlobalOptions): CaddyOp =>
+  Caddy.seq(
+    Caddy.open(""),
+    Caddy.when(options.debug === true, Caddy.directive("debug")),
+    Caddy.maybeDirective("email", options.email),
+    Caddy.maybeDirective("acme_ca", options.acmeCA),
+    Caddy.maybeDirective("acme_ca_root", options.acmeCaRoot),
+    Caddy.when(options.localCerts === true, Caddy.directive("local_certs")),
+    Caddy.when(options.skipInstallTrust === true, Caddy.directive("skip_install_trust")),
+    adminBlockOps(options),
+    Caddy.maybeDirectiveNum("http_port", options.httpPort),
+    Caddy.maybeDirectiveNum("https_port", options.httpsPort),
+    Caddy.maybeDirective("auto_https", options.autoHttps),
+    serversBlockOps(options.servers),
+    logBlockOps(options),
+    Caddy.close
+  );
+
+/**
+ * Generate the global options block as string.
+ * Wrapper around globalOps for backward compatibility.
+ */
+export const generateGlobalOptions = (options: GlobalOptions): string =>
+  caddyfile(globalOps(options));
 
 /**
  * Check if global options block is needed.

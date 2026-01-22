@@ -7,7 +7,6 @@
 
 /**
  * Immich database restore command.
- * Uses Bun.Archive for extraction - no external gunzip/tar commands.
  */
 
 import { Effect, Option } from "effect";

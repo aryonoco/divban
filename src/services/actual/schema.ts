@@ -15,7 +15,6 @@ import { isValidIP } from "../../lib/schema-utils";
 
 /**
  * Actual Budget configuration (output after decoding).
- * Simple single-container service for personal finance management.
  */
 export interface ActualConfig {
   /** Path configuration */

@@ -7,14 +7,12 @@
 
 /**
  * Immich database backup command.
- * Uses Bun.Archive for native tar operations with metadata support.
  */
 
-import { Glob } from "bun";
 import { Effect } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
-import { createBackupTimestamp } from "../../../lib/backup-utils";
+import { createBackupTimestamp, listFilesByMtime } from "../../../lib/backup-utils";
 import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import {
@@ -160,25 +158,7 @@ export const listBackups = (
       return [];
     }
 
-    const glob = new Glob(pattern);
-    const files = yield* Effect.promise(async () => {
-      const result: string[] = [];
-      for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
-        result.push(file);
-      }
-      return result;
-    });
-
-    // Sort by modification time (newest first)
-    const withStats = yield* Effect.promise(() =>
-      Promise.all(
-        files.map(async (f) => ({
-          name: f,
-          mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
-        }))
-      )
-    );
-
-    withStats.sort((a, b) => b.mtime - a.mtime);
-    return withStats.map((f) => f.name);
+    // Use shared utility - returns files sorted by mtime (newest first)
+    const files = yield* listFilesByMtime(backupDir, pattern);
+    return [...files]; // Convert readonly to mutable for return type compatibility
   });

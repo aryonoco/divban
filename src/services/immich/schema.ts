@@ -16,7 +16,6 @@ import { DEFAULT_IMAGES } from "./constants";
 
 /**
  * Hardware acceleration configuration for video transcoding.
- * Discriminated union with associated configuration per backend.
  */
 export type TranscodingConfig =
   | { readonly type: "nvenc"; readonly gpuIndex?: number | undefined }
@@ -46,7 +45,6 @@ export const transcodingConfigSchema: Schema.Schema<TranscodingConfig> = Schema.
 
 /**
  * Hardware acceleration configuration for machine learning.
- * Discriminated union with associated configuration per backend.
  */
 export type MlConfig =
   | { readonly type: "cuda"; readonly gpuIndex?: number | undefined }

@@ -110,16 +110,11 @@ export interface ServiceContext<C> {
  * Generated files from a service.
  */
 export interface GeneratedFiles {
-  /** Container quadlet files (filename -> content) */
-  quadlets: Map<string, string>;
-  /** Network quadlet files (filename -> content) */
-  networks: Map<string, string>;
-  /** Volume quadlet files (filename -> content) */
-  volumes: Map<string, string>;
-  /** Environment files (filename -> content) */
-  environment: Map<string, string>;
-  /** Other generated files (filename -> content) */
-  other: Map<string, string>;
+  readonly quadlets: ReadonlyMap<string, string>;
+  readonly networks: ReadonlyMap<string, string>;
+  readonly volumes: ReadonlyMap<string, string>;
+  readonly environment: ReadonlyMap<string, string>;
+  readonly other: ReadonlyMap<string, string>;
 }
 
 /**
@@ -156,11 +151,8 @@ export type HealthStatus =
  * Container information with status.
  */
 export interface ContainerInfo {
-  /** Container name */
   name: string;
-  /** Container status */
   status: ContainerStatus;
-  /** Health status (if health check configured) */
   health?: HealthStatus | undefined;
 }
 
@@ -168,9 +160,7 @@ export interface ContainerInfo {
  * Service status information.
  */
 export interface ServiceStatus {
-  /** Overall running state */
   running: boolean;
-  /** Container statuses (for multi-container services) */
   containers: ContainerInfo[];
 }
 
@@ -178,11 +168,8 @@ export interface ServiceStatus {
  * Log viewing options.
  */
 export interface LogOptions {
-  /** Follow log output */
   follow: boolean;
-  /** Number of lines to show */
   lines: number;
-  /** Specific container (for multi-container services) */
   container?: string;
 }
 
@@ -190,16 +177,12 @@ export interface LogOptions {
  * Backup result.
  */
 export interface BackupResult {
-  /** Path to backup file */
   path: AbsolutePath;
-  /** Backup size in bytes */
   size: number;
-  /** Backup timestamp */
   timestamp: Date;
 }
 
 /**
- * Effect-based service interface.
  * All services must implement these methods.
  * @template C - Service-specific configuration type
  */
@@ -299,43 +282,60 @@ export interface ServiceEffect<C> {
 /** Type-erased service for registry and CLI usage */
 export type AnyServiceEffect = ServiceEffect<unknown>;
 
+// ============================================================================
+// GeneratedFiles Monoid Operations
+// ============================================================================
+
 /**
- * Create an empty GeneratedFiles object.
+ * Merge two ReadonlyMaps. Right-biased (later values win).
  */
-export const createGeneratedFiles = (): GeneratedFiles => ({
+const mergeMaps = <K, V>(left: ReadonlyMap<K, V>, right: ReadonlyMap<K, V>): ReadonlyMap<K, V> =>
+  new Map([...left, ...right]);
+
+/**
+ * Monoid identity for GeneratedFiles.
+ * Named `emptyGeneratedFiles` following Haskell convention for monoid identity.
+ */
+export const emptyGeneratedFiles: GeneratedFiles = {
   quadlets: new Map(),
   networks: new Map(),
   volumes: new Map(),
   environment: new Map(),
   other: new Map(),
+};
+
+/**
+ * Create an empty GeneratedFiles object.
+ * @deprecated Use `emptyGeneratedFiles` constant instead.
+ */
+export const createGeneratedFiles = (): GeneratedFiles => emptyGeneratedFiles;
+
+/**
+ * Merge two GeneratedFiles (Semigroup operation).
+ * Right-biased: values in `right` overwrite `left`.
+ */
+export const appendGeneratedFiles = (
+  left: GeneratedFiles,
+  right: GeneratedFiles
+): GeneratedFiles => ({
+  quadlets: mergeMaps(left.quadlets, right.quadlets),
+  networks: mergeMaps(left.networks, right.networks),
+  volumes: mergeMaps(left.volumes, right.volumes),
+  environment: mergeMaps(left.environment, right.environment),
+  other: mergeMaps(left.other, right.other),
 });
 
 /**
- * Merge multiple GeneratedFiles objects.
+ * Monoidal concat of multiple GeneratedFiles.
  */
-export const mergeGeneratedFiles = (...files: GeneratedFiles[]): GeneratedFiles => {
-  const result = createGeneratedFiles();
+export const concatGeneratedFiles = (files: readonly GeneratedFiles[]): GeneratedFiles =>
+  files.reduce(appendGeneratedFiles, emptyGeneratedFiles);
 
-  for (const f of files) {
-    for (const [k, v] of f.quadlets) {
-      result.quadlets.set(k, v);
-    }
-    for (const [k, v] of f.networks) {
-      result.networks.set(k, v);
-    }
-    for (const [k, v] of f.volumes) {
-      result.volumes.set(k, v);
-    }
-    for (const [k, v] of f.environment) {
-      result.environment.set(k, v);
-    }
-    for (const [k, v] of f.other) {
-      result.other.set(k, v);
-    }
-  }
-
-  return result;
-};
+/**
+ * Merge multiple GeneratedFiles objects (variadic).
+ */
+export const mergeGeneratedFiles = (...files: readonly GeneratedFiles[]): GeneratedFiles =>
+  concatGeneratedFiles(files);
 
 /**
  * Get total file count from GeneratedFiles.

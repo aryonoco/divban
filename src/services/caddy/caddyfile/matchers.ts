@@ -9,125 +9,151 @@
  * Named matcher generation for Caddyfile.
  */
 
-import { Option } from "effect";
+import { Option, pipe } from "effect";
+import { mapEntries } from "../../../lib/collection-utils";
 import { nonEmpty } from "../../../lib/option-helpers";
 import type { NamedMatcher } from "../schema";
-import { createBuilder, escapeValue } from "./format";
+import { Caddy, type CaddyOp, caddyfile, escapeValue } from "./format";
+
+// ============================================================================
+// Record → CaddyOp[] Transformers
+// ============================================================================
 
 /**
- * Generate a named matcher definition.
+ * Transform header record to operations.
+ * Uses mapEntries instead of for loop over Object.entries.
  */
-export const generateNamedMatcher = (matcher: NamedMatcher): string => {
-  const builder = createBuilder();
+const headerOps = (header: Record<string, string> | undefined): readonly CaddyOp[] =>
+  header === undefined
+    ? []
+    : mapEntries(header, (name, value) => Caddy.directive("header", [name, value]));
 
-  builder.open(`@${matcher.name}`);
+/**
+ * Transform header regexp record to operations.
+ */
+const headerRegexpOps = (headerRegexp: Record<string, string> | undefined): readonly CaddyOp[] =>
+  headerRegexp === undefined
+    ? []
+    : mapEntries(headerRegexp, (name, pattern) =>
+        Caddy.directive("header_regexp", [name, pattern])
+      );
 
-  // Path matching
+/**
+ * Transform query record to operations.
+ */
+const queryOps = (query: Record<string, string> | undefined): readonly CaddyOp[] =>
+  query === undefined
+    ? []
+    : mapEntries(query, (key, value) => Caddy.directive("query", [`${key}=${escapeValue(value)}`]));
+
+/**
+ * Negation block operations.
+ * Returns id (no-op) if not is undefined.
+ */
+const notBlockOps = (not: NamedMatcher["not"]): CaddyOp =>
+  not === undefined
+    ? Caddy.id
+    : Caddy.seq(
+        Caddy.open("not"),
+        Caddy.when(not.path !== undefined, Caddy.directive("path", not.path ?? [])),
+        Caddy.when(not.host !== undefined, Caddy.directive("host", not.host ?? [])),
+        Caddy.when(not.method !== undefined, Caddy.directive("method", not.method ?? [])),
+        Caddy.close
+      );
+
+/**
+ * Conditional directive for array-valued options.
+ */
+const maybeArrayDirective = (name: string, opt: Option.Option<readonly string[]>): CaddyOp =>
+  pipe(
+    opt,
+    Option.match({
+      onNone: (): CaddyOp => Caddy.id,
+      onSome: (arr): CaddyOp => Caddy.directive(name, arr),
+    })
+  );
+
+// ============================================================================
+// Main Functions (CaddyOp-returning for composition)
+// ============================================================================
+
+/**
+ * Generate operations for a single named matcher.
+ * Returns CaddyOp for composition with other operations.
+ */
+export const matcherOps = (matcher: NamedMatcher): CaddyOp => {
   const pathOpt = nonEmpty(matcher.path);
-  if (Option.isSome(pathOpt)) {
-    builder.directive("path", pathOpt.value);
-  }
-
-  // Path regexp
-  if (matcher.pathRegexp) {
-    builder.directive("path_regexp", [matcher.pathRegexp]);
-  }
-
-  // Host matching
   const hostOpt = nonEmpty(matcher.host);
-  if (Option.isSome(hostOpt)) {
-    builder.directive("host", hostOpt.value);
-  }
-
-  // Method matching
   const methodOpt = nonEmpty(matcher.method);
-  if (Option.isSome(methodOpt)) {
-    builder.directive("method", methodOpt.value);
-  }
-
-  // Header matching
-  if (matcher.header) {
-    for (const [name, value] of Object.entries(matcher.header)) {
-      builder.directive("header", [name, value as string]);
-    }
-  }
-
-  // Header regexp
-  if (matcher.headerRegexp) {
-    for (const [name, pattern] of Object.entries(matcher.headerRegexp)) {
-      builder.directive("header_regexp", [name, pattern as string]);
-    }
-  }
-
-  // Query matching
-  if (matcher.query) {
-    for (const [key, value] of Object.entries(matcher.query)) {
-      builder.directive("query", [`${key}=${escapeValue(value as string)}`]);
-    }
-  }
-
-  // Remote IP matching
   const remoteIpOpt = nonEmpty(matcher.remoteIp);
-  if (Option.isSome(remoteIpOpt)) {
-    builder.directive("remote_ip", remoteIpOpt.value);
-  }
 
-  // Protocol matching
-  if (matcher.protocol) {
-    builder.directive("protocol", [matcher.protocol]);
-  }
+  return Caddy.seq(
+    Caddy.open(`@${matcher.name}`),
 
-  // Expression
-  if (matcher.expression) {
-    builder.directive("expression", [escapeValue(matcher.expression)]);
-  }
+    // Array-valued directives (use Option pattern)
+    maybeArrayDirective("path", pathOpt),
+    Caddy.maybeDirective("path_regexp", matcher.pathRegexp),
+    maybeArrayDirective("host", hostOpt),
+    maybeArrayDirective("method", methodOpt),
 
-  // Not (negation)
-  if (matcher.not) {
-    builder.open("not");
-    // Recursively render the negated conditions
-    if (matcher.not.path) {
-      builder.directive("path", matcher.not.path);
-    }
-    if (matcher.not.host) {
-      builder.directive("host", matcher.not.host);
-    }
-    if (matcher.not.method) {
-      builder.directive("method", matcher.not.method);
-    }
-    // ... add other not conditions as needed
-    builder.close();
-  }
+    // Record-valued directives (use mapEntries)
+    Caddy.all(headerOps(matcher.header)),
+    Caddy.all(headerRegexpOps(matcher.headerRegexp)),
+    Caddy.all(queryOps(matcher.query)),
 
-  builder.close();
+    // More array/simple directives
+    maybeArrayDirective("remote_ip", remoteIpOpt),
+    Caddy.maybeDirective("protocol", matcher.protocol),
+    Caddy.when(
+      matcher.expression !== undefined,
+      Caddy.directive("expression", [escapeValue(matcher.expression ?? "")])
+    ),
 
-  return builder.build();
+    // Negation block
+    notBlockOps(matcher.not),
+
+    Caddy.close
+  );
 };
 
 /**
- * Generate all named matchers.
+ * Generate operations for multiple matchers.
  */
-export const generateNamedMatchers = (matchers: readonly NamedMatcher[]): string => {
-  if (matchers.length === 0) {
-    return "";
-  }
+export const matchersOps = (matchers: readonly NamedMatcher[]): CaddyOp =>
+  matchers.length === 0 ? Caddy.id : Caddy.forEach(matchers, matcherOps);
 
-  return matchers.map(generateNamedMatcher).join("\n");
-};
+// ============================================================================
+// String-returning functions
+// ============================================================================
 
 /**
- * Generate a matcher reference for use in directives.
+ * Generate a named matcher definition as string.
+ * Wrapper around matcherOps for backward compatibility.
  */
-export const matcherRef = (name: string): string => {
-  return `@${name}`;
-};
+export const generateNamedMatcher = (matcher: NamedMatcher): string =>
+  caddyfile(matcherOps(matcher));
+
+/**
+ * Generate all named matchers as string.
+ */
+export const generateNamedMatchers = (matchers: readonly NamedMatcher[]): string =>
+  matchers.length === 0 ? "" : matchers.map(generateNamedMatcher).join("\n");
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+/** Generate a matcher reference for use in directives. */
+export const matcherRef = (name: string): string => `@${name}`;
 
 /**
  * Check if a matcher is empty (has no conditions).
+ * Uses Option for null-safe checking.
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
   const defined = <T>(v: T | undefined): boolean => Option.isSome(Option.fromNullable(v));
 
+  // A matcher is empty if ALL conditions are undefined/empty
   return !(
     Option.isSome(nonEmpty(matcher.path)) ||
     defined(matcher.pathRegexp) ||

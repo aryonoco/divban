@@ -7,13 +7,15 @@
 
 /**
  * Actual Budget backup command.
- * Uses Bun.Archive for native tar operations - no external tar commands.
  */
 
-import { Glob } from "bun";
 import { Effect, Option } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
-import { createBackupTimestamp } from "../../../lib/backup-utils";
+import {
+  collectFilesWithContent,
+  createBackupTimestamp,
+  listFilesByMtime,
+} from "../../../lib/backup-utils";
 import { BackupError, ErrorCode, type GeneralError, SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
 import { type AbsolutePath, type UserId, type Username, pathJoin } from "../../../lib/types";
@@ -41,11 +43,11 @@ export interface BackupOptions {
 /**
  * Create archive metadata for a backup.
  */
-const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
+const createBackupMetadata = (service: string, files: readonly string[]): ArchiveMetadata => ({
   version: "1.0",
   service,
   timestamp: new Date().toISOString(),
-  files,
+  files: [...files],
 });
 
 /**
@@ -79,26 +81,9 @@ export const backupActual = (
     // Ensure backup directory exists
     yield* ensureDirectory(backupsDir);
 
-    // Collect files to archive using Bun.Glob
-    const glob = new Glob("**/*");
-    const { files, fileList } = yield* Effect.promise(async () => {
-      const files: Record<string, Uint8Array> = {};
-      const fileList: string[] = [];
-
-      for await (const path of glob.scan({ cwd: dataDir, onlyFiles: true })) {
-        // Exclude the backups directory itself to avoid recursion
-        if (path.startsWith("backups/") || path === "backups") {
-          continue;
-        }
-
-        const fullPath = `${dataDir}/${path}`;
-        const content = await Bun.file(fullPath).bytes();
-        files[path] = content;
-        fileList.push(path);
-      }
-
-      return { files, fileList };
-    });
+    // Collect files to archive using FP-style utility
+    // Excludes the backups directory to avoid recursion
+    const { files, fileList } = yield* collectFilesWithContent(dataDir, ["backups/", "backups"]);
 
     // Create metadata and archive
     const metadata = createBackupMetadata("actual", fileList);
@@ -133,32 +118,13 @@ export const listBackups = (
       return [];
     }
 
-    const glob = new Glob(pattern);
-    const files = yield* Effect.promise(async () => {
-      const result: string[] = [];
-      for await (const file of glob.scan({ cwd: backupDir, onlyFiles: true })) {
-        result.push(file);
-      }
-      return result;
-    });
-
-    // Sort by modification time (newest first)
-    const withStats = yield* Effect.promise(() =>
-      Promise.all(
-        files.map(async (f) => ({
-          name: f,
-          mtime: (await Bun.file(`${backupDir}/${f}`).stat())?.mtimeMs ?? 0,
-        }))
-      )
-    );
-
-    withStats.sort((a, b) => b.mtime - a.mtime);
-    return withStats.map((f) => f.name);
+    // Use shared utility - returns files sorted by mtime (newest first)
+    const files = yield* listFilesByMtime(backupDir, pattern);
+    return [...files]; // Convert readonly to mutable for return type compatibility
   });
 
 /**
  * Restore from a backup archive.
- * Uses Bun.Archive for extraction - no subprocess tar needed.
  */
 export const restoreActual = (
   backupPath: AbsolutePath,

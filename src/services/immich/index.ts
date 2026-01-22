@@ -62,7 +62,6 @@ import type {
   ServiceEffect,
   ServiceStatus,
 } from "../types";
-import { createGeneratedFiles } from "../types";
 import { backupDatabase } from "./commands/backup";
 import { restoreDatabase } from "./commands/restore";
 import { CONTAINERS, DEFAULT_IMAGES, INTERNAL_URLS, NETWORK_NAME } from "./constants";
@@ -97,13 +96,13 @@ const validate = createConfigValidator(immichConfigSchema);
 
 /**
  * Generate all files for Immich service.
+ * Returns immutable GeneratedFiles with pre-built Maps.
  */
 const generate = (
   ctx: ServiceContext<ImmichConfig>
 ): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
   Effect.sync(() => {
     const { config } = ctx;
-    const files = createGeneratedFiles();
 
     // Get hardware configuration
     const hardware = getHardwareConfig(
@@ -164,13 +163,16 @@ const generate = (
         },
       ],
     });
-    files.environment.set("immich.env", envContent);
 
-    // Build containers
-    const containers: StackContainer[] = [];
+    // Build containers immutably using array literal with conditional spread
+    const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
+    const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
+    const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
+    const networkHost = config.network?.host ?? "127.0.0.1";
+    const networkPort = config.network?.port ?? 2283;
 
     // Redis container
-    containers.push({
+    const redisContainer: StackContainer = {
       name: CONTAINERS.redis,
       description: "Immich Redis cache",
       image: config.containers?.redis?.image ?? DEFAULT_IMAGES.redis,
@@ -178,11 +180,10 @@ const generate = (
       readOnlyRootfs: true,
       noNewPrivileges: true,
       service: { restart: "always" },
-    });
+    };
 
     // PostgreSQL container
-    const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
-    containers.push({
+    const postgresContainer: StackContainer = {
       name: CONTAINERS.postgres,
       description: "Immich PostgreSQL database with pgvecto.rs",
       image: config.containers?.postgres?.image ?? DEFAULT_IMAGES.postgres,
@@ -198,15 +199,10 @@ const generate = (
       shmSize: "256m",
       noNewPrivileges: true,
       service: { restart: "always" },
-    });
+    };
 
     // Main server container
-    const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
-    const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
-    const networkHost = config.network?.host ?? "127.0.0.1";
-    const networkPort = config.network?.port ?? 2283;
-
-    containers.push({
+    const serverContainer: StackContainer = {
       name: CONTAINERS.server,
       description: "Immich server",
       image: config.containers?.server?.image ?? DEFAULT_IMAGES.server,
@@ -223,7 +219,7 @@ const generate = (
       environmentFiles: [`${ctx.paths.configDir}/immich.env`],
       environment: serverEnv,
       secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
-      devices: serverDevices.length > 0 ? serverDevices : undefined,
+      devices: serverDevices.length > 0 ? [...serverDevices] : undefined,
       userNs: createKeepIdNs(),
       healthCheck: createHttpHealthCheck("http://localhost:2283/api/server/ping", {
         interval: "30s",
@@ -231,38 +227,48 @@ const generate = (
       }),
       noNewPrivileges: true,
       service: { restart: "always" },
-    });
+    };
 
-    // Machine Learning container (optional)
-    if (config.containers?.machineLearning?.enabled !== false) {
-      const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_IMAGES.ml;
-      const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
-      const mlDevices = mergeDevices(hardware.ml);
-      const mlEnv = mergeEnvironment(hardware.ml);
+    // Machine Learning container (conditional)
+    const mlEnabled = config.containers?.machineLearning?.enabled !== false;
+    const mlContainer: StackContainer | undefined = mlEnabled
+      ? (() => {
+          const mlBaseImage = config.containers?.machineLearning?.image ?? DEFAULT_IMAGES.ml;
+          const mlImage = getMlImage(mlBaseImage, config.hardware?.ml ?? { type: "disabled" });
+          const mlDevices = mergeDevices(hardware.ml);
+          const mlEnv = mergeEnvironment(hardware.ml);
+          return {
+            name: CONTAINERS.ml,
+            description: "Immich Machine Learning",
+            image: mlImage,
+            volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
+            environmentFiles: [`${ctx.paths.configDir}/immich.env`],
+            environment: mlEnv,
+            secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
+            devices: mlDevices.length > 0 ? [...mlDevices] : undefined,
+            healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
+              interval: "30s",
+              startPeriod: "60s",
+            }),
+            noNewPrivileges: true,
+            service: { restart: "always" },
+          };
+        })()
+      : undefined;
 
-      containers.push({
-        name: CONTAINERS.ml,
-        description: "Immich Machine Learning",
-        image: mlImage,
-        volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
-        environmentFiles: [`${ctx.paths.configDir}/immich.env`],
-        environment: mlEnv,
-        secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
-        devices: mlDevices.length > 0 ? mlDevices : undefined,
-        healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
-          interval: "30s",
-          startPeriod: "60s",
-        }),
-        noNewPrivileges: true,
-        service: { restart: "always" },
-      });
-    }
+    // Build containers array immutably
+    const containers: readonly StackContainer[] = [
+      redisContainer,
+      postgresContainer,
+      serverContainer,
+      ...(mlContainer ? [mlContainer] : []),
+    ];
 
     // Create stack and generate quadlets
     const stack = createStack({
       name: "immich",
       network: { name: NETWORK_NAME, internal: true },
-      containers,
+      containers: [...containers], // spread to mutable array for createStack
     });
 
     const stackFiles = generateStackQuadlets(stack, {
@@ -271,18 +277,14 @@ const generate = (
       selinuxEnforcing: ctx.system.selinuxEnforcing,
     });
 
-    // Merge into files
-    for (const [k, v] of stackFiles.containers) {
-      files.quadlets.set(k, v);
-    }
-    for (const [k, v] of stackFiles.networks) {
-      files.networks.set(k, v);
-    }
-    for (const [k, v] of stackFiles.volumes) {
-      files.volumes.set(k, v);
-    }
-
-    return files;
+    // Return GeneratedFiles with pre-built Maps (no mutations)
+    return {
+      quadlets: new Map(stackFiles.containers),
+      networks: new Map(stackFiles.networks),
+      volumes: new Map(stackFiles.volumes),
+      environment: new Map([["immich.env", envContent]]),
+      other: new Map(),
+    };
   });
 
 /**
@@ -417,7 +419,11 @@ const setup = (
     },
   ];
 
-  return executeSetupStepsScoped(ctx, steps);
+  return executeSetupStepsScoped<
+    ImmichConfig,
+    ImmichSetupState,
+    ServiceError | SystemError | ContainerError | GeneralError
+  >(ctx, steps, {});
 };
 
 /**

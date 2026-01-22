@@ -40,7 +40,6 @@ import {
   writeGeneratedFilesTracked,
 } from "../helpers";
 import type { GeneratedFiles, ServiceContext, ServiceDefinition, ServiceEffect } from "../types";
-import { createGeneratedFiles } from "../types";
 import { generateCaddyfile } from "./caddyfile";
 import { reloadCaddy } from "./commands/reload";
 import { type CaddyConfig, caddyConfigSchema } from "./schema";
@@ -79,13 +78,13 @@ const validate = createConfigValidator(caddyConfigSchema);
 
 /**
  * Generate all files for Caddy service.
+ * Returns immutable GeneratedFiles with pre-built Maps.
  */
 const generate = (
   ctx: ServiceContext<CaddyConfig>
 ): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
   Effect.gen(function* () {
     const { config } = ctx;
-    const files = createGeneratedFiles();
 
     // Validate mapHostLoopback if provided
     let mapHostLoopback: PrivateIP | undefined;
@@ -103,21 +102,18 @@ const generate = (
 
     // Generate Caddyfile
     const caddyfileContent = generateCaddyfile(config.caddyfile);
-    files.other.set("Caddyfile", caddyfileContent);
 
     // Generate volume quadlet for caddy data
     const dataVolume = generateVolumeQuadlet({
       name: "caddy-data",
       description: "Caddy data volume (certificates, etc.)",
     });
-    files.volumes.set(dataVolume.filename, dataVolume.content);
 
     // Generate volume quadlet for caddy config
     const configVolume = generateVolumeQuadlet({
       name: "caddy-config",
       description: "Caddy configuration volume",
     });
-    files.volumes.set(configVolume.filename, configVolume.content);
 
     // Generate container quadlet
     const containerQuadlet = generateContainerQuadlet({
@@ -168,9 +164,17 @@ const generate = (
       },
     });
 
-    files.quadlets.set(containerQuadlet.filename, containerQuadlet.content);
-
-    return files;
+    // Return GeneratedFiles with pre-built Maps (no mutations)
+    return {
+      quadlets: new Map([[containerQuadlet.filename, containerQuadlet.content]]),
+      networks: new Map(),
+      volumes: new Map([
+        [dataVolume.filename, dataVolume.content],
+        [configVolume.filename, configVolume.content],
+      ]),
+      environment: new Map(),
+      other: new Map([["Caddyfile", caddyfileContent]]),
+    };
   });
 
 /**
@@ -230,7 +234,11 @@ const setup = (
     },
   ];
 
-  return executeSetupStepsScoped(ctx, steps);
+  return executeSetupStepsScoped<
+    CaddyConfig,
+    CaddySetupState,
+    ServiceError | SystemError | GeneralError
+  >(ctx, steps, {});
 };
 
 /**

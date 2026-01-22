@@ -160,6 +160,12 @@ jittered
 effectful
 Effectful
 subtyping
+mappend
+monoidal
+Monoidal
+Monoidally
+Endo
+Kleisli
 
 # Misc
 Filenaming

@@ -86,3 +86,57 @@ export const buildObject = <T extends Record<string, unknown>>(
     (arr) => arr.filter((entry): entry is [keyof T, T[keyof T]] => entry[1] !== undefined),
     (filtered) => Object.fromEntries(filtered) as Partial<T>
   );
+
+// ============================================================================
+// Option Extraction (avoiding type assertions)
+// ============================================================================
+
+/**
+ * Fold Option with explicit handlers.
+ * Prefer over getOrElse when the default computation is non-trivial.
+ */
+export const fold =
+  <A, B>(onNone: () => B, onSome: (a: A) => B) =>
+  (opt: Option.Option<A>): B =>
+    Option.match(opt, { onNone, onSome });
+
+/**
+ * Check if Option contains a value satisfying predicate.
+ */
+export const exists =
+  <A>(predicate: (a: A) => boolean) =>
+  (opt: Option.Option<A>): boolean =>
+    Option.isSome(opt) && predicate(opt.value);
+
+/**
+ * Lift a partial function to work with Option.
+ * Useful for safe property access.
+ */
+export const fromPartial =
+  <A, B>(f: (a: A) => B | undefined | null) =>
+  (a: A): Option.Option<B> =>
+    Option.fromNullable(f(a));
+
+/**
+ * Sequence: Option<A>[] -> Option<A[]>
+ * Returns Some only if ALL elements are Some.
+ */
+export const sequence = <A>(opts: readonly Option.Option<A>[]): Option.Option<readonly A[]> =>
+  opts.every(Option.isSome)
+    ? Option.some(opts.filter(Option.isSome).map((o) => o.value))
+    : Option.none();
+
+/**
+ * Traverse: Apply function returning Option to each element, then sequence.
+ */
+export const traverse =
+  <A, B>(f: (a: A) => Option.Option<B>) =>
+  (arr: readonly A[]): Option.Option<readonly B[]> =>
+    sequence(arr.map(f));
+
+/**
+ * CatOptions: Filter out None values and extract Some values.
+ * Like Haskell's catMaybes.
+ */
+export const catOptions = <A>(opts: readonly Option.Option<A>[]): readonly A[] =>
+  opts.filter(Option.isSome).map((o) => o.value);

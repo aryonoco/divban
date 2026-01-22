@@ -5,11 +5,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Effect-based service implementation helpers to reduce code duplication.
- */
-
-import { Effect, type Exit, Option, type Schema, pipe } from "effect";
+import { Effect, type Exit, Option, type Schema, type Scope, pipe } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type {
   ConfigError,
@@ -42,7 +38,7 @@ import type {
 } from "./types";
 
 // ============================================================================
-// Core Tracking Types (Functional Core)
+// Core Tracking Types
 // ============================================================================
 
 /**
@@ -64,7 +60,6 @@ export const acquired = <A>(value: A, wasCreated: boolean): Acquired<A> => ({
 
 /**
  * Result tracking for file operations.
- * Discriminated union for type-safe handling.
  */
 export type FileWriteResult =
   | { readonly kind: "Created"; readonly path: AbsolutePath }
@@ -98,12 +93,11 @@ export interface ServicesEnableResult {
 }
 
 // ============================================================================
-// Pure Derivation Functions (Functional Core)
+// Pure Derivation Functions
 // ============================================================================
 
 /**
  * Derive paths that were created (not modified) from file write results.
- * Pure function - no effects.
  */
 export const createdPaths = (results: readonly FileWriteResult[]): readonly AbsolutePath[] =>
   results
@@ -112,7 +106,6 @@ export const createdPaths = (results: readonly FileWriteResult[]): readonly Abso
 
 /**
  * Derive paths that were modified (have backups) from file write results.
- * Pure function - no effects.
  */
 export const modifiedPaths = (
   results: readonly FileWriteResult[]
@@ -177,12 +170,11 @@ export const writeGeneratedFiles = <C>(
   });
 
 // ============================================================================
-// Effectful Resource Operations (Imperative Shell)
+// Effectful Resource Operations
 // ============================================================================
 
 /**
  * Write a single file with tracking.
- * Returns a FileWriteResult describing what happened.
  */
 const writeFileTracked = (
   destPath: AbsolutePath,
@@ -211,7 +203,6 @@ const writeFileTracked = (
 
 /**
  * Write generated files with tracking using Effect.forEach.
- * Functional composition of file writes.
  */
 export const writeGeneratedFilesTracked = <C>(
   files: GeneratedFiles,
@@ -272,7 +263,6 @@ export const cleanupFileBackups = (
 
 /**
  * Handle file write results on release - rollback on failure, cleanup on success.
- * Avoids nested ternaries in release functions.
  */
 export const releaseFileWrites = (
   fileResults: FilesWriteResult | undefined,
@@ -377,12 +367,11 @@ export const rollbackServiceChanges = <C>(
 };
 
 // ============================================================================
-// Config Copy Operations (for setup.ts)
+// Config Copy Operations
 // ============================================================================
 
 /**
  * Result of copying a config file.
- * Uses Option for type-safe optional backup path.
  */
 export interface ConfigCopyResult {
   readonly wasNewFile: boolean;
@@ -391,7 +380,6 @@ export interface ConfigCopyResult {
 
 /**
  * Copy config file with tracking and backup.
- * Returns structured result with Option for backup.
  */
 export const copyConfigTracked = (
   source: AbsolutePath,
@@ -431,7 +419,6 @@ export const copyConfigTracked = (
 
 /**
  * Rollback config copy based on result.
- * Pattern matches on Option for type safety.
  */
 export const rollbackConfigCopy = (
   dest: AbsolutePath,
@@ -547,31 +534,6 @@ export const createSingleContainerOps = <C>(
 };
 
 // ============================================================================
-// Systemd Helpers
-// ============================================================================
-
-/**
- * Reload daemon, enable services, optionally start them.
- */
-export const reloadAndEnableServices = <C>(
-  ctx: ServiceContext<C>,
-  services: string[],
-  startAfterEnable = true
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const opts = { user: ctx.user.name, uid: ctx.user.uid };
-
-    yield* daemonReload(opts);
-
-    for (const svc of services) {
-      yield* enableService(`${svc}.service`, opts);
-      if (startAfterEnable) {
-        yield* startService(`${svc}.service`, opts);
-      }
-    }
-  });
-
-// ============================================================================
 // Backup Helper
 // ============================================================================
 
@@ -598,7 +560,6 @@ export const wrapBackupResult = <E>(
 
 /**
  * Return type for setup step acquire functions.
- * Uses void to allow steps that return Effect<void> from helper functions.
  */
 // biome-ignore lint/suspicious/noConfusingVoidType: void needed for Effect<void> compatibility
 export type SetupStepAcquireResult<S, E> = Effect.Effect<Partial<S> | void, E>;
@@ -622,14 +583,49 @@ export interface SetupStepResource<C, S = object, E = SystemError | GeneralError
 }
 
 /**
+ * Execute a single setup step within scope.
+ * Returns Effect requiring Scope when step has release function.
+ */
+const executeStep = <C, S extends object, E>(
+  ctx: ServiceContext<C>,
+  step: SetupStepResource<C, S, E>,
+  state: S,
+  stepNumber: number,
+  totalSteps: number
+): Effect.Effect<S, E, Scope.Scope> =>
+  Effect.gen(function* () {
+    ctx.logger.step(stepNumber, totalSteps, step.message);
+
+    // Capture state for release closure (immutable snapshot)
+    const capturedState = { ...state };
+
+    // Bind release to const for proper narrowing
+    const releaseHandler = step.release;
+
+    const runStep = releaseHandler
+      ? Effect.acquireRelease(step.acquire(ctx, state), (_, exit) =>
+          releaseHandler(ctx, capturedState, exit)
+        )
+      : step.acquire(ctx, state);
+
+    const result = yield* runStep;
+
+    // Merge result into state if it's an object, otherwise return unchanged state
+    return result !== null && result !== undefined && typeof result === "object"
+      ? { ...state, ...(result as Partial<S>) }
+      : state;
+  });
+
+/**
  * Execute setup steps sequentially using Effect's Scope for automatic rollback.
  * Each step's returned data is merged into state for subsequent steps.
  * On failure, release functions are executed in reverse order by the Scope.
  * On success, release functions can perform cleanup (e.g., removing backups).
+ *
  */
 export const executeSetupStepsScoped = <
   C,
-  S = object,
+  S extends object = object,
   E extends SystemError | GeneralError | ServiceError | ContainerError =
     | SystemError
     | GeneralError
@@ -637,44 +633,21 @@ export const executeSetupStepsScoped = <
     | ContainerError,
 >(
   ctx: ServiceContext<C>,
-  steps: SetupStepResource<C, S, E>[],
-  initialState: S = {} as S
+  steps: readonly SetupStepResource<C, S, E>[],
+  initialState: S
 ): Effect.Effect<void, E> =>
   Effect.scoped(
-    Effect.gen(function* () {
-      const { logger } = ctx;
-      const totalSteps = steps.length;
-
-      let state = { ...initialState };
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        if (!step) {
-          continue;
-        }
-
-        logger.step(i + 1, totalSteps, step.message);
-
-        if (step.release) {
-          // Capture state and release function at this point for the closure
-          const capturedState = { ...state };
-          const releaseFunc = step.release;
-          // Always call release - let it decide based on exit status
-          const result = yield* Effect.acquireRelease(step.acquire(ctx, state), (_, exit) =>
-            releaseFunc(ctx, capturedState, exit)
-          );
-          if (result && typeof result === "object") {
-            state = { ...state, ...result };
-          }
-        } else {
-          const result = yield* step.acquire(ctx, state);
-          if (result && typeof result === "object") {
-            state = { ...state, ...result };
-          }
-        }
-      }
-
-      logger.success("Setup completed successfully");
-    })
+    pipe(
+      // Zip steps with their indices (1-based for display)
+      steps.map((step, index) => [step, index] as const),
+      // Effectful fold: thread state through each step
+      (indexedSteps) =>
+        Effect.reduce(indexedSteps, initialState, (state, [step, index]) =>
+          executeStep(ctx, step, state, index + 1, steps.length)
+        ),
+      // Discard final state, log success
+      Effect.flatMap(() => Effect.sync(() => ctx.logger.success("Setup completed successfully")))
+    )
   );
 
 // ============================================================================

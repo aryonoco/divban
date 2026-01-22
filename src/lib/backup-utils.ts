@@ -194,3 +194,136 @@ export const validateBackupService = (
   logger.info(`Backup from: ${timestamp}, service: ${service}`);
   return Effect.void;
 };
+
+// ============================================================================
+// FP-style Directory Scanning Utilities
+// ============================================================================
+
+/**
+ * Predicate: path does NOT match any exclusion pattern.
+ * Pure function for use with filter.
+ */
+const notExcluded =
+  (exclude: readonly string[]) =>
+  (path: string): boolean =>
+    !exclude.some((ex) => path.startsWith(ex) || path === ex);
+
+/**
+ * Scan directory and collect files, excluding patterns.
+ * Uses Effect Stream instead of for-await loops.
+ * Reusable across backup implementations.
+ */
+export const scanDirectoryFiles = (
+  dir: string,
+  exclude: readonly string[] = []
+): Effect.Effect<readonly string[], never> =>
+  Effect.gen(function* () {
+    const glob = new Glob("**/*");
+    const files: string[] = [];
+
+    yield* Effect.promise(async () => {
+      for await (const file of glob.scan({ cwd: dir, onlyFiles: true })) {
+        files.push(file);
+      }
+    });
+
+    return files.filter(notExcluded(exclude));
+  });
+
+/** File entry with modification time. */
+interface FileWithMtime {
+  readonly name: string;
+  readonly mtime: number;
+}
+
+/**
+ * Get file stat safely, defaulting mtime to 0 on error.
+ */
+const getFileMtime = (dir: string, name: string): Effect.Effect<FileWithMtime> =>
+  Effect.promise(async () => ({
+    name,
+    mtime: (await Bun.file(`${dir}/${name}`).stat())?.mtimeMs ?? 0,
+  }));
+
+/**
+ * Sort files by mtime descending (newest first).
+ * Pure function - creates new sorted array.
+ */
+const sortByMtimeDesc = (files: readonly FileWithMtime[]): readonly string[] =>
+  [...files].sort((a, b) => b.mtime - a.mtime).map((f) => f.name);
+
+/**
+ * List files in directory sorted by mtime (newest first).
+ * FP alternative to for-await with mutable arrays.
+ */
+export const listFilesByMtime = (
+  dir: string,
+  pattern: string
+): Effect.Effect<readonly string[], never> =>
+  Effect.gen(function* () {
+    const glob = new Glob(pattern);
+    const files: string[] = [];
+
+    yield* Effect.promise(async () => {
+      for await (const file of glob.scan({ cwd: dir, onlyFiles: true })) {
+        files.push(file);
+      }
+    });
+
+    const withStats = yield* Effect.forEach(files, (f) => getFileMtime(dir, f), {
+      concurrency: 10,
+    });
+
+    return sortByMtimeDesc(withStats);
+  });
+
+/** File entry with content. */
+interface FileWithContent {
+  readonly path: string;
+  readonly content: Uint8Array;
+}
+
+/**
+ * Read file content from directory.
+ */
+const readFileContent = (dir: string, path: string): Effect.Effect<FileWithContent> =>
+  Effect.promise(async () => ({
+    path,
+    content: await Bun.file(`${dir}/${path}`).bytes(),
+  }));
+
+/**
+ * Build files record from entries.
+ * Uses Object.fromEntries (pure - creates new object).
+ */
+const buildFilesRecord = (
+  entries: readonly FileWithContent[]
+): Readonly<Record<string, Uint8Array>> =>
+  Object.fromEntries(entries.map((e) => [e.path, e.content]));
+
+/**
+ * Collected files result type.
+ */
+export interface CollectedFiles {
+  readonly files: Readonly<Record<string, Uint8Array>>;
+  readonly fileList: readonly string[];
+}
+
+/**
+ * Collect files with their contents from a directory.
+ * FP replacement for for-await loops with mutable arrays.
+ */
+export const collectFilesWithContent = (
+  dir: string,
+  exclude: readonly string[] = []
+): Effect.Effect<CollectedFiles, never> =>
+  pipe(
+    scanDirectoryFiles(dir, exclude),
+    Effect.flatMap((paths) =>
+      Effect.forEach(paths, (p) => readFileContent(dir, p), { concurrency: 10 })
+    ),
+    Effect.map((entries) => ({
+      files: buildFilesRecord(entries),
+      fileList: entries.map((e) => e.path),
+    }))
+  );

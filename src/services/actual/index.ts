@@ -7,7 +7,6 @@
 
 /**
  * Actual Budget service implementation.
- * Simple single-container personal finance application.
  */
 
 import { Effect, Exit } from "effect";
@@ -43,7 +42,6 @@ import type {
   ServiceDefinition,
   ServiceEffect,
 } from "../types";
-import { createGeneratedFiles } from "../types";
 import { backupActual, restoreActual } from "./commands/backup";
 import { type ActualConfig, actualConfigSchema } from "./schema";
 
@@ -82,13 +80,13 @@ const validate = createConfigValidator(actualConfigSchema);
 
 /**
  * Generate all files for Actual service.
+ * Returns immutable GeneratedFiles with pre-built Maps.
  */
 const generate = (
   ctx: ServiceContext<ActualConfig>
 ): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
   Effect.sync(() => {
     const { config } = ctx;
-    const files = createGeneratedFiles();
 
     // Build container quadlet
     const port = config.network?.port ?? 5006;
@@ -148,9 +146,14 @@ const generate = (
 
     const containerQuadlet = generateContainerQuadlet(quadletConfig);
 
-    files.quadlets.set(`${CONTAINER_NAME}.container`, containerQuadlet.content);
-
-    return files;
+    // Return GeneratedFiles with pre-built Maps (no mutations)
+    return {
+      quadlets: new Map([[`${CONTAINER_NAME}.container`, containerQuadlet.content]]),
+      networks: new Map(),
+      volumes: new Map(),
+      environment: new Map(),
+      other: new Map(),
+    };
   });
 
 /**
@@ -165,7 +168,6 @@ interface ActualSetupState {
 
 /**
  * Full setup for Actual service.
- * Uses executeSetupStepsScoped for clean sequential execution with state threading.
  */
 const setup = (
   ctx: ServiceContext<ActualConfig>
@@ -238,7 +240,11 @@ const setup = (
     },
   ];
 
-  return executeSetupStepsScoped(ctx, steps);
+  return executeSetupStepsScoped<
+    ActualConfig,
+    ActualSetupState,
+    ServiceError | SystemError | GeneralError
+  >(ctx, steps, {});
 };
 
 /**

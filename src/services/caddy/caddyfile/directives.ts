@@ -11,7 +11,11 @@
  */
 
 import type { Directive } from "../schema";
-import { escapeValue, indent } from "./format";
+import { Caddy, type CaddyOp, escapeValue, indent } from "./format";
+
+// ============================================================================
+// String Rendering
+// ============================================================================
 
 /**
  * Render a single directive.
@@ -21,34 +25,55 @@ export const renderDirective = (directive: Directive, level = 0): string => {
   const args = directive.args?.map(escapeValue).join(" ") ?? "";
   const argsStr = args ? ` ${args}` : "";
 
-  // Simple directive (no block)
+  // Base case: no block
   if (!directive.block || directive.block.length === 0) {
     return `${prefix}${directive.name}${argsStr}`;
   }
 
-  // Directive with block
-  const lines: string[] = [];
-  lines.push(`${prefix}${directive.name}${argsStr} {`);
+  const childLines = directive.block.map((child) => renderDirective(child, level + 1)).join("\n");
 
-  for (const child of directive.block) {
-    lines.push(renderDirective(child, level + 1));
-  }
-
-  lines.push(`${prefix}}`);
-
-  return lines.join("\n");
+  return `${prefix}${directive.name}${argsStr} {\n${childLines}\n${prefix}}`;
 };
 
 /**
  * Render multiple directives.
  */
-export const renderDirectives = (directives: readonly Directive[], level = 0): string => {
-  return directives.map((d) => renderDirective(d, level)).join("\n");
+export const renderDirectives = (directives: readonly Directive[], level = 0): string =>
+  directives.map((d) => renderDirective(d, level)).join("\n");
+
+// ============================================================================
+// CaddyOp Functions
+// ============================================================================
+
+/**
+ * Convert a single directive to CaddyOp.
+ */
+export const directiveOp = (directive: Directive): CaddyOp => {
+  const args = directive.args;
+
+  // Base case: no block
+  if (!directive.block || directive.block.length === 0) {
+    return Caddy.directive(directive.name, args);
+  }
+
+  // Recursive case: open block, render children, close
+  return Caddy.seq(
+    Caddy.open(directive.name, args),
+    Caddy.forEach(directive.block, directiveOp),
+    Caddy.close
+  );
 };
 
 /**
- * Common directive builders.
+ * Convert multiple directives to CaddyOp.
  */
+export const directivesOps = (directives: readonly Directive[], _level = 0): CaddyOp =>
+  directives.length === 0 ? Caddy.id : Caddy.forEach(directives, directiveOp);
+
+// ============================================================================
+// Common Directive Builders
+// ============================================================================
+
 export const Directives: Record<string, (...args: never[]) => Directive> = {
   /**
    * reverse_proxy directive
@@ -57,16 +82,15 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     upstreams: string[],
     options?: { healthCheck?: boolean; lb?: string }
   ): Directive => {
-    const block: Directive[] = [];
-
-    if (options?.healthCheck) {
-      block.push({ name: "health_uri", args: ["/health"] });
-      block.push({ name: "health_interval", args: ["30s"] });
-    }
-
-    if (options?.lb) {
-      block.push({ name: "lb_policy", args: [options.lb] });
-    }
+    const block: Directive[] = [
+      ...(options?.healthCheck
+        ? [
+            { name: "health_uri", args: ["/health"] },
+            { name: "health_interval", args: ["30s"] },
+          ]
+        : []),
+      ...(options?.lb ? [{ name: "lb_policy", args: [options.lb] }] : []),
+    ];
 
     return block.length > 0
       ? { name: "reverse_proxy", args: upstreams, block }
@@ -77,15 +101,10 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
    * file_server directive
    */
   fileServer: (options?: { root?: string; browse?: boolean }): Directive => {
-    const block: Directive[] = [];
-
-    if (options?.root) {
-      block.push({ name: "root", args: [options.root] });
-    }
-
-    if (options?.browse) {
-      block.push({ name: "browse" });
-    }
+    const block: Directive[] = [
+      ...(options?.root ? [{ name: "root", args: [options.root] }] : []),
+      ...(options?.browse ? [{ name: "browse" }] : []),
+    ];
 
     return block.length > 0 ? { name: "file_server", block } : { name: "file_server" };
   },
@@ -137,17 +156,11 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
    * log directive
    */
   log: (options?: { output?: string; format?: string; level?: string }): Directive => {
-    const block: Directive[] = [];
-
-    if (options?.output) {
-      block.push({ name: "output", args: [options.output] });
-    }
-    if (options?.format) {
-      block.push({ name: "format", args: [options.format] });
-    }
-    if (options?.level) {
-      block.push({ name: "level", args: [options.level] });
-    }
+    const block: Directive[] = [
+      ...(options?.output ? [{ name: "output", args: [options.output] }] : []),
+      ...(options?.format ? [{ name: "format", args: [options.format] }] : []),
+      ...(options?.level ? [{ name: "level", args: [options.level] }] : []),
+    ];
 
     return block.length > 0 ? { name: "log", block } : { name: "log" };
   },
