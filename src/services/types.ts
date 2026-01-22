@@ -283,7 +283,7 @@ export interface ServiceEffect<C> {
 export type AnyServiceEffect = ServiceEffect<unknown>;
 
 // ============================================================================
-// GeneratedFiles Monoid Operations
+// GeneratedFiles Operations
 // ============================================================================
 
 /**
@@ -293,8 +293,7 @@ const mergeMaps = <K, V>(left: ReadonlyMap<K, V>, right: ReadonlyMap<K, V>): Rea
   new Map([...left, ...right]);
 
 /**
- * Monoid identity for GeneratedFiles.
- * Named `emptyGeneratedFiles` following Haskell convention for monoid identity.
+ * Empty GeneratedFiles object.
  */
 export const emptyGeneratedFiles: GeneratedFiles = {
   quadlets: new Map(),
@@ -311,8 +310,7 @@ export const emptyGeneratedFiles: GeneratedFiles = {
 export const createGeneratedFiles = (): GeneratedFiles => emptyGeneratedFiles;
 
 /**
- * Merge two GeneratedFiles (Semigroup operation).
- * Right-biased: values in `right` overwrite `left`.
+ * Merge two GeneratedFiles. Right-biased (later values win).
  */
 export const appendGeneratedFiles = (
   left: GeneratedFiles,
@@ -326,7 +324,7 @@ export const appendGeneratedFiles = (
 });
 
 /**
- * Monoidal concat of multiple GeneratedFiles.
+ * Concatenate multiple GeneratedFiles into one.
  */
 export const concatGeneratedFiles = (files: readonly GeneratedFiles[]): GeneratedFiles =>
   files.reduce(appendGeneratedFiles, emptyGeneratedFiles);

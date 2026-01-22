@@ -6,7 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based remove command - completely remove a service.
+ * remove command - completely remove a service.
  */
 
 import { Effect, Either } from "effect";

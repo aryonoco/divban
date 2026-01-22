@@ -211,7 +211,7 @@ export const writeGeneratedFilesTracked = <C>(
   const { quadletDir, configDir } = ctx.paths;
   const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
 
-  // Collect all file entries with their destinations - pure transformation
+  // Collect all file entries with their destinations
   const allFiles: readonly { dest: AbsolutePath; content: string }[] = [
     ...[...files.quadlets].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
     ...[...files.networks].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
@@ -220,7 +220,7 @@ export const writeGeneratedFilesTracked = <C>(
     ...[...files.other].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
   ];
 
-  // Sequential write with tracking - effectful composition
+  // Sequential write with tracking
   return pipe(
     Effect.forEach(
       allFiles,

@@ -31,12 +31,6 @@ import { getVolumeEntries } from "./volumes";
 
 /**
  * Build container section by composing all entry generators.
- * Pure function: Config → IniSection
- *
- * Architecture:
- * - Each getXxxEntries is a pure function: Config → Entries
- * - concat is the monoid operation combining all entries
- * - ContainerQuadlet extends sub-config interfaces, enabling direct pass-through
  */
 export const buildContainerSection = (config: ContainerQuadlet): IniSection => ({
   name: "Container",

@@ -74,7 +74,7 @@ const maybeArrayDirective = (name: string, opt: Option.Option<readonly string[]>
   );
 
 // ============================================================================
-// Main Functions (CaddyOp-returning for composition)
+// Main Functions
 // ============================================================================
 
 /**

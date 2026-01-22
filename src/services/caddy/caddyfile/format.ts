@@ -6,10 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Caddyfile formatting utilities using pure functional patterns.
+ * Caddyfile formatting utilities.
  *
- * CaddyOp is an endomorphism (Endo CaddyfileState) that transforms state.
- * Operations compose via function composition with identity as the monoid unit.
+ * CaddyOp is a state transformer that builds Caddyfile content.
+ * Operations compose via function composition.
  */
 
 import { Chunk, Option, pipe } from "effect";
@@ -77,7 +77,7 @@ interface CaddyfileState {
   readonly indentLevel: number;
 }
 
-/** Monoid identity for CaddyfileState */
+/** Initial empty state */
 const emptyState: CaddyfileState = {
   lines: Chunk.empty(),
   indentLevel: 0,
@@ -114,19 +114,16 @@ const render = (state: CaddyfileState): string =>
   `${Chunk.toReadonlyArray(state.lines).join("\n")}\n`;
 
 // ============================================================================
-// CaddyOp: Endomorphism on CaddyfileState
+// CaddyOp: State Transformer
 // ============================================================================
 
 /**
- * CaddyOp is an endomorphism (Endo CaddyfileState).
- * Composes via function composition: (f . g)(s) = f(g(s))
- * Identity element: identity function
+ * CaddyOp transforms CaddyfileState. Composable via function composition.
  */
 export type CaddyOp = (state: CaddyfileState) => CaddyfileState;
 
 /**
- * Compose two CaddyOps (Kleisli-style, left-to-right).
- * compose(f, g) applies f first, then g.
+ * Compose two CaddyOps left-to-right: compose(f, g) applies f first, then g.
  */
 const compose =
   (f: CaddyOp, g: CaddyOp): CaddyOp =>
@@ -134,7 +131,7 @@ const compose =
     g(f(s));
 
 /**
- * Fold multiple CaddyOps into one (monoidal concat).
+ * Combine multiple CaddyOps into one.
  */
 const fold = (ops: readonly CaddyOp[]): CaddyOp => ops.reduce(compose, identity);
 
@@ -143,7 +140,7 @@ const fold = (ops: readonly CaddyOp[]): CaddyOp => ops.reduce(compose, identity)
 // ============================================================================
 
 export const Caddy = {
-  /** Identity operation - does nothing. Monoid identity. */
+  /** Identity operation - does nothing. */
   id: identity as CaddyOp,
 
   /** Add a line at current indentation */

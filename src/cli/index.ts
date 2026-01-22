@@ -88,8 +88,7 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
     // (the "imperative shell" boundary)
     const envConfig: EnvConfig = yield* EnvConfigSpec;
 
-    // Resolve effective settings using pure functions
-    // Priority: CLI args > env vars > global config
+    // Resolve effective settings (priority: CLI args > env vars > global config)
     const loggingSettings = getLoggingSettings(globalConfig);
     const effectiveLogLevel = resolveLogLevel(
       args.verbose,

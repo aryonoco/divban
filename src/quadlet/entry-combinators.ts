@@ -14,15 +14,13 @@ import { empty } from "./entry";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Monoid homomorphism: Option<Entries> → Entries
- * Lifts Option<Entries> into Entries by returning empty for None.
- * This is the universal primitive that all combinators factor through.
+ * Convert Option<Entries> to Entries, returning empty for None.
  */
 const optionToEntries = (opt: Option.Option<Entries>): Entries =>
   Option.getOrElse(opt, (): Entries => empty);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Primitives (Functor-based lifting)
+// Primitives
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

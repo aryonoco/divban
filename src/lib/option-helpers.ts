@@ -135,8 +135,7 @@ export const traverse =
     sequence(arr.map(f));
 
 /**
- * CatOptions: Filter out None values and extract Some values.
- * Like Haskell's catMaybes.
+ * Filter out None values and extract Some values.
  */
 export const catOptions = <A>(opts: readonly Option.Option<A>[]): readonly A[] =>
   opts.filter(Option.isSome).map((o) => o.value);

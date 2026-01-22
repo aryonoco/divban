@@ -128,7 +128,7 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
     // Generate files
     const files = yield* service.generate(ctx);
 
-    // Collect all file entries (pure transformation)
+    // Collect all file entries
     const fileEntries: readonly { path: AbsolutePath; content: string }[] = [
       ...[...files.quadlets].map(([name, content]) => ({
         path: quadletFilePath(quadletDir, name),
@@ -152,7 +152,7 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       })),
     ];
 
-    // Compute all diffs using Effect.forEach (traverse pattern)
+    // Compute all diffs
     const diffs = yield* Effect.forEach(
       fileEntries,
       ({ path, content }) =>
@@ -163,12 +163,12 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       { concurrency: 1 }
     );
 
-    // Pure: partition diffs by status
+    // Partition diffs by status
     const newFiles = diffs.filter((d) => d.status === "new");
     const modifiedFiles = diffs.filter((d) => d.status === "modified");
     const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
 
-    // Pure: format diff results as lines
+    // Format diff results as lines
     const formatLines: readonly string[] = [
       ...(newFiles.length > 0
         ? ["\nNew files (would be created):", ...newFiles.map((f) => `  + ${f.path}`)]
@@ -238,8 +238,7 @@ const compareFile = (
   });
 
 /**
- * Generate a simple unified diff using functional patterns.
- * No mutable arrays.
+ * Generate a simple unified diff.
  */
 function generateSimpleDiff(oldContent: string, newContent: string): string {
   const oldLines = oldContent.split("\n");

@@ -125,7 +125,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       }
     }
 
-    // Main scoped setup - compositional resource management
+    // Main scoped setup with automatic rollback on failure
     yield* Effect.scoped(
       Effect.gen(function* () {
         // Step 1 (caddy only): Sysctl - idempotent, no rollback needed

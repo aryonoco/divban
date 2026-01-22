@@ -13,7 +13,7 @@
 import { Array as Arr, Chunk, Effect, Option, Stream, pipe } from "effect";
 
 // ============================================================================
-// Identity Function (Haskell: id)
+// Identity Function
 // ============================================================================
 
 /** The identity function. Use instead of `(x) => x`. */
@@ -25,7 +25,6 @@ export const identity = <A>(a: A): A => a;
 
 /**
  * Collect async iterable to Chunk using Stream.
- * Chunk is a persistent (immutable) data structure - more FP than arrays.
  */
 export const collectAsync = <A, E>(
   iterable: AsyncIterable<A>,
@@ -35,7 +34,6 @@ export const collectAsync = <A, E>(
 
 /**
  * Collect async iterable to ReadonlyArray.
- * Prefer `collectAsync` when further Chunk operations are needed.
  */
 export const collectAsyncToArray = <A, E>(
   iterable: AsyncIterable<A>,
@@ -45,7 +43,6 @@ export const collectAsyncToArray = <A, E>(
 
 /**
  * Collect async iterable where errors are unexpected (e.g., Glob.scan).
- * Returns a defect (uncatchable) on error rather than using type lies.
  */
 export const collectAsyncOrDie = <A>(iterable: AsyncIterable<A>): Effect.Effect<readonly A[]> =>
   pipe(
@@ -59,12 +56,11 @@ export const collectAsyncOrDie = <A>(iterable: AsyncIterable<A>): Effect.Effect<
 // ReadonlyMap Operations (Persistent)
 // ============================================================================
 
-/** Empty ReadonlyMap - use as monoid identity. */
+/** Empty ReadonlyMap. */
 export const emptyMap = <K, V>(): ReadonlyMap<K, V> => new Map();
 
 /**
  * Merge two ReadonlyMaps. Right-biased (later values win).
- * This is the monoid `mappend` for Map.
  */
 export const mergeMaps = <K, V>(
   left: ReadonlyMap<K, V>,
@@ -72,7 +68,7 @@ export const mergeMaps = <K, V>(
 ): ReadonlyMap<K, V> => new Map([...left, ...right]);
 
 /**
- * Monoidally concat many maps. Uses reduce with identity.
+ * Concatenate many maps into one. Right-biased.
  */
 export const concatMaps = <K, V>(maps: readonly ReadonlyMap<K, V>[]): ReadonlyMap<K, V> =>
   maps.reduce<ReadonlyMap<K, V>>(mergeMaps, emptyMap());
@@ -91,7 +87,6 @@ export const mapFromIterable = <K, V>(entries: Iterable<readonly [K, V]>): Reado
 
 /**
  * Insert a key-value pair, returning a new map.
- * Functional equivalent of Map.set().
  */
 export const mapInsert =
   <K, V>(key: K, value: V) =>
@@ -100,7 +95,6 @@ export const mapInsert =
 
 /**
  * Lookup a key in a map, returning Option.
- * Total function - never throws.
  */
 export const mapLookup =
   <K, V>(key: K) =>
@@ -137,7 +131,7 @@ export const at =
 export const flatten = <A>(arr: readonly (readonly A[])[]): readonly A[] => arr.flat();
 
 /**
- * Deduplicate array preserving order (like Haskell's nub).
+ * Deduplicate array preserving order.
  */
 export const nub = <A>(arr: readonly A[]): readonly A[] => [...new Set(arr)];
 
@@ -148,7 +142,7 @@ export const concatUnique = <A>(...arrays: readonly (readonly A[])[]): readonly 
   nub(flatten(arrays));
 
 // ============================================================================
-// Record Operations (for Object.entries patterns)
+// Record Operations
 // ============================================================================
 
 /**
@@ -178,12 +172,11 @@ export const flatMapEntries = <K extends string, V, B>(
 ): readonly B[] => entries(record).flatMap(([k, v]) => f(k, v));
 
 // ============================================================================
-// Semigroup/Monoid Helpers
+// Merge Helpers
 // ============================================================================
 
 /**
- * Merge records using spread (right-biased semigroup).
- * Avoids `as T` by using proper generics.
+ * Merge records using spread. Right-biased (later values win).
  */
 export const mergeRecords = <A extends Record<string, unknown>>(left: A, right: Partial<A>): A => ({
   ...left,
