@@ -7,6 +7,7 @@
 
 /**
  * Effect-based stop command - stop a service.
+ * Uses Layer.provide pattern for dependency injection.
  */
 
 import { Effect } from "effect";
@@ -14,7 +15,7 @@ import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext } from "./utils";
+import { createServiceLayer, getContextOptions, resolvePrerequisitesOptionalConfig } from "./utils";
 
 export interface StopOptions {
   service: AnyServiceEffect;
@@ -26,11 +27,18 @@ export interface StopOptions {
  * Execute the stop command.
  */
 export const executeStop = (options: StopOptions): Effect.Effect<void, DivbanEffectError> =>
-  Effect.flatMap(
-    buildServiceContext({
-      service: options.service,
-      args: options.args,
-      logger: options.logger,
-    }),
-    ({ ctx }) => options.service.stop(ctx)
-  );
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
+
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
+
+    yield* service.stop().pipe(Effect.provide(layer));
+  });

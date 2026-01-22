@@ -29,13 +29,8 @@ import {
   startService,
   stopService,
 } from "../system/systemctl";
-import type {
-  BackupResult,
-  GeneratedFiles,
-  LogOptions,
-  ServiceContext,
-  ServiceStatus,
-} from "./types";
+import { AppLogger, ServicePaths, ServiceUser } from "./context";
+import type { GeneratedFiles, LogOptions, ServiceStatus } from "./types";
 
 // ============================================================================
 // Core Tracking Types
@@ -138,14 +133,17 @@ const writeAndOwn = (
 
 /**
  * Write all generated files to their destinations.
+ * Dependencies accessed via Effect context.
  */
-export const writeGeneratedFiles = <C>(
-  files: GeneratedFiles,
-  ctx: ServiceContext<C>
-): Effect.Effect<void, SystemError | GeneralError> =>
+export const writeGeneratedFiles = (
+  files: GeneratedFiles
+): Effect.Effect<void, SystemError | GeneralError, ServicePaths | ServiceUser> =>
   Effect.gen(function* () {
-    const { quadletDir, configDir } = ctx.paths;
-    const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
+    const paths = yield* ServicePaths;
+    const user = yield* ServiceUser;
+
+    const { quadletDir, configDir } = paths;
+    const owner = { uid: user.uid, gid: user.gid };
 
     // Collect all write operations
     const quadletOps = [...files.quadlets].map(([filename, content]) =>
@@ -203,33 +201,48 @@ const writeFileTracked = (
 
 /**
  * Write generated files with tracking using Effect.forEach.
+ * Dependencies accessed via Effect context.
  */
-export const writeGeneratedFilesTracked = <C>(
-  files: GeneratedFiles,
-  ctx: ServiceContext<C>
-): Effect.Effect<FilesWriteResult, SystemError | GeneralError> => {
-  const { quadletDir, configDir } = ctx.paths;
-  const owner = { uid: ctx.user.uid, gid: ctx.user.gid };
+export const writeGeneratedFilesTracked = (
+  files: GeneratedFiles
+): Effect.Effect<FilesWriteResult, SystemError | GeneralError, ServicePaths | ServiceUser> =>
+  Effect.gen(function* () {
+    const paths = yield* ServicePaths;
+    const user = yield* ServiceUser;
 
-  // Collect all file entries with their destinations
-  const allFiles: readonly { dest: AbsolutePath; content: string }[] = [
-    ...[...files.quadlets].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
-    ...[...files.networks].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
-    ...[...files.volumes].map(([f, c]) => ({ dest: quadletFilePath(quadletDir, f), content: c })),
-    ...[...files.environment].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
-    ...[...files.other].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
-  ];
+    const { quadletDir, configDir } = paths;
+    const owner = { uid: user.uid, gid: user.gid };
 
-  // Sequential write with tracking
-  return pipe(
-    Effect.forEach(
+    // Collect all file entries with their destinations
+    const allFiles: readonly { dest: AbsolutePath; content: string }[] = [
+      ...[...files.quadlets].map(([f, c]) => ({
+        dest: quadletFilePath(quadletDir, f),
+        content: c,
+      })),
+      ...[...files.networks].map(([f, c]) => ({
+        dest: quadletFilePath(quadletDir, f),
+        content: c,
+      })),
+      ...[...files.volumes].map(([f, c]) => ({
+        dest: quadletFilePath(quadletDir, f),
+        content: c,
+      })),
+      ...[...files.environment].map(([f, c]) => ({
+        dest: configFilePath(configDir, f),
+        content: c,
+      })),
+      ...[...files.other].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
+    ];
+
+    // Sequential write with tracking
+    const results = yield* Effect.forEach(
       allFiles,
       ({ dest, content }) => writeFileTracked(dest, content, owner),
       { concurrency: 1 } // Sequential to maintain order
-    ),
-    Effect.map((results) => ({ results }))
-  );
-};
+    );
+
+    return { results };
+  });
 
 /**
  * Rollback file writes - delete created, restore modified.
@@ -280,57 +293,58 @@ export const releaseFileWrites = (
 /**
  * Enable services with tracking.
  * Returns only the services we actually changed.
+ * Dependencies accessed via Effect context.
  */
-export const reloadAndEnableServicesTracked = <C>(
-  ctx: ServiceContext<C>,
+export const reloadAndEnableServicesTracked = (
   services: readonly string[],
   startAfterEnable = true
-): Effect.Effect<ServicesEnableResult, ServiceError | SystemError | GeneralError> => {
-  const opts = { user: ctx.user.name, uid: ctx.user.uid };
+): Effect.Effect<ServicesEnableResult, ServiceError | SystemError | GeneralError, ServiceUser> =>
+  Effect.gen(function* () {
+    const user = yield* ServiceUser;
+    const opts = { user: user.name, uid: user.uid };
 
-  // Check and enable each service, collecting what we changed
-  const enableIfNeeded = (
-    svc: string
-  ): Effect.Effect<Option.Option<string>, SystemError | GeneralError> =>
-    pipe(
-      isServiceEnabled(`${svc}.service`, opts),
-      Effect.flatMap((enabled) =>
-        enabled
-          ? Effect.succeed(Option.none())
-          : pipe(enableService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
-      )
+    // Check and enable each service, collecting what we changed
+    const enableIfNeeded = (
+      svc: string
+    ): Effect.Effect<Option.Option<string>, SystemError | GeneralError> =>
+      pipe(
+        isServiceEnabled(`${svc}.service`, opts),
+        Effect.flatMap((enabled) =>
+          enabled
+            ? Effect.succeed(Option.none())
+            : pipe(enableService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
+        )
+      );
+
+    const startIfNeeded = (
+      svc: string
+    ): Effect.Effect<Option.Option<string>, ServiceError | SystemError | GeneralError> =>
+      pipe(
+        isServiceActive(`${svc}.service`, opts),
+        Effect.flatMap((active) =>
+          active
+            ? Effect.succeed(Option.none())
+            : pipe(startService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
+        )
+      );
+
+    yield* daemonReload(opts);
+
+    const results = yield* Effect.forEach(
+      services,
+      (svc) =>
+        pipe(
+          enableIfNeeded(svc),
+          Effect.flatMap((enabled) =>
+            startAfterEnable
+              ? Effect.map(startIfNeeded(svc), (started) => ({ enabled, started }))
+              : Effect.succeed({ enabled, started: Option.none() as Option.Option<string> })
+          )
+        ),
+      { concurrency: 1 }
     );
 
-  const startIfNeeded = (
-    svc: string
-  ): Effect.Effect<Option.Option<string>, ServiceError | SystemError | GeneralError> =>
-    pipe(
-      isServiceActive(`${svc}.service`, opts),
-      Effect.flatMap((active) =>
-        active
-          ? Effect.succeed(Option.none())
-          : pipe(startService(`${svc}.service`, opts), Effect.as(Option.some(svc)))
-      )
-    );
-
-  return pipe(
-    daemonReload(opts),
-    Effect.flatMap(() =>
-      Effect.forEach(
-        services,
-        (svc) =>
-          pipe(
-            enableIfNeeded(svc),
-            Effect.flatMap((enabled) =>
-              startAfterEnable
-                ? Effect.map(startIfNeeded(svc), (started) => ({ enabled, started }))
-                : Effect.succeed({ enabled, started: Option.none() as Option.Option<string> })
-            )
-          ),
-        { concurrency: 1 }
-      )
-    ),
-    Effect.map((results) => ({
+    return {
       newlyEnabled: results
         .map((r) => r.enabled)
         .filter(Option.isSome)
@@ -339,32 +353,33 @@ export const reloadAndEnableServicesTracked = <C>(
         .map((r) => r.started)
         .filter(Option.isSome)
         .map((o) => o.value),
-    }))
-  );
-};
+    };
+  });
 
 /**
  * Rollback service changes.
+ * Dependencies accessed via Effect context.
  */
-export const rollbackServiceChanges = <C>(
-  ctx: ServiceContext<C>,
+export const rollbackServiceChanges = (
   result: ServicesEnableResult
-): Effect.Effect<void, never> => {
-  const opts = { user: ctx.user.name, uid: ctx.user.uid };
+): Effect.Effect<void, never, ServiceUser> =>
+  Effect.gen(function* () {
+    const user = yield* ServiceUser;
+    const opts = { user: user.name, uid: user.uid };
 
-  return Effect.all([
-    Effect.forEach(
-      result.newlyStarted,
-      (svc) => stopService(`${svc}.service`, opts).pipe(Effect.ignore),
-      { concurrency: "unbounded" }
-    ),
-    Effect.forEach(
-      result.newlyEnabled,
-      (svc) => disableService(`${svc}.service`, opts).pipe(Effect.ignore),
-      { concurrency: "unbounded" }
-    ),
-  ]).pipe(Effect.asVoid);
-};
+    yield* Effect.all([
+      Effect.forEach(
+        result.newlyStarted,
+        (svc) => stopService(`${svc}.service`, opts).pipe(Effect.ignore),
+        { concurrency: "unbounded" }
+      ),
+      Effect.forEach(
+        result.newlyEnabled,
+        (svc) => disableService(`${svc}.service`, opts).pipe(Effect.ignore),
+        { concurrency: "unbounded" }
+      ),
+    ]);
+  }).pipe(Effect.asVoid);
 
 // ============================================================================
 // Config Copy Operations
@@ -452,63 +467,93 @@ export interface SingleContainerConfig {
 
 /**
  * Operations returned by createSingleContainerOps.
+ * No ctx parameter - dependencies in R type, resolved via yield*.
  */
-export interface SingleContainerOpsEffect<C> {
-  start: (ctx: ServiceContext<C>) => Effect.Effect<void, ServiceError | SystemError | GeneralError>;
-  stop: (ctx: ServiceContext<C>) => Effect.Effect<void, ServiceError | SystemError | GeneralError>;
-  restart: (
-    ctx: ServiceContext<C>
-  ) => Effect.Effect<void, ServiceError | SystemError | GeneralError>;
-  status: (
-    ctx: ServiceContext<C>
-  ) => Effect.Effect<ServiceStatus, ServiceError | SystemError | GeneralError>;
+export interface SingleContainerOps {
+  start: () => Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    ServiceUser | AppLogger
+  >;
+  stop: () => Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    ServiceUser | AppLogger
+  >;
+  restart: () => Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    ServiceUser | AppLogger
+  >;
+  status: () => Effect.Effect<
+    ServiceStatus,
+    ServiceError | SystemError | GeneralError,
+    ServiceUser
+  >;
   logs: (
-    ctx: ServiceContext<C>,
     options: LogOptions
-  ) => Effect.Effect<void, ServiceError | SystemError | GeneralError>;
+  ) => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
 }
 
 /**
  * Create standard start/stop/restart/status/logs for single-container services.
+ * Returns operations that access dependencies via Effect context.
  */
-export const createSingleContainerOps = <C>(
-  config: SingleContainerConfig
-): SingleContainerOpsEffect<C> => {
+export const createSingleContainerOps = (config: SingleContainerConfig): SingleContainerOps => {
   const unit = `${config.serviceName}.service`;
 
   return {
-    start: (
-      ctx: ServiceContext<C>
-    ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+    start: (): Effect.Effect<
+      void,
+      ServiceError | SystemError | GeneralError,
+      ServiceUser | AppLogger
+    > =>
       Effect.gen(function* () {
-        ctx.logger.info(`Starting ${config.displayName}...`);
-        yield* startService(unit, { user: ctx.user.name, uid: ctx.user.uid });
-        ctx.logger.success(`${config.displayName} started successfully`);
+        const user = yield* ServiceUser;
+        const logger = yield* AppLogger;
+
+        logger.info(`Starting ${config.displayName}...`);
+        yield* startService(unit, { user: user.name, uid: user.uid });
+        logger.success(`${config.displayName} started successfully`);
       }),
 
-    stop: (
-      ctx: ServiceContext<C>
-    ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+    stop: (): Effect.Effect<
+      void,
+      ServiceError | SystemError | GeneralError,
+      ServiceUser | AppLogger
+    > =>
       Effect.gen(function* () {
-        ctx.logger.info(`Stopping ${config.displayName}...`);
-        yield* stopService(unit, { user: ctx.user.name, uid: ctx.user.uid });
-        ctx.logger.success(`${config.displayName} stopped successfully`);
+        const user = yield* ServiceUser;
+        const logger = yield* AppLogger;
+
+        logger.info(`Stopping ${config.displayName}...`);
+        yield* stopService(unit, { user: user.name, uid: user.uid });
+        logger.success(`${config.displayName} stopped successfully`);
       }),
 
-    restart: (
-      ctx: ServiceContext<C>
-    ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+    restart: (): Effect.Effect<
+      void,
+      ServiceError | SystemError | GeneralError,
+      ServiceUser | AppLogger
+    > =>
       Effect.gen(function* () {
-        ctx.logger.info(`Restarting ${config.displayName}...`);
-        yield* restartService(unit, { user: ctx.user.name, uid: ctx.user.uid });
-        ctx.logger.success(`${config.displayName} restarted successfully`);
+        const user = yield* ServiceUser;
+        const logger = yield* AppLogger;
+
+        logger.info(`Restarting ${config.displayName}...`);
+        yield* restartService(unit, { user: user.name, uid: user.uid });
+        logger.success(`${config.displayName} restarted successfully`);
       }),
 
-    status: (
-      ctx: ServiceContext<C>
-    ): Effect.Effect<ServiceStatus, ServiceError | SystemError | GeneralError> =>
+    status: (): Effect.Effect<
+      ServiceStatus,
+      ServiceError | SystemError | GeneralError,
+      ServiceUser
+    > =>
       Effect.gen(function* () {
-        const running = yield* isServiceActive(unit, { user: ctx.user.name, uid: ctx.user.uid });
+        const user = yield* ServiceUser;
+
+        const running = yield* isServiceActive(unit, { user: user.name, uid: user.uid });
         return {
           running,
           containers: [
@@ -521,14 +566,17 @@ export const createSingleContainerOps = <C>(
       }),
 
     logs: (
-      ctx: ServiceContext<C>,
       options: LogOptions
-    ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
-      journalctl(unit, {
-        user: ctx.user.name,
-        uid: ctx.user.uid,
-        follow: options.follow,
-        lines: options.lines,
+    ): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
+      Effect.gen(function* () {
+        const user = yield* ServiceUser;
+
+        yield* journalctl(unit, {
+          user: user.name,
+          uid: user.uid,
+          follow: options.follow,
+          lines: options.lines,
+        });
       }),
   };
 };
@@ -543,7 +591,7 @@ export const createSingleContainerOps = <C>(
  */
 export const wrapBackupResult = <E>(
   backupFn: Effect.Effect<AbsolutePath, E>
-): Effect.Effect<BackupResult, E> =>
+): Effect.Effect<{ path: AbsolutePath; size: number; timestamp: Date }, E> =>
   Effect.gen(function* () {
     const path = yield* backupFn;
     const stat = yield* Effect.promise(() => Bun.file(path).stat());
@@ -562,39 +610,40 @@ export const wrapBackupResult = <E>(
  * Return type for setup step acquire functions.
  */
 // biome-ignore lint/suspicious/noConfusingVoidType: void needed for Effect<void> compatibility
-export type SetupStepAcquireResult<S, E> = Effect.Effect<Partial<S> | void, E>;
+export type SetupStepAcquireResult<S, E, R = never> = Effect.Effect<Partial<S> | void, E, R>;
 
 /**
  * Setup step definition using Effect resource pattern.
  * Steps run sequentially. If a step returns data, it's stored in state.
  * Uses acquireRelease for automatic rollback on failure.
+ * Generic over R - steps declare their own dependencies.
  */
-export interface SetupStepResource<C, S = object, E = SystemError | GeneralError | ServiceError> {
+export interface SetupStepResource<
+  S = object,
+  E = SystemError | GeneralError | ServiceError,
+  R = never,
+> {
   /** Step message for logger.step() */
   message: string;
   /** Acquire the resource. Can read from state and return data to add to state. */
-  acquire: (ctx: ServiceContext<C>, state: S) => SetupStepAcquireResult<S, E>;
+  acquire: (state: S) => SetupStepAcquireResult<S, E, R>;
   /** Release function called on scope close. Receives Exit to check success/failure. */
-  release?: (
-    ctx: ServiceContext<C>,
-    state: S,
-    exit: Exit.Exit<unknown, unknown>
-  ) => Effect.Effect<void, never>;
+  release?: (state: S, exit: Exit.Exit<unknown, unknown>) => Effect.Effect<void, never, R>;
 }
 
 /**
  * Execute a single setup step within scope.
  * Returns Effect requiring Scope when step has release function.
  */
-const executeStep = <C, S extends object, E>(
-  ctx: ServiceContext<C>,
-  step: SetupStepResource<C, S, E>,
+const executeStep = <S extends object, E, R>(
+  step: SetupStepResource<S, E, R>,
   state: S,
   stepNumber: number,
   totalSteps: number
-): Effect.Effect<S, E, Scope.Scope> =>
+): Effect.Effect<S, E, Scope.Scope | R | AppLogger> =>
   Effect.gen(function* () {
-    ctx.logger.step(stepNumber, totalSteps, step.message);
+    const logger = yield* AppLogger;
+    logger.step(stepNumber, totalSteps, step.message);
 
     // Capture state for release closure (immutable snapshot)
     const capturedState = { ...state };
@@ -603,10 +652,8 @@ const executeStep = <C, S extends object, E>(
     const releaseHandler = step.release;
 
     const runStep = releaseHandler
-      ? Effect.acquireRelease(step.acquire(ctx, state), (_, exit) =>
-          releaseHandler(ctx, capturedState, exit)
-        )
-      : step.acquire(ctx, state);
+      ? Effect.acquireRelease(step.acquire(state), (_, exit) => releaseHandler(capturedState, exit))
+      : step.acquire(state);
 
     const result = yield* runStep;
 
@@ -621,21 +668,20 @@ const executeStep = <C, S extends object, E>(
  * Each step's returned data is merged into state for subsequent steps.
  * On failure, release functions are executed in reverse order by the Scope.
  * On success, release functions can perform cleanup (e.g., removing backups).
- *
+ * Dependencies accessed via Effect context.
  */
 export const executeSetupStepsScoped = <
-  C,
   S extends object = object,
   E extends SystemError | GeneralError | ServiceError | ContainerError =
     | SystemError
     | GeneralError
     | ServiceError
     | ContainerError,
+  R = never,
 >(
-  ctx: ServiceContext<C>,
-  steps: readonly SetupStepResource<C, S, E>[],
+  steps: readonly SetupStepResource<S, E, R>[],
   initialState: S
-): Effect.Effect<void, E> =>
+): Effect.Effect<void, E, R | AppLogger> =>
   Effect.scoped(
     pipe(
       // Zip steps with their indices (1-based for display)
@@ -643,10 +689,15 @@ export const executeSetupStepsScoped = <
       // Effectful fold: thread state through each step
       (indexedSteps) =>
         Effect.reduce(indexedSteps, initialState, (state, [step, index]) =>
-          executeStep(ctx, step, state, index + 1, steps.length)
+          executeStep(step, state, index + 1, steps.length)
         ),
       // Discard final state, log success
-      Effect.flatMap(() => Effect.sync(() => ctx.logger.success("Setup completed successfully")))
+      Effect.flatMap(() =>
+        Effect.gen(function* () {
+          const logger = yield* AppLogger;
+          logger.success("Setup completed successfully");
+        })
+      )
     )
   );
 

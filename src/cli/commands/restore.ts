@@ -15,7 +15,7 @@ import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
 import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext } from "./utils";
+import { createServiceLayer, getContextOptions, resolvePrerequisitesOptionalConfig } from "./utils";
 
 export interface RestoreOptions {
   service: AnyServiceEffect;
@@ -70,13 +70,18 @@ export const executeRestore = (options: RestoreOptions): Effect.Effect<void, Div
     const validBackupPath = yield* toAbsolutePathEffect(args.backupPath);
     logger.info(`Restoring ${service.definition.name} from: ${validBackupPath}`);
 
-    const { ctx } = yield* buildServiceContext({
-      ...options,
-      requireConfig: true,
-    });
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
+
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
 
     // biome-ignore lint/style/noNonNullAssertion: capability check above ensures restore exists
-    yield* service.restore!(ctx, validBackupPath);
+    yield* service.restore!(validBackupPath).pipe(Effect.provide(layer));
 
     if (args.format === "json") {
       logger.info(JSON.stringify({ success: true, service: service.definition.name }));

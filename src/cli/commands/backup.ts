@@ -14,7 +14,12 @@ import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/error
 import type { Logger } from "../../lib/logger";
 import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext, formatBytes } from "./utils";
+import {
+  createServiceLayer,
+  formatBytes,
+  getContextOptions,
+  resolvePrerequisitesOptionalConfig,
+} from "./utils";
 
 export interface BackupOptions {
   service: AnyServiceEffect;
@@ -46,13 +51,18 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
 
     logger.info(`Creating backup for ${service.definition.name}...`);
 
-    const { ctx } = yield* buildServiceContext({
-      ...options,
-      requireConfig: true,
-    });
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
+
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
 
     // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
-    const result = yield* service.backup!(ctx);
+    const result = yield* service.backup!().pipe(Effect.provide(layer));
 
     if (args.format === "json") {
       logger.info(

@@ -25,7 +25,7 @@ import {
 } from "../../lib/paths";
 import { userIdToGroupId } from "../../lib/types";
 import { cleanupConfigBackup, copyConfigTracked, rollbackConfigCopy } from "../../services/helpers";
-import type { AnyServiceEffect, ServiceContext } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import {
   ensureServiceDirectoriesTracked,
   removeDirectoriesReverse,
@@ -34,7 +34,12 @@ import { disableLinger, enableLingerTracked } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { acquireServiceUser, getUserByName, releaseServiceUser } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, getDataDirFromConfig } from "./utils";
+import {
+  createServiceLayer,
+  detectSystemCapabilities,
+  getContextOptions,
+  getDataDirFromConfig,
+} from "./utils";
 
 export interface SetupOptions {
   service: AnyServiceEffect;
@@ -182,31 +187,31 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
               : cleanupConfigBackup(result)
         );
 
-        // Build service context
+        // Build service layer
         const system = yield* detectSystemCapabilities();
 
-        const ctx: ServiceContext<unknown> = {
+        const layer = createServiceLayer(
           config,
-          logger,
-          paths: {
-            dataDir,
-            quadletDir: userQuadletDir(homeDir),
-            configDir: userConfigDir(homeDir),
-            homeDir,
+          service.configTag,
+          {
+            config,
+            user: { name: username, uid, gid, homeDir },
+            system,
+            paths: {
+              dataDir,
+              quadletDir: userQuadletDir(homeDir),
+              configDir: userConfigDir(homeDir),
+              homeDir,
+            },
           },
-          user: {
-            name: username,
-            uid,
-            gid,
-          },
-          options: getContextOptions(args),
-          system,
-        };
+          getContextOptions(args),
+          logger
+        );
 
         // Step 6: Service-specific setup
         currentStep++;
         logger.step(currentStep, totalSteps, "Running service-specific setup...");
-        yield* service.setup(ctx);
+        yield* service.setup().pipe(Effect.provide(layer));
       })
     );
 

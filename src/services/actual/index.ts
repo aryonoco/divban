@@ -7,6 +7,7 @@
 
 /**
  * Actual Budget service implementation.
+ * Uses Effect's context system - dependencies accessed via yield*.
  */
 
 import { Effect, Exit } from "effect";
@@ -21,10 +22,10 @@ import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
+import { AppLogger, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type FilesWriteResult,
   type ServicesEnableResult,
-  type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
@@ -35,14 +36,9 @@ import {
   wrapBackupResult,
   writeGeneratedFilesTracked,
 } from "../helpers";
-import type {
-  BackupResult,
-  GeneratedFiles,
-  ServiceContext,
-  ServiceDefinition,
-  ServiceEffect,
-} from "../types";
+import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
 import { backupActual, restoreActual } from "./commands/backup";
+import { ActualConfigTag } from "./config";
 import { type ActualConfig, actualConfigSchema } from "./schema";
 
 const SERVICE_NAME = "actual" as ServiceName;
@@ -67,8 +63,9 @@ const definition: ServiceDefinition = {
 
 /**
  * Single-container operations for Actual.
+ * Uses Effect context - no ctx parameter needed.
  */
-const ops = createSingleContainerOps<ActualConfig>({
+const ops = createSingleContainerOps({
   serviceName: CONTAINER_NAME,
   displayName: "Actual",
 });
@@ -80,13 +77,16 @@ const validate = createConfigValidator(actualConfigSchema);
 
 /**
  * Generate all files for Actual service.
- * Returns immutable GeneratedFiles with pre-built Maps.
+ * Dependencies accessed via Effect context.
  */
-const generate = (
-  ctx: ServiceContext<ActualConfig>
-): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
-  Effect.sync(() => {
-    const { config } = ctx;
+const generate = (): Effect.Effect<
+  GeneratedFiles,
+  ServiceError | GeneralError,
+  ActualConfigTag | SystemCapabilities
+> =>
+  Effect.gen(function* () {
+    const config = yield* ActualConfigTag;
+    const system = yield* SystemCapabilities;
 
     // Build container quadlet
     const port = config.network?.port ?? 5006;
@@ -115,7 +115,7 @@ const generate = (
             target: "/data",
           },
         ],
-        ctx.system.selinuxEnforcing
+        system.selinuxEnforcing
       ),
 
       // User namespace
@@ -167,38 +167,72 @@ interface ActualSetupState {
 }
 
 /**
- * Full setup for Actual service.
+ * Setup step dependencies - union of all step requirements.
  */
-const setup = (
-  ctx: ServiceContext<ActualConfig>
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
-  const { config } = ctx;
-  const dataDir = config.paths.dataDir;
+type ActualSetupDeps =
+  | ActualConfigTag
+  | ServicePaths
+  | ServiceUser
+  | SystemCapabilities
+  | AppLogger;
 
-  const steps: SetupStepResource<ActualConfig, ActualSetupState>[] = [
+/**
+ * Full setup for Actual service.
+ * Dependencies accessed via Effect context.
+ */
+const setup = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | GeneralError,
+  ActualSetupDeps
+> => {
+  // Steps access dependencies via Effect context
+  const steps: SetupStepResource<
+    ActualSetupState,
+    ServiceError | SystemError | GeneralError,
+    ActualSetupDeps
+  >[] = [
     {
       message: "Generating configuration files...",
-      acquire: (ctx): SetupStepAcquireResult<ActualSetupState, ServiceError | GeneralError> =>
-        Effect.map(generate(ctx), (files) => ({ files })),
+      acquire: (
+        _state
+      ): Effect.Effect<
+        { files: GeneratedFiles },
+        ServiceError | GeneralError,
+        ActualConfigTag | SystemCapabilities
+      > => Effect.map(generate(), (files) => ({ files })),
       // No release - pure in-memory computation
     },
     {
       message: "Creating data directories...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> => {
-        const dirs = [
-          dataDir,
-          `${dataDir}/server-files`,
-          `${dataDir}/user-files`,
-          `${dataDir}/backups`,
-        ] as AbsolutePath[];
-        return Effect.map(
-          ensureDirectoriesTracked(dirs, { uid: ctx.user.uid, gid: ctx.user.gid }),
-          ({ createdPaths }) => ({ createdDirs: createdPaths })
-        );
-      },
-      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        _state
+      ): Effect.Effect<
+        { createdDirs: readonly AbsolutePath[] },
+        SystemError | GeneralError,
+        ActualConfigTag | ServiceUser
+      > =>
+        Effect.gen(function* () {
+          const config = yield* ActualConfigTag;
+          const user = yield* ServiceUser;
+
+          const dataDir = config.paths.dataDir;
+          const dirs = [
+            dataDir,
+            `${dataDir}/server-files`,
+            `${dataDir}/user-files`,
+            `${dataDir}/backups`,
+          ] as AbsolutePath[];
+
+          const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
+            uid: user.uid,
+            gid: user.gid,
+          });
+          return { createdDirs: createdPaths };
+        }),
+      release: (
+        state: ActualSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, never> =>
         Exit.isFailure(exit) && state.createdDirs
           ? removeDirectoriesReverse(state.createdDirs)
           : Effect.void,
@@ -206,11 +240,14 @@ const setup = (
     {
       message: "Writing quadlet files...",
       acquire: (
-        ctx,
         state
-      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
+      ): Effect.Effect<
+        { fileResults: FilesWriteResult },
+        SystemError | GeneralError,
+        ServicePaths | ServiceUser
+      > =>
         state.files
-          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+          ? Effect.map(writeGeneratedFilesTracked(state.files), (fileResults) => ({
               fileResults,
             }))
           : Effect.fail(
@@ -219,74 +256,92 @@ const setup = (
                 message: "No files generated",
               })
             ),
-      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+      release: (
+        state: ActualSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServicePaths | ServiceUser | AppLogger> =>
         releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Enabling service...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<ActualSetupState, ServiceError | SystemError | GeneralError> =>
-        Effect.map(
-          reloadAndEnableServicesTracked(ctx, [CONTAINER_NAME], false),
-          (serviceResults) => ({
-            serviceResults,
-          })
-        ),
-      release: (ctx, state, exit): Effect.Effect<void, never> =>
+        _state
+      ): Effect.Effect<
+        { serviceResults: ServicesEnableResult },
+        ServiceError | SystemError | GeneralError,
+        ServiceUser
+      > =>
+        Effect.map(reloadAndEnableServicesTracked([CONTAINER_NAME], false), (serviceResults) => ({
+          serviceResults,
+        })),
+      release: (
+        state: ActualSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServiceUser> =>
         Exit.isFailure(exit) && state.serviceResults
-          ? rollbackServiceChanges(ctx, state.serviceResults)
+          ? rollbackServiceChanges(state.serviceResults)
           : Effect.void,
     },
   ];
 
-  return executeSetupStepsScoped<
-    ActualConfig,
-    ActualSetupState,
-    ServiceError | SystemError | GeneralError
-  >(ctx, steps, {});
+  return executeSetupStepsScoped(steps, {});
 };
 
 /**
  * Backup Actual data.
+ * Dependencies accessed via Effect context.
  */
-const backup = (
-  ctx: ServiceContext<ActualConfig>
-): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError> => {
-  const { config } = ctx;
-  return wrapBackupResult(
-    backupActual({
-      dataDir: config.paths.dataDir as AbsolutePath,
-      user: ctx.user.name,
-      uid: ctx.user.uid,
-      logger: ctx.logger,
-    })
-  );
-};
+const backup = (): Effect.Effect<
+  BackupResult,
+  BackupError | SystemError | GeneralError,
+  ActualConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ActualConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
+
+    return yield* wrapBackupResult(
+      backupActual({
+        dataDir: config.paths.dataDir as AbsolutePath,
+        user: user.name,
+        uid: user.uid,
+        logger,
+      })
+    );
+  });
 
 /**
  * Restore Actual data from backup.
+ * Dependencies accessed via Effect context.
  */
 const restore = (
-  ctx: ServiceContext<ActualConfig>,
   backupPath: AbsolutePath
-): Effect.Effect<void, BackupError | SystemError | GeneralError> => {
-  const { config } = ctx;
+): Effect.Effect<
+  void,
+  BackupError | SystemError | GeneralError,
+  ActualConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ActualConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
 
-  return restoreActual(
-    backupPath,
-    config.paths.dataDir as AbsolutePath,
-    ctx.user.name,
-    ctx.user.uid,
-    ctx.logger
-  );
-};
+    yield* restoreActual(
+      backupPath,
+      config.paths.dataDir as AbsolutePath,
+      user.name,
+      user.uid,
+      logger
+    );
+  });
 
 /**
  * Actual service implementation.
  */
-export const actualService: ServiceEffect<ActualConfig> = {
+export const actualService: ServiceEffect<ActualConfig, ActualConfigTag, typeof ActualConfigTag> = {
   definition,
+  configTag: ActualConfigTag,
   validate,
   generate,
   setup,

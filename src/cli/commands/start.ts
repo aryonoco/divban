@@ -7,6 +7,7 @@
 
 /**
  * Effect-based start command - start a service.
+ * Uses Layer.provide pattern for dependency injection.
  */
 
 import { Effect } from "effect";
@@ -14,7 +15,7 @@ import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext } from "./utils";
+import { createServiceLayer, getContextOptions, resolvePrerequisitesOptionalConfig } from "./utils";
 
 export interface StartOptions {
   service: AnyServiceEffect;
@@ -26,11 +27,18 @@ export interface StartOptions {
  * Execute the start command.
  */
 export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanEffectError> =>
-  Effect.flatMap(
-    buildServiceContext({
-      service: options.service,
-      args: options.args,
-      logger: options.logger,
-    }),
-    ({ ctx }) => options.service.start(ctx)
-  );
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
+
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
+
+    yield* service.start().pipe(Effect.provide(layer));
+  });

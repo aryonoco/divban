@@ -138,6 +138,7 @@ FSETID
 PERFMON
 
 # Programming
+prereqs
 aabb
 asum
 fiber
@@ -166,6 +167,10 @@ Monoidal
 Monoidally
 Endo
 Kleisli
+
+# Testing Mocks
+mockhash
+mocksha
 
 # Misc
 Filenaming

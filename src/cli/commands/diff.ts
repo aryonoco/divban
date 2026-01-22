@@ -34,11 +34,11 @@ import type {
   Username as UsernameType,
 } from "../../lib/types";
 import { GroupIdSchema, UserIdSchema } from "../../lib/types";
-import type { AnyServiceEffect, ServiceContext } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import { fileExists, readFile } from "../../system/fs";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions } from "./utils";
+import { createServiceLayer, detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface DiffOptions {
   service: AnyServiceEffect;
@@ -100,33 +100,44 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
 
     const system = yield* detectSystemCapabilities();
 
-    // Create service context for generation
-    const ctx: ServiceContext<unknown> = {
+    // Build user info for layer
+    const user = userInfo
+      ? {
+          name: userInfo.username,
+          uid: userInfo.uid,
+          gid: userInfo.gid,
+          homeDir: userInfo.homeDir,
+        }
+      : {
+          name: username,
+          uid: fallbackUid,
+          gid: fallbackGid,
+          homeDir: TEMP_PATHS.nonexistent,
+        };
+
+    // Build prerequisites for layer creation
+    const prereqs = {
+      user,
       config,
-      logger,
+      system,
       paths: {
         dataDir: TEMP_PATHS.diffDataDir,
         quadletDir,
         configDir,
         homeDir: userInfo ? userInfo.homeDir : TEMP_PATHS.nonexistent,
       },
-      user: userInfo
-        ? {
-            name: userInfo.username,
-            uid: userInfo.uid,
-            gid: userInfo.gid,
-          }
-        : {
-            name: username,
-            uid: fallbackUid,
-            gid: fallbackGid,
-          },
-      options: getContextOptions(args),
-      system,
     };
 
+    const layer = createServiceLayer(
+      config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
+
     // Generate files
-    const files = yield* service.generate(ctx);
+    const files = yield* service.generate().pipe(Effect.provide(layer));
 
     // Collect all file entries
     const fileEntries: readonly { path: AbsolutePath; content: string }[] = [

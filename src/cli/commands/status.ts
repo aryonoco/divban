@@ -7,18 +7,17 @@
 
 /**
  * Effect-based status command - show service status.
+ * Uses Layer.provide pattern for dependency injection.
  */
 
 import { Effect, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { buildServicePaths, userDataDir } from "../../lib/paths";
-import { userIdToGroupId } from "../../lib/types";
-import type { AnyServiceEffect, ServiceContext } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions, resolveServiceConfig } from "./utils";
+import { createServiceLayer, getContextOptions, resolvePrerequisitesOptionalConfig } from "./utils";
 
 export interface StatusOptions {
   service: AnyServiceEffect;
@@ -33,9 +32,8 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
   Effect.gen(function* () {
     const { service, args, logger } = options;
 
-    // Get service user
+    // Get service user - check if configured first
     const username = yield* getServiceUsername(service.definition.name);
-
     const userResult = yield* Effect.either(getUserByName(username));
 
     if (userResult._tag === "Left") {
@@ -54,32 +52,17 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
       return;
     }
 
-    const { uid, homeDir } = userResult.right;
-    const gid = userIdToGroupId(uid);
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
 
-    // Resolve config (may fail if not found)
-    const configResult = yield* Effect.either(resolveServiceConfig(service, homeDir));
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
 
-    // Build service context
-    const dataDir = userDataDir(homeDir);
-    const paths = buildServicePaths(homeDir, dataDir);
-
-    const system = yield* detectSystemCapabilities();
-
-    const ctx: ServiceContext<unknown> = {
-      config: configResult._tag === "Right" ? configResult.right : {},
-      logger,
-      paths,
-      user: {
-        name: username,
-        uid,
-        gid,
-      },
-      options: getContextOptions(args),
-      system,
-    };
-
-    const status = yield* service.status(ctx);
+    const status = yield* service.status().pipe(Effect.provide(layer));
 
     if (args.format === "json") {
       logger.raw(

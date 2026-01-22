@@ -68,10 +68,18 @@ export type {
   GeneratedFiles,
   LogOptions,
   ServiceEffect,
-  ServiceContext,
   ServiceDefinition,
   ServiceStatus,
 } from "./types";
+
+// Re-export context tags for CLI usage
+export {
+  AppLogger,
+  ServiceOptions,
+  ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "./context";
 
 export { createGeneratedFiles, getFileCount, mergeGeneratedFiles } from "./types";
 

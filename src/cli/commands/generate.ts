@@ -21,11 +21,11 @@ import {
 } from "../../lib/paths";
 import { GroupIdSchema, UserIdSchema, UsernameSchema } from "../../lib/types";
 import { writeGeneratedFilesPreview } from "../../services/helpers";
-import type { AnyServiceEffect, ServiceContext } from "../../services/types";
+import type { AnyServiceEffect } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory } from "../../system/fs";
 import type { ParsedArgs } from "../parser";
-import { detectSystemCapabilities, getContextOptions } from "./utils";
+import { createServiceLayer, detectSystemCapabilities, getContextOptions } from "./utils";
 
 export interface GenerateOptions {
   service: AnyServiceEffect;
@@ -66,22 +66,29 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
 
     const system = yield* detectSystemCapabilities();
 
-    const ctx: ServiceContext<unknown> = {
+    // Build prerequisites for layer creation
+    const prereqs = {
+      user: { name: username, uid, gid, homeDir: TEMP_PATHS.generateDataDir },
       config,
-      logger,
+      system,
       paths: {
         dataDir: TEMP_PATHS.generateDataDir,
         quadletDir,
         configDir,
         homeDir: TEMP_PATHS.generateDataDir, // Pseudo-home for generation
       },
-      user: { name: username, uid, gid },
-      options: getContextOptions(args),
-      system,
     };
 
+    const layer = createServiceLayer(
+      config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
+
     // Generate files
-    const files = yield* service.generate(ctx);
+    const files = yield* service.generate().pipe(Effect.provide(layer));
 
     if (args.dryRun) {
       logger.info("Would generate the following files:");

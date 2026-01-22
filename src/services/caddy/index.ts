@@ -7,6 +7,7 @@
 
 /**
  * Caddy reverse proxy service implementation.
+ * Uses Effect's context system - dependencies accessed via yield*.
  */
 
 import { Effect, Exit, ParseResult } from "effect";
@@ -26,10 +27,10 @@ import {
   generateVolumeQuadlet,
   processVolumes,
 } from "../../quadlet";
+import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type FilesWriteResult,
   type ServicesEnableResult,
-  type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   createSingleContainerOps,
@@ -39,9 +40,10 @@ import {
   rollbackServiceChanges,
   writeGeneratedFilesTracked,
 } from "../helpers";
-import type { GeneratedFiles, ServiceContext, ServiceDefinition, ServiceEffect } from "../types";
+import type { GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
 import { generateCaddyfile } from "./caddyfile";
 import { reloadCaddy } from "./commands/reload";
+import { CaddyConfigTag } from "./config";
 import { type CaddyConfig, caddyConfigSchema } from "./schema";
 
 const SERVICE_NAME = "caddy" as ServiceName;
@@ -65,8 +67,9 @@ const definition: ServiceDefinition = {
 
 /**
  * Single-container operations for Caddy.
+ * Uses Effect context - no ctx parameter needed.
  */
-const ops = createSingleContainerOps<CaddyConfig>({
+const ops = createSingleContainerOps({
   serviceName: "caddy",
   displayName: "Caddy",
 });
@@ -78,13 +81,17 @@ const validate = createConfigValidator(caddyConfigSchema);
 
 /**
  * Generate all files for Caddy service.
- * Returns immutable GeneratedFiles with pre-built Maps.
+ * Dependencies accessed via Effect context.
  */
-const generate = (
-  ctx: ServiceContext<CaddyConfig>
-): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
+const generate = (): Effect.Effect<
+  GeneratedFiles,
+  ServiceError | GeneralError,
+  CaddyConfigTag | ServicePaths | SystemCapabilities
+> =>
   Effect.gen(function* () {
-    const { config } = ctx;
+    const config = yield* CaddyConfigTag;
+    const paths = yield* ServicePaths;
+    const system = yield* SystemCapabilities;
 
     // Validate mapHostLoopback if provided
     let mapHostLoopback: PrivateIP | undefined;
@@ -131,7 +138,7 @@ const generate = (
       volumes: processVolumes(
         [
           {
-            source: `${ctx.paths.configDir}/Caddyfile`,
+            source: `${paths.configDir}/Caddyfile`,
             target: "/etc/caddy/Caddyfile",
             options: "ro",
           },
@@ -139,7 +146,7 @@ const generate = (
           { source: "caddy-config.volume", target: "/config" },
         ],
         {
-          selinuxEnforcing: ctx.system.selinuxEnforcing,
+          selinuxEnforcing: system.selinuxEnforcing,
           applyOwnership: true,
         }
       ),
@@ -187,27 +194,47 @@ interface CaddySetupState {
 }
 
 /**
- * Full setup for Caddy service.
- * Uses executeSetupStepsScoped for clean sequential execution with state threading.
+ * Setup step dependencies - union of all step requirements.
  */
-const setup = (
-  ctx: ServiceContext<CaddyConfig>
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
-  const steps: SetupStepResource<CaddyConfig, CaddySetupState>[] = [
+type CaddySetupDeps = CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger;
+
+/**
+ * Full setup for Caddy service.
+ * Dependencies accessed via Effect context.
+ */
+const setup = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | GeneralError,
+  CaddySetupDeps
+> => {
+  // Steps access dependencies via Effect context
+  const steps: SetupStepResource<
+    CaddySetupState,
+    ServiceError | SystemError | GeneralError,
+    CaddySetupDeps
+  >[] = [
     {
       message: "Generating configuration files...",
-      acquire: (ctx): SetupStepAcquireResult<CaddySetupState, ServiceError | GeneralError> =>
-        Effect.map(generate(ctx), (files) => ({ files })),
+      acquire: (
+        _state
+      ): Effect.Effect<
+        { files: GeneratedFiles },
+        ServiceError | GeneralError,
+        CaddyConfigTag | ServicePaths | SystemCapabilities
+      > => Effect.map(generate(), (files) => ({ files })),
       // No release - pure in-memory computation
     },
     {
       message: "Writing configuration files...",
       acquire: (
-        ctx,
         state
-      ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
+      ): Effect.Effect<
+        { fileResults: FilesWriteResult },
+        SystemError | GeneralError,
+        ServicePaths | ServiceUser
+      > =>
         state.files
-          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+          ? Effect.map(writeGeneratedFilesTracked(state.files), (fileResults) => ({
               fileResults,
             }))
           : Effect.fail(
@@ -216,49 +243,64 @@ const setup = (
                 message: "No files generated",
               })
             ),
-      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+      release: (
+        state: CaddySetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServicePaths | ServiceUser | AppLogger> =>
         releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Enabling and starting service...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<CaddySetupState, ServiceError | SystemError | GeneralError> =>
-        Effect.map(reloadAndEnableServicesTracked(ctx, ["caddy"], true), (serviceResults) => ({
+        _state
+      ): Effect.Effect<
+        { serviceResults: ServicesEnableResult },
+        ServiceError | SystemError | GeneralError,
+        ServiceUser
+      > =>
+        Effect.map(reloadAndEnableServicesTracked(["caddy"], true), (serviceResults) => ({
           serviceResults,
         })),
-      release: (ctx, state, exit): Effect.Effect<void, never> =>
+      release: (
+        state: CaddySetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServiceUser> =>
         Exit.isFailure(exit) && state.serviceResults
-          ? rollbackServiceChanges(ctx, state.serviceResults)
+          ? rollbackServiceChanges(state.serviceResults)
           : Effect.void,
     },
   ];
 
-  return executeSetupStepsScoped<
-    CaddyConfig,
-    CaddySetupState,
-    ServiceError | SystemError | GeneralError
-  >(ctx, steps, {});
+  return executeSetupStepsScoped(steps, {});
 };
 
 /**
  * Reload Caddy configuration.
+ * Dependencies accessed via Effect context.
  */
-const reload = (
-  ctx: ServiceContext<CaddyConfig>
-): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError> =>
-  reloadCaddy({
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    logger: ctx.logger,
-    containerName: "caddy",
+const reload = (): Effect.Effect<
+  void,
+  ConfigError | ServiceError | SystemError | GeneralError,
+  CaddyConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
+
+    yield* reloadCaddy({
+      user: user.name,
+      uid: user.uid,
+      logger,
+      containerName: "caddy",
+    });
   });
 
 /**
  * Caddy service implementation.
  */
-export const caddyService: ServiceEffect<CaddyConfig> = {
+export const caddyService: ServiceEffect<CaddyConfig, CaddyConfigTag, typeof CaddyConfigTag> = {
   definition,
+  configTag: CaddyConfigTag,
   validate,
   generate,
   setup,

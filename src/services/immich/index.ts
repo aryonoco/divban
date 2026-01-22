@@ -8,6 +8,7 @@
 /**
  * Immich photo management service implementation.
  * Multi-container service with hardware acceleration support.
+ * Uses Effect's context system - dependencies accessed via yield*.
  */
 
 import { Effect, Exit } from "effect";
@@ -19,6 +20,7 @@ import {
   type ServiceError,
   type SystemError,
 } from "../../lib/errors";
+import type { Logger } from "../../lib/logger";
 import { configFilePath } from "../../lib/paths";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import {
@@ -40,10 +42,10 @@ import {
   getPodmanSecretName,
 } from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
+import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type FilesWriteResult,
   type ServicesEnableResult,
-  type SetupStepAcquireResult,
   type SetupStepResource,
   createConfigValidator,
   executeSetupStepsScoped,
@@ -57,13 +59,13 @@ import type {
   BackupResult,
   GeneratedFiles,
   LogOptions,
-  ServiceContext,
   ServiceDefinition,
   ServiceEffect,
   ServiceStatus,
 } from "../types";
 import { backupDatabase } from "./commands/backup";
 import { restoreDatabase } from "./commands/restore";
+import { ImmichConfigTag } from "./config";
 import { CONTAINERS, DEFAULT_IMAGES, INTERNAL_URLS, NETWORK_NAME } from "./constants";
 import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
 import { getLibraryEnvironment, librariesToVolumeMounts } from "./libraries";
@@ -96,13 +98,17 @@ const validate = createConfigValidator(immichConfigSchema);
 
 /**
  * Generate all files for Immich service.
- * Returns immutable GeneratedFiles with pre-built Maps.
+ * Dependencies accessed via Effect context.
  */
-const generate = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<GeneratedFiles, ServiceError | GeneralError> =>
-  Effect.sync(() => {
-    const { config } = ctx;
+const generate = (): Effect.Effect<
+  GeneratedFiles,
+  ServiceError | GeneralError,
+  ImmichConfigTag | ServicePaths | SystemCapabilities
+> =>
+  Effect.gen(function* () {
+    const config = yield* ImmichConfigTag;
+    const paths = yield* ServicePaths;
+    const system = yield* SystemCapabilities;
 
     // Get hardware configuration
     const hardware = getHardwareConfig(
@@ -216,7 +222,7 @@ const generate = (
         { source: encodedDir, target: "/encoded" },
         ...libraryMounts,
       ],
-      environmentFiles: [`${ctx.paths.configDir}/immich.env`],
+      environmentFiles: [`${paths.configDir}/immich.env`],
       environment: serverEnv,
       secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
       devices: serverDevices.length > 0 ? [...serverDevices] : undefined,
@@ -242,7 +248,7 @@ const generate = (
             description: "Immich Machine Learning",
             image: mlImage,
             volumes: [{ source: `${dataDir}/model-cache`, target: "/cache" }],
-            environmentFiles: [`${ctx.paths.configDir}/immich.env`],
+            environmentFiles: [`${paths.configDir}/immich.env`],
             environment: mlEnv,
             secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
             devices: mlDevices.length > 0 ? [...mlDevices] : undefined,
@@ -272,9 +278,9 @@ const generate = (
     });
 
     const stackFiles = generateStackQuadlets(stack, {
-      envFilePath: configFilePath(ctx.paths.configDir, "immich.env"),
+      envFilePath: configFilePath(paths.configDir, "immich.env"),
       userNs: createKeepIdNs(),
-      selinuxEnforcing: ctx.system.selinuxEnforcing,
+      selinuxEnforcing: system.selinuxEnforcing,
     });
 
     // Return GeneratedFiles with pre-built Maps (no mutations)
@@ -299,77 +305,112 @@ interface ImmichSetupState {
 }
 
 /**
- * Full setup for Immich service.
- * Uses executeSetupStepsScoped for clean sequential execution with state threading.
+ * Setup step dependencies - union of all step requirements.
  */
-const setup = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError> => {
-  const { config } = ctx;
-  const dataDir = config.paths.dataDir;
+type ImmichSetupDeps =
+  | ImmichConfigTag
+  | ServicePaths
+  | ServiceUser
+  | SystemCapabilities
+  | AppLogger;
 
+/**
+ * Full setup for Immich service.
+ * Dependencies accessed via Effect context.
+ */
+const setup = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | ContainerError | GeneralError,
+  ImmichSetupDeps
+> => {
+  // Steps access dependencies via Effect context
   const steps: SetupStepResource<
-    ImmichConfig,
     ImmichSetupState,
-    ServiceError | SystemError | ContainerError | GeneralError
+    ServiceError | SystemError | ContainerError | GeneralError,
+    ImmichSetupDeps
   >[] = [
     {
       message: "Generating secrets...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<
-        ImmichSetupState,
-        ServiceError | SystemError | ContainerError | GeneralError
+        _state
+      ): Effect.Effect<
+        { createdSecrets: readonly string[] },
+        SystemError | GeneralError | ContainerError,
+        ServicePaths | ServiceUser
       > =>
-        Effect.map(
-          ensureServiceSecretsTracked(
+        Effect.gen(function* () {
+          const paths = yield* ServicePaths;
+          const user = yield* ServiceUser;
+
+          const { createdSecrets } = yield* ensureServiceSecretsTracked(
             SERVICE_NAME,
             IMMICH_SECRETS,
-            ctx.paths.homeDir,
-            ctx.user.name,
-            ctx.user.uid,
-            ctx.user.gid
-          ),
-          ({ createdSecrets }) => ({ createdSecrets })
-        ),
-      release: (ctx, state, exit): Effect.Effect<void, never> =>
-        Exit.isFailure(exit) && state.createdSecrets
-          ? deletePodmanSecrets(state.createdSecrets, ctx.user.name, ctx.user.uid)
-          : Effect.void,
+            paths.homeDir,
+            user.name,
+            user.uid,
+            user.gid
+          );
+          return { createdSecrets };
+        }),
+      release: (
+        state: ImmichSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServiceUser> => {
+        if (Exit.isFailure(exit) && state.createdSecrets && state.createdSecrets.length > 0) {
+          const secretsToDelete = state.createdSecrets;
+          return Effect.gen(function* () {
+            const user = yield* ServiceUser;
+            yield* deletePodmanSecrets([...secretsToDelete], user.name, user.uid);
+          });
+        }
+        return Effect.void;
+      },
     },
     {
       message: "Generating configuration files...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<
-        ImmichSetupState,
-        ServiceError | SystemError | ContainerError | GeneralError
-      > => Effect.map(generate(ctx), (files) => ({ files })),
+        _state
+      ): Effect.Effect<
+        { files: GeneratedFiles },
+        ServiceError | GeneralError,
+        ImmichConfigTag | ServicePaths | SystemCapabilities
+      > => Effect.map(generate(), (files) => ({ files })),
       // No release - pure in-memory computation
     },
     {
       message: "Creating data directories...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<
-        ImmichSetupState,
-        ServiceError | SystemError | ContainerError | GeneralError
-      > => {
-        const dirs = [
-          `${dataDir}/upload`,
-          `${dataDir}/profile`,
-          `${dataDir}/thumbs`,
-          `${dataDir}/encoded`,
-          `${dataDir}/postgres`,
-          `${dataDir}/model-cache`,
-          `${dataDir}/backups`,
-        ] as AbsolutePath[];
-        return Effect.map(
-          ensureDirectoriesTracked(dirs, { uid: ctx.user.uid, gid: ctx.user.gid }),
-          ({ createdPaths }) => ({ createdDirs: createdPaths })
-        );
-      },
-      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+        _state
+      ): Effect.Effect<
+        { createdDirs: readonly AbsolutePath[] },
+        SystemError | GeneralError,
+        ImmichConfigTag | ServiceUser
+      > =>
+        Effect.gen(function* () {
+          const config = yield* ImmichConfigTag;
+          const user = yield* ServiceUser;
+
+          const dataDir = config.paths.dataDir;
+          const dirs = [
+            `${dataDir}/upload`,
+            `${dataDir}/profile`,
+            `${dataDir}/thumbs`,
+            `${dataDir}/encoded`,
+            `${dataDir}/postgres`,
+            `${dataDir}/model-cache`,
+            `${dataDir}/backups`,
+          ] as AbsolutePath[];
+
+          const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
+            uid: user.uid,
+            gid: user.gid,
+          });
+          return { createdDirs: createdPaths };
+        }),
+      release: (
+        state: ImmichSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, never> =>
         Exit.isFailure(exit) && state.createdDirs
           ? removeDirectoriesReverse(state.createdDirs)
           : Effect.void,
@@ -377,14 +418,14 @@ const setup = (
     {
       message: "Writing configuration files...",
       acquire: (
-        ctx,
         state
-      ): SetupStepAcquireResult<
-        ImmichSetupState,
-        ServiceError | SystemError | ContainerError | GeneralError
+      ): Effect.Effect<
+        { fileResults: FilesWriteResult },
+        SystemError | GeneralError,
+        ServicePaths | ServiceUser
       > =>
         state.files
-          ? Effect.map(writeGeneratedFilesTracked(state.files, ctx), (fileResults) => ({
+          ? Effect.map(writeGeneratedFilesTracked(state.files), (fileResults) => ({
               fileResults,
             }))
           : Effect.fail(
@@ -393,101 +434,126 @@ const setup = (
                 message: "No files generated",
               })
             ),
-      release: (_ctx, state, exit): Effect.Effect<void, never> =>
+      release: (
+        state: ImmichSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServicePaths | ServiceUser | AppLogger> =>
         releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
     },
     {
       message: "Reloading daemon and enabling services...",
       acquire: (
-        ctx
-      ): SetupStepAcquireResult<
-        ImmichSetupState,
-        ServiceError | SystemError | ContainerError | GeneralError
+        _state
+      ): Effect.Effect<
+        { serviceResults: ServicesEnableResult },
+        ServiceError | SystemError | GeneralError,
+        ServiceUser
       > =>
         Effect.map(
           reloadAndEnableServicesTracked(
-            ctx,
             [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
             false
           ),
           (serviceResults) => ({ serviceResults })
         ),
-      release: (ctx, state, exit): Effect.Effect<void, never> =>
+      release: (
+        state: ImmichSetupState,
+        exit: Exit.Exit<unknown, unknown>
+      ): Effect.Effect<void, never, ServiceUser> =>
         Exit.isFailure(exit) && state.serviceResults
-          ? rollbackServiceChanges(ctx, state.serviceResults)
+          ? rollbackServiceChanges(state.serviceResults)
           : Effect.void,
     },
   ];
 
-  return executeSetupStepsScoped<
-    ImmichConfig,
-    ImmichSetupState,
-    ServiceError | SystemError | ContainerError | GeneralError
-  >(ctx, steps, {});
+  return executeSetupStepsScoped(steps, {});
 };
 
 /**
  * Start Immich service.
+ * Dependencies accessed via Effect context.
  */
-const start = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
-  const { config } = ctx;
-  const containers: StackContainer[] = [
-    { name: CONTAINERS.redis, image: "", requires: [] },
-    { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
-    { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
-  ];
+const start = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ImmichConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
 
-  if (config.containers?.machineLearning?.enabled !== false) {
-    containers.push({ name: CONTAINERS.ml, image: "", requires: [] });
-  }
+    const containers: StackContainer[] = [
+      { name: CONTAINERS.redis, image: "", requires: [] },
+      { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
+      { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
+    ];
 
-  const stack = createStack({ name: "immich", containers });
-  return startStack(stack, { user: ctx.user.name, uid: ctx.user.uid, logger: ctx.logger });
-};
+    if (config.containers?.machineLearning?.enabled !== false) {
+      containers.push({ name: CONTAINERS.ml, image: "", requires: [] });
+    }
+
+    const stack = createStack({ name: "immich", containers });
+    yield* startStack(stack, { user: user.name, uid: user.uid, logger });
+  });
 
 /**
  * Stop Immich service.
+ * Dependencies accessed via Effect context.
  */
-const stop = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> => {
-  const { config } = ctx;
-  const containers: StackContainer[] = [
-    { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
-    { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
-    { name: CONTAINERS.redis, image: "" },
-  ];
+const stop = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ImmichConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
 
-  if (config.containers?.machineLearning?.enabled !== false) {
-    containers.unshift({ name: CONTAINERS.ml, image: "" });
-  }
+    const containers: StackContainer[] = [
+      { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
+      { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
+      { name: CONTAINERS.redis, image: "" },
+    ];
 
-  const stack = createStack({ name: "immich", containers });
-  return stopStack(stack, { user: ctx.user.name, uid: ctx.user.uid, logger: ctx.logger });
-};
+    if (config.containers?.machineLearning?.enabled !== false) {
+      containers.unshift({ name: CONTAINERS.ml, image: "" });
+    }
+
+    const stack = createStack({ name: "immich", containers });
+    yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
+  });
 
 /**
  * Restart Immich service.
+ * Dependencies accessed via Effect context.
  */
-const restart = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
+const restart = (): Effect.Effect<
+  void,
+  ServiceError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | AppLogger
+> =>
   Effect.gen(function* () {
-    ctx.logger.info("Restarting Immich...");
-    yield* stop(ctx);
-    yield* start(ctx);
+    const logger = yield* AppLogger;
+    logger.info("Restarting Immich...");
+    yield* stop();
+    yield* start();
   });
 
 /**
  * Get Immich status.
+ * Dependencies accessed via Effect context.
  */
-const status = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<ServiceStatus, ServiceError | SystemError> =>
+const status = (): Effect.Effect<
+  ServiceStatus,
+  ServiceError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser
+> =>
   Effect.gen(function* () {
-    const { config } = ctx;
+    const config = yield* ImmichConfigTag;
+    const user = yield* ServiceUser;
+
     const containers: StackContainer[] = [
       { name: CONTAINERS.redis, image: "" },
       { name: CONTAINERS.postgres, image: "" },
@@ -499,10 +565,22 @@ const status = (
     }
 
     const stack = createStack({ name: "immich", containers });
+    // Note: getStackStatus requires logger but we can use a no-op one since status is just a query
+    const noopLogger: Logger = {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+      success: () => undefined,
+      fail: () => undefined,
+      step: () => undefined,
+      raw: () => undefined,
+      child: () => noopLogger,
+    };
     const containerStatuses = yield* getStackStatus(stack, {
-      user: ctx.user.name,
-      uid: ctx.user.uid,
-      logger: ctx.logger,
+      user: user.name,
+      uid: user.uid,
+      logger: noopLogger,
     });
 
     const allRunning = containerStatuses.every((c) => c.running);
@@ -518,64 +596,84 @@ const status = (
 
 /**
  * View Immich logs.
+ * Dependencies accessed via Effect context.
  */
 const logs = (
-  ctx: ServiceContext<ImmichConfig>,
   options: LogOptions
-): Effect.Effect<void, ServiceError | SystemError> => {
-  const unit = options.container ? `${options.container}.service` : `${CONTAINERS.server}.service`;
+): Effect.Effect<void, ServiceError | SystemError | GeneralError, ImmichConfigTag | ServiceUser> =>
+  Effect.gen(function* () {
+    const user = yield* ServiceUser;
 
-  return journalctl(unit, {
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    follow: options.follow,
-    lines: options.lines,
+    const unit = options.container
+      ? `${options.container}.service`
+      : `${CONTAINERS.server}.service`;
+
+    yield* journalctl(unit, {
+      user: user.name,
+      uid: user.uid,
+      follow: options.follow,
+      lines: options.lines,
+    });
   });
-};
 
 /**
  * Backup Immich database.
+ * Dependencies accessed via Effect context.
  */
-const backup = (
-  ctx: ServiceContext<ImmichConfig>
-): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError> => {
-  const { config } = ctx;
-  return wrapBackupResult(
-    backupDatabase({
-      dataDir: config.paths.dataDir as AbsolutePath,
-      user: ctx.user.name,
-      uid: ctx.user.uid,
-      logger: ctx.logger,
-      database: config.database.database,
-      dbUser: config.database.username,
-    })
-  );
-};
+const backup = (): Effect.Effect<
+  BackupResult,
+  BackupError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ImmichConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
+
+    return yield* wrapBackupResult(
+      backupDatabase({
+        dataDir: config.paths.dataDir as AbsolutePath,
+        user: user.name,
+        uid: user.uid,
+        logger,
+        database: config.database.database,
+        dbUser: config.database.username,
+      })
+    );
+  });
 
 /**
  * Restore Immich database.
+ * Dependencies accessed via Effect context.
  */
 const restore = (
-  ctx: ServiceContext<ImmichConfig>,
   backupPath: AbsolutePath
-): Effect.Effect<void, BackupError | SystemError | GeneralError> => {
-  const { config } = ctx;
+): Effect.Effect<
+  void,
+  BackupError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* ImmichConfigTag;
+    const user = yield* ServiceUser;
+    const logger = yield* AppLogger;
 
-  return restoreDatabase({
-    backupPath,
-    user: ctx.user.name,
-    uid: ctx.user.uid,
-    logger: ctx.logger,
-    database: config.database.database,
-    dbUser: config.database.username,
+    yield* restoreDatabase({
+      backupPath,
+      user: user.name,
+      uid: user.uid,
+      logger,
+      database: config.database.database,
+      dbUser: config.database.username,
+    });
   });
-};
 
 /**
  * Immich service implementation.
  */
-export const immichService: ServiceEffect<ImmichConfig> = {
+export const immichService: ServiceEffect<ImmichConfig, ImmichConfigTag, typeof ImmichConfigTag> = {
   definition,
+  configTag: ImmichConfigTag,
   validate,
   generate,
   setup,

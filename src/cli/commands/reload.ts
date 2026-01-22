@@ -14,7 +14,7 @@ import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/error
 import type { Logger } from "../../lib/logger";
 import type { AnyServiceEffect } from "../../services/types";
 import type { ParsedArgs } from "../parser";
-import { buildServiceContext } from "./utils";
+import { createServiceLayer, getContextOptions, resolvePrerequisitesOptionalConfig } from "./utils";
 
 export interface ReloadOptions {
   service: AnyServiceEffect;
@@ -46,13 +46,18 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
 
     logger.info(`Reloading ${service.definition.name} configuration...`);
 
-    const { ctx } = yield* buildServiceContext({
-      ...options,
-      requireConfig: true,
-    });
+    const prereqs = yield* resolvePrerequisitesOptionalConfig(service, args.configPath);
+
+    const layer = createServiceLayer(
+      prereqs.config,
+      service.configTag,
+      prereqs,
+      getContextOptions(args),
+      logger
+    );
 
     // biome-ignore lint/style/noNonNullAssertion: capability check above ensures reload exists
-    yield* service.reload!(ctx);
+    yield* service.reload!().pipe(Effect.provide(layer));
 
     logger.success("Configuration reloaded successfully");
   });

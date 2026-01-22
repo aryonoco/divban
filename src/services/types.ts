@@ -10,7 +10,7 @@
  * All services implement this interface for consistent behavior.
  */
 
-import type { Effect, Schema } from "effect";
+import type { Context, Effect, Schema } from "effect";
 import type {
   BackupError,
   ConfigError,
@@ -19,8 +19,14 @@ import type {
   ServiceError,
   SystemError,
 } from "../lib/errors";
-import type { Logger } from "../lib/logger";
-import type { AbsolutePath, GroupId, ServiceName, UserId, Username } from "../lib/types";
+import type { AbsolutePath, ServiceName } from "../lib/types";
+import type {
+  AppLogger,
+  ServiceOptions,
+  ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "./context";
 
 /**
  * Service definition metadata.
@@ -50,60 +56,6 @@ export interface ServiceDefinition {
     /** Has hardware acceleration options */
     hardwareAcceleration: boolean;
   };
-}
-
-/**
- * System capabilities detected at runtime.
- */
-export interface SystemCapabilities {
-  /** Whether SELinux is in enforcing mode */
-  selinuxEnforcing: boolean;
-}
-
-/**
- * Context provided to service operations.
- * @template C - Service-specific configuration type
- */
-export interface ServiceContext<C> {
-  /** Validated service configuration (typed per service) */
-  config: C;
-  /** Logger instance */
-  logger: Logger;
-
-  /** Filesystem paths */
-  paths: {
-    /** Data directory for persistent storage */
-    dataDir: AbsolutePath;
-    /** Quadlet files directory */
-    quadletDir: AbsolutePath;
-    /** Configuration files directory */
-    configDir: AbsolutePath;
-    /** User home directory */
-    homeDir: AbsolutePath;
-  };
-
-  /** Service user information */
-  user: {
-    /** Username */
-    name: Username;
-    /** User ID */
-    uid: UserId;
-    /** Group ID */
-    gid: GroupId;
-  };
-
-  /** Global options */
-  options: {
-    /** Dry run mode (don't write files) */
-    dryRun: boolean;
-    /** Verbose output */
-    verbose: boolean;
-    /** Force overwrite */
-    force: boolean;
-  };
-
-  /** System capabilities detected at runtime */
-  system: SystemCapabilities;
 }
 
 /**
@@ -184,11 +136,19 @@ export interface BackupResult {
 
 /**
  * All services must implement these methods.
+ * Uses Effect's context system - no explicit ctx parameter.
+ * Dependencies tracked via R type parameter.
+ *
  * @template C - Service-specific configuration type
+ * @template I - Identifier type for the context tag
+ * @template ConfigTag - Context.Tag for the service's configuration
  */
-export interface ServiceEffect<C> {
+export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   /** Service definition (metadata) */
   readonly definition: ServiceDefinition;
+
+  /** Context tag for accessing this service's configuration */
+  readonly configTag: ConfigTag;
 
   // === Lifecycle Methods ===
 
@@ -200,87 +160,123 @@ export interface ServiceEffect<C> {
 
   /**
    * Generate all files for the service.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  generate(ctx: ServiceContext<C>): Effect.Effect<GeneratedFiles, ServiceError | GeneralError>;
+  generate(): Effect.Effect<
+    GeneratedFiles,
+    ServiceError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServicePaths | SystemCapabilities
+  >;
 
   /**
    * Full setup: create user, directories, generate files, install quadlets.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  setup(
-    ctx: ServiceContext<C>
-  ): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError>;
+  setup(): Effect.Effect<
+    void,
+    ServiceError | SystemError | ContainerError | GeneralError,
+    | Context.Tag.Identifier<ConfigTag>
+    | ServicePaths
+    | ServiceUser
+    | ServiceOptions
+    | SystemCapabilities
+    | AppLogger
+  >;
 
   // === Runtime Methods ===
 
   /**
    * Start the service.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  start(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
+  start(): Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+  >;
 
   /**
    * Stop the service.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  stop(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
+  stop(): Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+  >;
 
   /**
    * Restart the service.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  restart(ctx: ServiceContext<C>): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
+  restart(): Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+  >;
 
   /**
    * Get service status.
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  status(
-    ctx: ServiceContext<C>
-  ): Effect.Effect<ServiceStatus, ServiceError | SystemError | GeneralError>;
+  status(): Effect.Effect<
+    ServiceStatus,
+    ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
+  >;
 
   /**
    * View service logs.
-   * @param ctx Service context
    * @param options Log viewing options
+   * Dependencies accessed via Effect context.
    */
   logs(
-    ctx: ServiceContext<C>,
     options: LogOptions
-  ): Effect.Effect<void, ServiceError | SystemError | GeneralError>;
+  ): Effect.Effect<
+    void,
+    ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
+  >;
 
   // === Optional Methods ===
 
   /**
    * Reload configuration without restart (if supported).
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  reload?(
-    ctx: ServiceContext<C>
-  ): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError>;
+  reload?(): Effect.Effect<
+    void,
+    ConfigError | ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+  >;
 
   /**
    * Create a backup (if supported).
-   * @param ctx Service context
+   * Dependencies accessed via Effect context.
    */
-  backup?(
-    ctx: ServiceContext<C>
-  ): Effect.Effect<BackupResult, BackupError | SystemError | GeneralError>;
+  backup?(): Effect.Effect<
+    BackupResult,
+    BackupError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServicePaths | AppLogger
+  >;
 
   /**
    * Restore from backup (if supported).
-   * @param ctx Service context
    * @param backupPath Path to backup file
+   * Dependencies accessed via Effect context.
    */
   restore?(
-    ctx: ServiceContext<C>,
     backupPath: AbsolutePath
-  ): Effect.Effect<void, BackupError | SystemError | GeneralError>;
+  ): Effect.Effect<
+    void,
+    BackupError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServicePaths | AppLogger
+  >;
 }
 
 /** Type-erased service for registry and CLI usage */
-export type AnyServiceEffect = ServiceEffect<unknown>;
+// biome-ignore lint/suspicious/noExplicitAny: Required for type-erased service registry
+export type AnyServiceEffect = ServiceEffect<any, any, Context.Tag<any, any>>;
 
 // ============================================================================
 // GeneratedFiles Operations
