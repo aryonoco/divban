@@ -38,6 +38,17 @@ Examine what has already been done, what is left to do, and then provide me with
 
 Your report should indicate exactly how Effect is already used, and it should provide a concrete set of next steps which I can take to fully adopt Effect across the codebase and truly leverage what this library provides. 
 
+
+--- 
+
+Find all regexps used in this codebase. 
+
+Read @llms/effect.llms.headline.txt 
+
+To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+
+Come up 
+
 --- 
 
 

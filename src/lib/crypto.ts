@@ -12,9 +12,6 @@
  * - Web Crypto API (crypto.getRandomValues) for secure random bytes - native in Bun
  * - Bun.CryptoHasher for cryptographic hashing when needed
  * - Bun's Uint8Array extensions (.toHex(), .toBase64()) for encoding
- *
- * Note: Bun.password.hash/verify are for password authentication (argon2/bcrypt),
- * not for generating random passwords. We need crypto.getRandomValues for that.
  */
 
 import { Array as Arr, Option, pipe } from "effect";
@@ -28,7 +25,6 @@ const PASSWORD_CHARSET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01
 /**
  * Generate a cryptographically secure random password.
  * Uses rejection sampling to avoid modulo bias.
- * Tail-recursive implementation (OCaml idiom).
  *
  * @param length Password length (default: 32)
  * @returns Secure random password string
@@ -39,7 +35,6 @@ export const generatePassword = (length = 32): string => {
 
   /**
    * Generate valid characters from random bytes.
-   * Uses Arr.filterMap for single-pass filter + map.
    */
   const charsFromBytes = (bytes: Uint8Array): string =>
     pipe(
@@ -50,7 +45,7 @@ export const generatePassword = (length = 32): string => {
     ).join("");
 
   /**
-   * Tail-recursive accumulator pattern.
+   * Tail-recursive accumulator.
    * Generates random bytes, filters valid chars, recurses until done.
    */
   const go = (needed: number, acc: string): string => {
@@ -69,7 +64,6 @@ export const generatePassword = (length = 32): string => {
 
 /**
  * Generate a cryptographically secure random hex string.
- * Uses Bun's Uint8Array.toHex() extension for optimal performance.
  *
  * @param bytes Number of random bytes (output is 2x this length)
  * @returns Hex-encoded random string
@@ -77,12 +71,11 @@ export const generatePassword = (length = 32): string => {
 export const generateHex = (bytes = 16): string => {
   const randomBytes = new Uint8Array(bytes);
   crypto.getRandomValues(randomBytes);
-  // Use Bun's native Uint8Array.toHex() extension
   return randomBytes.toHex();
 };
 
 /**
- * Hash a string with SHA-256 using Bun.CryptoHasher.
+ * Hash a string with SHA-256.
  * Useful for deriving deterministic identifiers.
  */
 export const sha256 = (data: string): string => {

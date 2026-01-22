@@ -114,7 +114,6 @@ export const isValidIPv6 = (s: string): boolean => {
 
 /**
  * Validate IP address (IPv4 or IPv6).
- * Replacement for Zod's .ip() validator.
  */
 export const isValidIP = (s: string): boolean => {
   return isValidIPv4(s) || isValidIPv6(s);
@@ -122,7 +121,6 @@ export const isValidIP = (s: string): boolean => {
 
 /**
  * Validate email address format.
- * Replacement for Zod's .email() validator.
  * Uses a practical regex that catches most valid emails.
  */
 export const isValidEmail = (s: string): boolean => {
@@ -132,7 +130,6 @@ export const isValidEmail = (s: string): boolean => {
 
 /**
  * Validate URL format.
- * Replacement for Zod's .url() validator.
  * Uses URL constructor for validation.
  */
 export const isValidUrl = (s: string): boolean => {

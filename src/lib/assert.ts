@@ -7,20 +7,6 @@
 
 /**
  * Assertion utilities for runtime type checking and exhaustive pattern matching.
- *
- * Preferred patterns for nullable value handling:
- *
- * 1. Option-based (preferred):
- *    const opt = fromNullable(maybeNull);
- *    const value = expect(opt, "should not be null");
- *
- * 2. Effect-based (for error contexts):
- *    const value = yield* Effect.fromNullable(maybeNull).pipe(
- *      Effect.mapError(() => new ConfigError({ ... }))
- *    );
- *
- * 3. With default:
- *    const value = getOrElse(fromNullable(maybeNull), defaultValue);
  */
 
 import { Effect, Option } from "effect";

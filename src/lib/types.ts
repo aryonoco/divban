@@ -7,7 +7,6 @@
 
 /**
  * Branded/Nominal types for type-safe identifiers.
- * These prevent accidentally mixing incompatible values like UIDs and GIDs.
  */
 
 import { type Brand, Effect, ParseResult, Schema, type SchemaAST } from "effect";
@@ -17,8 +16,6 @@ import { ErrorCode, GeneralError } from "./errors";
 // ============================================================================
 // Branded Type Definitions
 // ============================================================================
-// Define types first so they can be used in explicit type annotations.
-// These use Effect's Brand system for nominal typing.
 
 /** User ID (0-65534 range for POSIX users) */
 export type UserId = number & Brand.Brand<"UserId">;
@@ -51,7 +48,7 @@ export type VolumeName = string & Brand.Brand<"VolumeName">;
 export type PrivateIP = string & Brand.Brand<"PrivateIP">;
 
 // ============================================================================
-// Message Functions (extracted for explicit typing)
+// Message Functions
 // ============================================================================
 
 const userIdIntMsg = (): string => "UserId must be an integer";
@@ -218,7 +215,7 @@ export const PrivateIPSchema: Schema.Schema<PrivateIP, string> = Schema.String.p
 );
 
 // ============================================================================
-// Type Guards (derived from Schemas via Schema.is)
+// Type Guards
 // ============================================================================
 // Schema.is(schema) returns (u: unknown) => u is A - a type guard predicate
 
@@ -237,8 +234,6 @@ export const isPrivateIP: (u: unknown) => u is PrivateIP = Schema.is(PrivateIPSc
 // Effect-Based Decoders (for untrusted input in Effect pipelines)
 // ============================================================================
 // Usage: yield* decodeUserId(untrustedInput).pipe(Effect.mapError(parseErrorToGeneralError))
-//
-// Explicit type annotations required for isolatedDeclarations: true
 
 export const decodeUserId: (
   i: number,

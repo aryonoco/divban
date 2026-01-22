@@ -163,7 +163,7 @@ export {
 } from "./utils";
 export type { BufferBuilderOptions, StringWidthOptions } from "./utils";
 
-// Semver - Version comparison (20x faster than node-semver)
+// Semver - Version comparison
 export {
   compare as semverCompare,
   eq as semverEq,
@@ -183,22 +183,9 @@ export {
   sortVersionsDesc,
 } from "./semver";
 
-// Timing - High-precision timing utilities
-export {
-  createStopwatchEffect,
-  debounce,
-  delay,
-  formatDuration,
-  measure,
-  measureSync,
-  microseconds,
-  milliseconds,
-  nanoseconds,
-  stopwatch,
-  throttle,
-  withDeadline,
-} from "./timing";
-export type { EffectStopwatch, Stopwatch, TimedResult } from "./timing";
+// Timing - Effect-based timing utilities
+export { createStopwatchEffect } from "./timing";
+export type { EffectStopwatch } from "./timing";
 
 // Paths - Centralized path construction
 export {

@@ -7,16 +7,13 @@
 
 /**
  * Retry utilities using Effect Schedule for transient failure handling.
- *
- * Functional core: Pure schedule constructors and error predicates.
- * These are composable building blocks used by the imperative shell (system modules).
  */
 
 import { Array as Arr, Duration, type Duration as EffectDuration, Schedule, pipe } from "effect";
 import type { GeneralError, ServiceError, SystemError } from "./errors";
 
 // ============================================================================
-// Retry Schedules (Pure constructors using Schedule.intersect for limits)
+// Retry Schedules
 // ============================================================================
 
 /**
@@ -67,8 +64,6 @@ export const heavyRetrySchedule: Schedule.Schedule<
  * Polling schedule for waiting on state changes.
  * - Fixed interval polling
  * - Configurable max wait time and interval
- *
- * Pure function: constructs schedule from parameters.
  */
 export const pollingSchedule = (
   maxWaitMs: number,
@@ -80,7 +75,7 @@ export const pollingSchedule = (
   );
 
 // ============================================================================
-// Error Classification (Pure predicates using functional array operations)
+// Error Classification
 // ============================================================================
 
 /**
@@ -131,7 +126,7 @@ const PERMANENT_ERROR_PATTERNS: readonly string[] = [
  */
 const SERVICE_TRANSIENT_PATTERNS: readonly string[] = ["exit code", "not active", "failed to"];
 
-/** Pure predicate: checks if message contains any pattern from the array */
+/** Checks if message contains any pattern from the array */
 const containsAnyPattern = (msg: string, patterns: readonly string[]): boolean =>
   Arr.some(patterns, (pattern) => msg.includes(pattern));
 
@@ -139,8 +134,6 @@ const containsAnyPattern = (msg: string, patterns: readonly string[]): boolean =
  * Check if an error represents a transient failure that should be retried.
  * Returns true if error message matches transient patterns AND does not match permanent patterns.
  * Accepts SystemError | GeneralError union to work with Effect's error types.
- *
- * Pure function: (SystemError | GeneralError) => boolean
  */
 export const isTransientSystemError = (error: SystemError | GeneralError): boolean => {
   const msg = error.message.toLowerCase();
@@ -157,8 +150,6 @@ export const isTransientSystemError = (error: SystemError | GeneralError): boole
 /**
  * Check if a ServiceError represents a transient failure that should be retried.
  * Service errors (start/stop/restart failures) are often transient.
- *
- * Pure function: (ServiceError) => boolean
  */
 export const isTransientServiceError = (error: ServiceError): boolean => {
   const msg = error.message.toLowerCase();
@@ -177,8 +168,6 @@ export const isTransientServiceError = (error: ServiceError): boolean => {
 
 /**
  * Check if error message indicates a D-Bus session issue (common transient failure).
- *
- * Pure function: (string) => boolean
  */
 export const isDbusSessionError = (message: string): boolean =>
   containsAnyPattern(message.toLowerCase(), [

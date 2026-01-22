@@ -10,15 +10,11 @@
  * Uses typed error codes that map to exit codes.
  *
  * Error classes are tagged (with _tag property) for use with Effect.ts
- * discriminated unions and pattern matching.
  */
 
 import { Option, pipe } from "effect";
 import { optionalProp } from "./option-helpers";
 
-/**
- * Error code interface for isolatedDeclarations compatibility.
- */
 interface ErrorCodeMap {
   // General (0-9)
   readonly SUCCESS: 0;
@@ -58,9 +54,7 @@ interface ErrorCodeMap {
   readonly NETWORK_CREATE_FAILED: 42;
   readonly VOLUME_CREATE_FAILED: 43;
   readonly CONTAINER_NOT_FOUND: 44;
-  /** Secret generation or retrieval failed */
   readonly SECRET_ERROR: 45;
-  /** Secret not found */
   readonly SECRET_NOT_FOUND: 46;
 
   // Backup/Restore (50-59)
@@ -276,9 +270,6 @@ export class ConfigError extends Error {
 
 /**
  * System errors (codes 20-28)
- * USER_CREATE_FAILED, SUBUID_CONFIG_FAILED, DIRECTORY_CREATE_FAILED,
- * LINGER_ENABLE_FAILED, UID_RANGE_EXHAUSTED, SUBUID_RANGE_EXHAUSTED,
- * EXEC_FAILED, FILE_READ_FAILED, FILE_WRITE_FAILED
  */
 export class SystemError extends Error {
   readonly _tag = "SystemError" as const;
@@ -302,8 +293,6 @@ export class SystemError extends Error {
 
 /**
  * Service errors (codes 30-35)
- * SERVICE_NOT_FOUND, SERVICE_START_FAILED, SERVICE_STOP_FAILED,
- * SERVICE_ALREADY_RUNNING, SERVICE_NOT_RUNNING, SERVICE_RELOAD_FAILED
  */
 export class ServiceError extends Error {
   readonly _tag = "ServiceError" as const;
@@ -331,8 +320,6 @@ export class ServiceError extends Error {
 
 /**
  * Container errors (codes 40-46)
- * CONTAINER_BUILD_FAILED, QUADLET_INSTALL_FAILED, NETWORK_CREATE_FAILED,
- * VOLUME_CREATE_FAILED, CONTAINER_NOT_FOUND, SECRET_ERROR, SECRET_NOT_FOUND
  */
 export class ContainerError extends Error {
   readonly _tag = "ContainerError" as const;
@@ -360,7 +347,6 @@ export class ContainerError extends Error {
 
 /**
  * Backup errors (codes 50-52)
- * BACKUP_FAILED, RESTORE_FAILED, BACKUP_NOT_FOUND
  */
 export class BackupError extends Error {
   readonly _tag = "BackupError" as const;

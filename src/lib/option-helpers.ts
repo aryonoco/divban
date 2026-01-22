@@ -6,8 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Helper functions for Effect Option that aren't provided by Effect
- * or have different signatures than our previous custom implementation.
+ * Helper functions for Effect Option
  */
 
 import { Effect, Option, pipe } from "effect";
@@ -50,7 +49,7 @@ export const mapOrElse = <T, U>(
 ): U => pipe(opt, Option.map(fn), Option.getOrElse(defaultFn));
 
 /**
- * XOR combinator using nested Option.match (ML-style pattern matching).
+ * XOR combinator using nested Option.match
  * Returns Some if exactly one is Some, None otherwise.
  */
 export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.Option<T> =>
@@ -64,16 +63,11 @@ export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.O
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Object Construction Helpers (for exactOptionalPropertyTypes compatibility)
+// Object Construction Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Conditionally spread an optional property.
- * Compatible with exactOptionalPropertyTypes: true.
- *
- * Usage: { required, ...optionalProp("foo", maybeFoo) }
- * Result: { required } if maybeFoo is undefined
- *         { required, foo: value } if maybeFoo is defined
  */
 export const optionalProp = <K extends string, V>(
   key: K,
@@ -83,9 +77,6 @@ export const optionalProp = <K extends string, V>(
 
 /**
  * Build an object from tuples, omitting undefined values.
- * Compatible with exactOptionalPropertyTypes.
- *
- * Usage: buildObject([["foo", maybeFoo], ["bar", maybeBar]])
  */
 export const buildObject = <T extends Record<string, unknown>>(
   entries: readonly (readonly [keyof T, T[keyof T] | undefined])[]

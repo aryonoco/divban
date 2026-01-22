@@ -7,7 +7,6 @@
 
 /**
  * Semantic versioning utilities using Bun.semver.
- * 20x faster than node-semver with full compatibility.
  */
 
 import { semver } from "bun";

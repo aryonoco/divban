@@ -7,7 +7,6 @@
 
 /**
  * Centralized path construction utilities.
- * Eliminates scattered `as AbsolutePath` casts throughout the codebase.
  */
 
 import { readFileSync } from "node:fs";
@@ -52,10 +51,6 @@ export const SYSTEM_PATHS: {
 
 const homeCache = new Map<string, AbsolutePathType>();
 
-/**
- * Pure function: parse passwd content to find user's home directory.
- * Total function - returns Option.none() if not found.
- */
 export const lookupUserHomeFromPasswd = (
   passwdContent: string,
   username: string
@@ -83,7 +78,6 @@ export const lookupUserHomeFromPasswd = (
  * Get user's home directory from /etc/passwd.
  * Falls back to /home/<username> if user not found.
  *
- * Imperative shell: caches for performance, delegates to pure lookupUserHomeFromPasswd.
  */
 export const userHomeDir = (username: string): AbsolutePathType => {
   const cached = homeCache.get(username);
@@ -131,7 +125,6 @@ const hasNullByte = (p: string): boolean => p.includes("\x00");
 
 /**
  * Normalize and resolve a path to absolute.
- * Pure transformation function.
  */
 const resolveToAbsolute = (p: string): AbsolutePathType => {
   const normalized = normalize(p);

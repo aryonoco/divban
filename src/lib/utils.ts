@@ -33,7 +33,6 @@ export const generateIdBase64 = (): string => Bun.randomUUIDv7("base64url");
 
 /**
  * Generate a random UUID v4 (standard random UUID).
- * Uses Bun.randomUUIDv7() for time-sortable UUIDs with better performance.
  */
 export const generateUUID = (): string => Bun.randomUUIDv7();
 
@@ -43,7 +42,6 @@ export const generateUUID = (): string => Bun.randomUUIDv7();
 
 /**
  * Sleep for the specified number of milliseconds.
- * Uses Bun.sleep() for optimal performance.
  */
 export const sleep = (ms: number): Promise<void> => Bun.sleep(ms);
 
@@ -53,7 +51,7 @@ export const sleep = (ms: number): Promise<void> => Bun.sleep(ms);
 export const sleepSync = (ms: number): void => Bun.sleepSync(ms);
 
 // ============================================================================
-// Terminal String Width (6,756x faster than string-width package)
+// Terminal String Width 
 // ============================================================================
 
 export interface StringWidthOptions {
@@ -113,7 +111,6 @@ export const center = (text: string, width: number): string => {
 /**
  * Truncate a string to fit within a specific display width.
  * Adds ellipsis if truncated.
- * Uses tail recursion with accumulator (OCaml idiom).
  */
 export const truncate = (text: string, maxWidth: number, ellipsis = "..."): string => {
   const textWidth = Bun.stringWidth(text);
@@ -131,7 +128,7 @@ export const truncate = (text: string, maxWidth: number, ellipsis = "..."): stri
   const chars = Array.from(text);
 
   /**
-   * Tail-recursive accumulator: collect chars while width budget remains.
+   * Collect chars while width budget remains.
    */
   const go = (i: number, width: number, acc: string): string => {
     if (i >= chars.length) {
@@ -201,12 +198,11 @@ export const isRejected = (promise: Promise<unknown>): boolean => {
 };
 
 // ============================================================================
-// HTML Escaping (480 MB/s - 20 GB/s performance)
+// HTML Escaping 
 // ============================================================================
 
 /**
  * Escape HTML special characters in a string.
- * Optimized for large inputs with SIMD acceleration.
  *
  * Escapes: & < > " '
  *
@@ -358,7 +354,7 @@ export const base64UrlEncode = (data: string): string => {
 };
 
 // ============================================================================
-// ANSI Color Utilities (using Bun.color)
+// ANSI Color Utilities 
 // ============================================================================
 
 /**
@@ -383,7 +379,7 @@ export const colorize = (text: string, color: string): string => {
 };
 
 // ============================================================================
-// Buffer Building (using ArrayBufferSink)
+// Buffer Building 
 // ============================================================================
 
 /**

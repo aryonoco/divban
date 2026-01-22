@@ -79,7 +79,6 @@ export const writeBackupArchive = (
 
 /**
  * List backup files in a directory, sorted by modification time (newest first).
- * Uses Effect.forEach for concurrent stat calls and immutable sort with Order typeclass.
  * @param backupDir - Directory containing backups
  * @param pattern - Glob pattern (default: "*.tar.{gz,zst}" for both formats)
  */
@@ -156,7 +155,7 @@ export const validateBackupExists = (backupPath: AbsolutePath): Effect.Effect<vo
   });
 
 /**
- * Get accurate file size using stat() instead of lazy .size property.
+ * Get accurate file size using stat().
  */
 export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<number> => {
   const stat = await Bun.file(backupPath).stat();
@@ -165,7 +164,7 @@ export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<numbe
 
 /**
  * Validate backup metadata matches expected service.
- * Returns Ok if metadata is missing (backwards compat) or service matches.
+ * Returns Ok if metadata is missing or service matches.
  */
 export const validateBackupService = (
   metadata: Option.Option<ArchiveMetadata>,
