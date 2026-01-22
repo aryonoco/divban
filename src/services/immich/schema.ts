@@ -12,6 +12,7 @@
 import { Schema } from "effect";
 import { absolutePathSchema } from "../../config/schema";
 import { isValidIP, isValidUrl } from "../../lib/schema-utils";
+import type { AbsolutePath } from "../../lib/types";
 import { DEFAULT_IMAGES } from "./constants";
 
 /**
@@ -101,7 +102,7 @@ export const hardwareSchema: Schema.Schema<HardwareConfig, HardwareConfigInput> 
  * External library configuration (output after decoding).
  */
 export interface ExternalLibrary {
-  readonly path: string;
+  readonly path: AbsolutePath;
   readonly name?: string | undefined;
   readonly readOnly: boolean;
 }
@@ -229,11 +230,11 @@ export const immichNetworkSchema: Schema.Schema<ImmichNetworkConfig, ImmichNetwo
  */
 export interface ImmichConfig {
   readonly paths: {
-    readonly dataDir: string;
-    readonly uploadDir?: string | undefined;
-    readonly profileDir?: string | undefined;
-    readonly thumbsDir?: string | undefined;
-    readonly encodedDir?: string | undefined;
+    readonly dataDir: AbsolutePath;
+    readonly uploadDir?: AbsolutePath | undefined;
+    readonly profileDir?: AbsolutePath | undefined;
+    readonly thumbsDir?: AbsolutePath | undefined;
+    readonly encodedDir?: AbsolutePath | undefined;
   };
   readonly database: DatabaseConfig;
   readonly hardware?: HardwareConfig | undefined;

@@ -36,7 +36,7 @@ Declarative TOML-based configuration for containerised services. Each service ru
 
 **Type Safety:** Branded types in `src/lib/types.ts` prevent mixing incompatible values (UserId, Username, AbsolutePath, etc.).
 
-**Service Pattern:** All services implement `ServiceEffect<C>` with lifecycle methods (validate, generate, setup) and runtime methods (start, stop, restart, status, logs). Setup uses `SetupStepResource` for scoped execution with automatic rollback.
+**Service Pattern:** All services implement `ServiceEffect<C>` with lifecycle methods (validate, generate, setup) and runtime methods (start, stop, restart, status, logs). Setup uses `SetupStep<StateIn, Output, E, R>` with fixed-arity pipelines (`executeSteps3/4/5`) for type-safe composition with automatic rollback.
 
 **Error Codes:** Organised exit codes in `src/lib/errors.ts` - General (0-9), Config (10-19), System (20-29), Service (30-39), Container (40-49), Backup (50-59).
 
@@ -44,7 +44,7 @@ Declarative TOML-based configuration for containerised services. Each service ru
 
 **Setup Flow:** `setup.ts` orchestrates service setup using `Effect.scoped` with nested `acquireRelease` calls for user creation, linger enablement, directory creation, config copying, and service-specific setup.
 
-**Service Setup Steps:** Each service defines setup steps as `SetupStepResource[]` with acquire/release pairs. The `executeSetupStepsScoped` helper runs them sequentially, calling release functions in reverse order on failure.
+**Service Setup Steps:** Each service defines setup steps as `SetupStep<StateIn, Output, E, R>` with acquire/release pairs. State accumulates via intersection types (`EmptyState & A & B & C`). The `executeSteps3/4/5` functions run steps sequentially with per-step progress logging, calling release functions in reverse order on failure using the `Outcome` sum type.
 
 **File Write Tracking:** `FileWriteResult` discriminated union tracks whether files were `Created` (delete on rollback) or `Modified` (restore from `.bak` backup on rollback, delete backup on success).
 

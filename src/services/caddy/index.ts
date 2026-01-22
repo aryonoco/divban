@@ -10,15 +10,10 @@
  * Uses Effect's context system - dependencies accessed via yield*.
  */
 
-import { Effect, Exit, ParseResult } from "effect";
-import {
-  type ConfigError,
-  ErrorCode,
-  GeneralError,
-  ServiceError,
-  type SystemError,
-} from "../../lib/errors";
-import type { PrivateIP, ServiceName } from "../../lib/types";
+import { Effect, ParseResult } from "effect";
+import type { ConfigError, GeneralError, SystemError } from "../../lib/errors";
+import { ErrorCode, ServiceError } from "../../lib/errors";
+import { type PrivateIP, type ServiceName, duration } from "../../lib/types";
 import { decodePrivateIP } from "../../lib/types";
 import {
   createHttpHealthCheck,
@@ -29,14 +24,18 @@ import {
 } from "../../quadlet";
 import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
+  type EmptyState,
   type FilesWriteResult,
+  Outcome,
   type ServicesEnableResult,
-  type SetupStepResource,
+  SetupStep,
+  cleanupFileBackups,
   createConfigValidator,
   createSingleContainerOps,
-  executeSetupStepsScoped,
-  releaseFileWrites,
+  emptyState,
+  executeSteps3,
   reloadAndEnableServicesTracked,
+  rollbackFileWrites,
   rollbackServiceChanges,
   writeGeneratedFilesTracked,
 } from "../helpers";
@@ -69,7 +68,7 @@ const definition: ServiceDefinition = {
  * Uses Effect context - no ctx parameter needed.
  */
 const ops = createSingleContainerOps({
-  serviceName: "caddy",
+  serviceName: "caddy" as ServiceName,
   displayName: "Caddy",
 });
 
@@ -151,9 +150,9 @@ const generate = (): Effect.Effect<
       ),
       userNs: createRootMappedNs(),
       healthCheck: createHttpHealthCheck("http://localhost:2019/reverse_proxy/upstreams", {
-        interval: "30s",
-        timeout: "10s",
-        startPeriod: "10s",
+        interval: duration("30s"),
+        timeout: duration("10s"),
+        startPeriod: duration("10s"),
         onFailure: "restart",
       }),
       noNewPrivileges: true,
@@ -183,19 +182,81 @@ const generate = (): Effect.Effect<
     };
   });
 
-/**
- * Setup state for Caddy - tracks data passed between steps.
- */
-interface CaddySetupState {
-  files?: GeneratedFiles;
-  fileResults?: FilesWriteResult;
-  serviceResults?: ServicesEnableResult;
+// ============================================================================
+// Setup Step Output Types
+// ============================================================================
+
+/** Output from generate step */
+interface GenerateOutput {
+  readonly files: GeneratedFiles;
 }
 
-/**
- * Setup step dependencies - union of all step requirements.
- */
-type CaddySetupDeps = CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger;
+/** Output from write files step */
+interface WriteFilesOutput {
+  readonly fileResults: FilesWriteResult;
+}
+
+/** Output from enable services step */
+interface EnableServicesOutput {
+  readonly serviceResults: ServicesEnableResult;
+}
+
+// ============================================================================
+// Setup Steps
+// ============================================================================
+
+/** Step 1: Generate (pure - no release) */
+const generateStep: SetupStep<
+  EmptyState,
+  GenerateOutput,
+  ServiceError | GeneralError,
+  CaddyConfigTag | ServicePaths | SystemCapabilities
+> = SetupStep.pure("Generating configuration files...", (_state: EmptyState) =>
+  Effect.map(generate(), (files): GenerateOutput => ({ files }))
+);
+
+/** Step 2: Write files (resource - has release) */
+const writeFilesStep: SetupStep<
+  EmptyState & GenerateOutput,
+  WriteFilesOutput,
+  SystemError | GeneralError,
+  ServicePaths | ServiceUser
+> = SetupStep.resource(
+  "Writing configuration files...",
+  (state: EmptyState & GenerateOutput) =>
+    Effect.map(
+      writeGeneratedFilesTracked(state.files),
+      (fileResults): WriteFilesOutput => ({ fileResults })
+    ),
+  (state, outcome): Effect.Effect<void, never, never> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> =>
+        cleanupFileBackups(state.fileResults.results),
+      onFailure: (): Effect.Effect<void, never, never> =>
+        rollbackFileWrites(state.fileResults.results),
+    })
+);
+
+/** Step 3: Enable services (resource - has release) */
+const enableServicesStep: SetupStep<
+  EmptyState & GenerateOutput & WriteFilesOutput,
+  EnableServicesOutput,
+  ServiceError | SystemError | GeneralError,
+  ServiceUser
+> = SetupStep.resource(
+  "Enabling and starting service...",
+  (_state: EmptyState & GenerateOutput & WriteFilesOutput) =>
+    Effect.map(
+      reloadAndEnableServicesTracked(["caddy"], true),
+      (serviceResults): EnableServicesOutput => ({ serviceResults })
+    ),
+  (state, outcome): Effect.Effect<void, never, ServiceUser> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> => Effect.void,
+      onFailure: (): Effect.Effect<void, never, ServiceUser> =>
+        rollbackServiceChanges(state.serviceResults),
+    })
+);
 
 /**
  * Full setup for Caddy service.
@@ -204,74 +265,8 @@ type CaddySetupDeps = CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabi
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  CaddySetupDeps
-> => {
-  // Steps access dependencies via Effect context
-  const steps: SetupStepResource<
-    CaddySetupState,
-    ServiceError | SystemError | GeneralError,
-    CaddySetupDeps
-  >[] = [
-    {
-      message: "Generating configuration files...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { files: GeneratedFiles },
-        ServiceError | GeneralError,
-        CaddyConfigTag | ServicePaths | SystemCapabilities
-      > => Effect.map(generate(), (files) => ({ files })),
-      // No release - pure in-memory computation
-    },
-    {
-      message: "Writing configuration files...",
-      acquire: (
-        state
-      ): Effect.Effect<
-        { fileResults: FilesWriteResult },
-        SystemError | GeneralError,
-        ServicePaths | ServiceUser
-      > =>
-        state.files
-          ? Effect.map(writeGeneratedFilesTracked(state.files), (fileResults) => ({
-              fileResults,
-            }))
-          : Effect.fail(
-              new GeneralError({
-                code: ErrorCode.GENERAL_ERROR as 1,
-                message: "No files generated",
-              })
-            ),
-      release: (
-        state: CaddySetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, ServicePaths | ServiceUser | AppLogger> =>
-        releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
-    },
-    {
-      message: "Enabling and starting service...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { serviceResults: ServicesEnableResult },
-        ServiceError | SystemError | GeneralError,
-        ServiceUser
-      > =>
-        Effect.map(reloadAndEnableServicesTracked(["caddy"], true), (serviceResults) => ({
-          serviceResults,
-        })),
-      release: (
-        state: CaddySetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, ServiceUser> =>
-        Exit.isFailure(exit) && state.serviceResults
-          ? rollbackServiceChanges(state.serviceResults)
-          : Effect.void,
-    },
-  ];
-
-  return executeSetupStepsScoped(steps, {});
-};
+  CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+> => executeSteps3([generateStep, writeFilesStep, enableServicesStep], emptyState);
 
 /**
  * Reload Caddy configuration.

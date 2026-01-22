@@ -71,7 +71,7 @@ const readFileIfExists = (
  */
 const collectServiceConfigFiles = (
   configDir: AbsolutePath,
-  serviceName: string
+  serviceName: ServiceName
 ): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const candidates = [
@@ -213,9 +213,9 @@ const findConfigDir = (): Effect.Effect<
  * Resolve config directory based on service (single or "all").
  */
 const resolveConfigDir = (
-  serviceName: string
+  serviceName: ServiceName | "all"
 ): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError | ConfigError> =>
-  serviceName === "all" ? findConfigDir() : getServiceConfigDir(serviceName as ServiceName);
+  serviceName === "all" ? findConfigDir() : getServiceConfigDir(serviceName);
 
 // ============================================================================
 // Output Path Preparation
@@ -226,7 +226,7 @@ const resolveConfigDir = (
  */
 const prepareOutputPath = (
   configDir: AbsolutePath,
-  serviceName: string,
+  serviceName: ServiceName | "all",
   customPath: string | undefined
 ): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
   Option.match(Option.fromNullable(customPath), {

@@ -15,7 +15,14 @@ import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { systemRetrySchedule } from "../lib/retry";
-import type { AbsolutePath, GroupId, SubordinateId, UserId, Username } from "../lib/types";
+import type {
+  AbsolutePath,
+  GroupId,
+  ServiceName,
+  SubordinateId,
+  UserId,
+  Username,
+} from "../lib/types";
 import { userIdToGroupId } from "../lib/types";
 import type { Acquired } from "../services/helpers";
 import { exec, execSuccess } from "./exec";
@@ -240,7 +247,7 @@ const removeSubordinateIds = (
  * Idempotent - returns Ok if user doesn't exist.
  */
 export const deleteServiceUser = (
-  serviceName: string
+  serviceName: ServiceName
 ): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
@@ -282,7 +289,7 @@ const createUserWithUid = (
   username: Username,
   homeDir: AbsolutePath,
   shell: string,
-  serviceName: string,
+  serviceName: ServiceName,
   allocatedUid: UserId
 ): Effect.Effect<UserId, SystemError> =>
   execSuccess([
@@ -316,7 +323,7 @@ const createUserWithUid = (
  * Subuid range is allocated to avoid conflicts
  */
 export const createServiceUser = (
-  serviceName: string,
+  serviceName: ServiceName,
   settings?: UidAllocationSettings
 ): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
   Effect.gen(function* () {
@@ -399,7 +406,7 @@ export const createServiceUser = (
  * Get user information if they exist.
  */
 export const getServiceUser = (
-  serviceName: string
+  serviceName: ServiceName
 ): Effect.Effect<Option.Option<ServiceUser>, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
@@ -489,7 +496,7 @@ export const requireRoot = (): Effect.Effect<void, GeneralError> => {
  * Returns Acquired<ServiceUser> for idempotent rollback support.
  */
 export const acquireServiceUser = (
-  serviceName: string,
+  serviceName: ServiceName,
   settings?: UidAllocationSettings
 ): Effect.Effect<Acquired<ServiceUser>, SystemError | GeneralError> =>
   Effect.gen(function* () {
@@ -526,7 +533,7 @@ export const acquireServiceUser = (
  * Release function - conditional cleanup based on wasCreated.
  */
 export const releaseServiceUser = (
-  serviceName: string,
+  serviceName: ServiceName,
   wasCreated: boolean
 ): Effect.Effect<void, never> =>
   wasCreated ? deleteServiceUser(serviceName).pipe(Effect.ignore) : Effect.void;

@@ -5,17 +5,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { Effect, type Exit, Option, type Schema, type Scope, pipe } from "effect";
+import { Effect, Exit, Option, type Schema, type Scope, pipe } from "effect";
 import { loadServiceConfig } from "../config/loader";
-import type {
-  ConfigError,
-  ContainerError,
-  GeneralError,
-  ServiceError,
-  SystemError,
-} from "../lib/errors";
+import type { ConfigError, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
-import { type AbsolutePath, type GroupId, type UserId, pathWithSuffix } from "../lib/types";
+import {
+  type AbsolutePath,
+  type GroupId,
+  type ServiceName,
+  type UserId,
+  pathWithSuffix,
+} from "../lib/types";
 import { chown } from "../system/directories";
 import { copyFile, deleteFile, fileExists, renameFile, writeFile } from "../system/fs";
 import {
@@ -275,22 +275,6 @@ export const cleanupFileBackups = (
   }).pipe(Effect.asVoid);
 
 /**
- * Handle file write results on release - rollback on failure, cleanup on success.
- */
-export const releaseFileWrites = (
-  fileResults: FilesWriteResult | undefined,
-  failed: boolean
-): Effect.Effect<void, never> => {
-  if (!fileResults) {
-    return Effect.void;
-  }
-  if (failed) {
-    return rollbackFileWrites(fileResults.results);
-  }
-  return cleanupFileBackups(fileResults.results);
-};
-
-/**
  * Enable services with tracking.
  * Returns only the services we actually changed.
  * Dependencies accessed via Effect context.
@@ -461,7 +445,7 @@ export const cleanupConfigBackup = (result: ConfigCopyResult): Effect.Effect<voi
 // ============================================================================
 
 export interface SingleContainerConfig {
-  serviceName: string;
+  serviceName: ServiceName;
   displayName: string;
 }
 
@@ -603,102 +587,305 @@ export const wrapBackupResult = <E>(
   });
 
 // ============================================================================
-// Setup Step Executor
+// Outcome Type (Typed Alternative to Exit<unknown, unknown>)
 // ============================================================================
 
 /**
- * Return type for setup step acquire functions.
+ * Outcome discriminant - avoids unknown in release signatures.
+ * A simple sum type for success/failure branching.
  */
-// biome-ignore lint/suspicious/noConfusingVoidType: void needed for Effect<void> compatibility
-export type SetupStepAcquireResult<S, E, R = never> = Effect.Effect<Partial<S> | void, E, R>;
+export type Outcome = { readonly _tag: "Success" } | { readonly _tag: "Failure" };
+
+type OutcomeSuccess = { readonly _tag: "Success" };
+type OutcomeFailure = { readonly _tag: "Failure" };
+
+interface OutcomeOps {
+  readonly success: OutcomeSuccess;
+  readonly failure: OutcomeFailure;
+  readonly fromExit: <A, E>(exit: Exit.Exit<A, E>) => Outcome;
+  readonly match: <A>(
+    outcome: Outcome,
+    cases: { readonly onSuccess: () => A; readonly onFailure: () => A }
+  ) => A;
+}
+
+export const Outcome: OutcomeOps = {
+  // biome-ignore lint/style/useNamingConvention: _tag is standard Effect-ts discriminant
+  success: { _tag: "Success" },
+  // biome-ignore lint/style/useNamingConvention: _tag is standard Effect-ts discriminant
+  failure: { _tag: "Failure" },
+
+  fromExit: <A, E>(exit: Exit.Exit<A, E>): Outcome =>
+    Exit.match(exit, {
+      onSuccess: (): Outcome => Outcome.success,
+      onFailure: (): Outcome => Outcome.failure,
+    }),
+
+  match: <A>(
+    outcome: Outcome,
+    cases: {
+      readonly onSuccess: () => A;
+      readonly onFailure: () => A;
+    }
+  ): A => (outcome._tag === "Success" ? cases.onSuccess() : cases.onFailure()),
+};
+
+// ============================================================================
+// Setup Step with Explicit State Types
+// ============================================================================
 
 /**
- * Setup step definition using Effect resource pattern.
- * Steps run sequentially. If a step returns data, it's stored in state.
- * Uses acquireRelease for automatic rollback on failure.
- * Generic over R - steps declare their own dependencies.
+ * Release function receives exact state shape at release time.
+ * Must not fail (Effect<void, never, R>).
  */
-export interface SetupStepResource<
-  S = object,
-  E = SystemError | GeneralError | ServiceError,
-  R = never,
-> {
-  /** Step message for logger.step() */
-  message: string;
-  /** Acquire the resource. Can read from state and return data to add to state. */
-  acquire: (state: S) => SetupStepAcquireResult<S, E, R>;
-  /** Release function called on scope close. Receives Exit to check success/failure. */
-  release?: (state: S, exit: Exit.Exit<unknown, unknown>) => Effect.Effect<void, never, R>;
+type Release<State, R> = (state: State, outcome: Outcome) => Effect.Effect<void, never, R>;
+
+/**
+ * Setup step with explicit input and output types.
+ *
+ * @template StateIn - Required state (what this step needs)
+ * @template Output - What this step produces (added to state)
+ * @template E - Error type
+ * @template R - Effect requirements
+ */
+export interface SetupStep<StateIn, Output, E, R> {
+  readonly message: string;
+  readonly acquire: (state: StateIn) => Effect.Effect<Output, E, R>;
+  readonly release: Option.Option<Release<StateIn & Output, R>>;
 }
 
 /**
- * Execute a single setup step within scope.
- * Returns Effect requiring Scope when step has release function.
+ * Constructors - explicit distinction between pure and resource steps.
  */
-const executeStep = <S extends object, E, R>(
-  step: SetupStepResource<S, E, R>,
-  state: S,
+export const SetupStep = {
+  /** Pure computation - no cleanup needed */
+  pure: <StateIn, Output, E, R>(
+    message: string,
+    acquire: (state: StateIn) => Effect.Effect<Output, E, R>
+  ): SetupStep<StateIn, Output, E, R> => ({
+    message,
+    acquire,
+    release: Option.none(),
+  }),
+
+  /** Resource acquisition - cleanup on scope exit */
+  resource: <StateIn, Output, E, R>(
+    message: string,
+    acquire: (state: StateIn) => Effect.Effect<Output, E, R>,
+    release: Release<StateIn & Output, R>
+  ): SetupStep<StateIn, Output, E, R> => ({
+    message,
+    acquire,
+    release: Option.some(release),
+  }),
+} as const;
+
+// ============================================================================
+// Base State and Accumulation
+// ============================================================================
+
+/**
+ * Empty state - branded to prevent accidental extension.
+ * All pipelines start here.
+ */
+export interface EmptyState {
+  readonly __brand: "EmptyState";
+}
+
+// biome-ignore lint/style/useNamingConvention: __brand is standard TypeScript branding pattern
+export const emptyState: EmptyState = { __brand: "EmptyState" };
+
+// ============================================================================
+// Combinators - Functional Composition
+// ============================================================================
+
+/**
+ * Sequence two steps, accumulating state via intersection.
+ *
+ * Release functions have different state requirements:
+ * - first.release expects StateIn & B
+ * - second.release expects StateIn & B & C
+ *
+ * Since StateIn & B & C is assignable to StateIn & B (has all properties),
+ * we can safely call first.release with the combined state.
+ */
+const andThen = <StateIn, B, C, E1, E2, R1, R2>(
+  first: SetupStep<StateIn, B, E1, R1>,
+  second: SetupStep<StateIn & B, C, E2, R2>
+): SetupStep<StateIn, B & C, E1 | E2, R1 | R2> => ({
+  message: first.message,
+  acquire: (stateIn: StateIn): Effect.Effect<B & C, E1 | E2, R1 | R2> =>
+    pipe(
+      first.acquire(stateIn),
+      Effect.flatMap((b: B) =>
+        pipe(
+          second.acquire({ ...stateIn, ...b }),
+          Effect.map((c: C): B & C => ({ ...b, ...c }))
+        )
+      )
+    ),
+  release: pipe(
+    Option.all([first.release, second.release]),
+    Option.map(
+      ([r1, r2]): Release<StateIn & B & C, R1 | R2> =>
+        (state: StateIn & B & C, outcome: Outcome): Effect.Effect<void, never, R1 | R2> =>
+          pipe(
+            r2(state, outcome),
+            Effect.flatMap(() => r1(state, outcome))
+          )
+    ),
+    Option.orElse(() =>
+      Option.map(
+        second.release,
+        (r): Release<StateIn & B & C, R1 | R2> =>
+          (state: StateIn & B & C, outcome: Outcome): Effect.Effect<void, never, R2> =>
+            r(state, outcome)
+      )
+    ),
+    Option.orElse(() =>
+      Option.map(
+        first.release,
+        (r): Release<StateIn & B & C, R1 | R2> =>
+          (state: StateIn & B & C, outcome: Outcome): Effect.Effect<void, never, R1> =>
+            r(state, outcome)
+      )
+    )
+  ),
+});
+
+/**
+ * Fixed-arity pipeline constructors.
+ * TypeScript cannot express variadic type-level folds,
+ * so we provide explicit arities.
+ */
+export const pipeline2 = <S, A, B, E1, E2, R1, R2>(
+  s1: SetupStep<S, A, E1, R1>,
+  s2: SetupStep<S & A, B, E2, R2>
+): SetupStep<S, A & B, E1 | E2, R1 | R2> => andThen(s1, s2);
+
+export const pipeline3 = <S, A, B, C, E1, E2, E3, R1, R2, R3>(
+  s1: SetupStep<S, A, E1, R1>,
+  s2: SetupStep<S & A, B, E2, R2>,
+  s3: SetupStep<S & A & B, C, E3, R3>
+): SetupStep<S, A & B & C, E1 | E2 | E3, R1 | R2 | R3> => andThen(andThen(s1, s2), s3);
+
+export const pipeline4 = <S, A, B, C, D, E1, E2, E3, E4, R1, R2, R3, R4>(
+  s1: SetupStep<S, A, E1, R1>,
+  s2: SetupStep<S & A, B, E2, R2>,
+  s3: SetupStep<S & A & B, C, E3, R3>,
+  s4: SetupStep<S & A & B & C, D, E4, R4>
+): SetupStep<S, A & B & C & D, E1 | E2 | E3 | E4, R1 | R2 | R3 | R4> =>
+  andThen(andThen(andThen(s1, s2), s3), s4);
+
+export const pipeline5 = <S, A, B, C, D, E, E1, E2, E3, E4, E5, R1, R2, R3, R4, R5>(
+  s1: SetupStep<S, A, E1, R1>,
+  s2: SetupStep<S & A, B, E2, R2>,
+  s3: SetupStep<S & A & B, C, E3, R3>,
+  s4: SetupStep<S & A & B & C, D, E4, R4>,
+  s5: SetupStep<S & A & B & C & D, E, E5, R5>
+): SetupStep<S, A & B & C & D & E, E1 | E2 | E3 | E4 | E5, R1 | R2 | R3 | R4 | R5> =>
+  andThen(andThen(andThen(andThen(s1, s2), s3), s4), s5);
+
+// ============================================================================
+// Execution with Effect.scoped
+// ============================================================================
+
+/**
+ * Execute a step within scope, registering release as finalizer.
+ */
+const executeStepScoped = <StateIn, Output, E, R>(
+  step: SetupStep<StateIn, Output, E, R>,
+  stateIn: StateIn,
   stepNumber: number,
   totalSteps: number
-): Effect.Effect<S, E, Scope.Scope | R | AppLogger> =>
+): Effect.Effect<StateIn & Output, E, Scope.Scope | R | AppLogger> =>
   Effect.gen(function* () {
     const logger = yield* AppLogger;
     logger.step(stepNumber, totalSteps, step.message);
 
-    // Capture state for release closure (immutable snapshot)
-    const capturedState = { ...state };
+    // Immutable snapshot for release closure
+    const capturedStateIn: StateIn = { ...stateIn };
 
-    // Bind release to const for proper narrowing
-    const releaseHandler = step.release;
+    const output: Output = yield* pipe(
+      step.release,
+      Option.match({
+        onNone: (): Effect.Effect<Output, E, R> => step.acquire(stateIn),
+        onSome: (release): Effect.Effect<Output, E, Scope.Scope | R> =>
+          Effect.acquireRelease(step.acquire(stateIn), (output: Output, exit) =>
+            release({ ...capturedStateIn, ...output }, Outcome.fromExit(exit))
+          ),
+      })
+    );
 
-    const runStep = releaseHandler
-      ? Effect.acquireRelease(step.acquire(state), (_, exit) => releaseHandler(capturedState, exit))
-      : step.acquire(state);
-
-    const result = yield* runStep;
-
-    // Merge result into state if it's an object, otherwise return unchanged state
-    return result !== null && result !== undefined && typeof result === "object"
-      ? { ...state, ...(result as Partial<S>) }
-      : state;
+    return { ...stateIn, ...output };
   });
 
 /**
- * Execute setup steps sequentially using Effect's Scope for automatic rollback.
- * Each step's returned data is merged into state for subsequent steps.
- * On failure, release functions are executed in reverse order by the Scope.
- * On success, release functions can perform cleanup (e.g., removing backups).
- * Dependencies accessed via Effect context.
+ * Execute steps with per-step progress logging.
+ * Uses sequential Effect.gen bindings (no loops).
+ * Fixed-arity versions for 3, 4, and 5 steps with per-step type parameters.
  */
-export const executeSetupStepsScoped = <
-  S extends object = object,
-  E extends SystemError | GeneralError | ServiceError | ContainerError =
-    | SystemError
-    | GeneralError
-    | ServiceError
-    | ContainerError,
-  R = never,
->(
-  steps: readonly SetupStepResource<S, E, R>[],
+export const executeSteps3 = <S, A, B, C, E1, E2, E3, R1, R2, R3>(
+  steps: readonly [
+    SetupStep<S, A, E1, R1>,
+    SetupStep<S & A, B, E2, R2>,
+    SetupStep<S & A & B, C, E3, R3>,
+  ],
   initialState: S
-): Effect.Effect<void, E, R | AppLogger> =>
+): Effect.Effect<void, E1 | E2 | E3, R1 | R2 | R3 | AppLogger> =>
   Effect.scoped(
-    pipe(
-      // Zip steps with their indices (1-based for display)
-      steps.map((step, index) => [step, index] as const),
-      // Effectful fold: thread state through each step
-      (indexedSteps) =>
-        Effect.reduce(indexedSteps, initialState, (state, [step, index]) =>
-          executeStep(step, state, index + 1, steps.length)
-        ),
-      // Discard final state, log success
-      Effect.flatMap(() =>
-        Effect.gen(function* () {
-          const logger = yield* AppLogger;
-          logger.success("Setup completed successfully");
-        })
-      )
-    )
+    Effect.gen(function* () {
+      const [s1, s2, s3] = steps;
+      const state1 = yield* executeStepScoped(s1, initialState, 1, 3);
+      const state2 = yield* executeStepScoped(s2, state1, 2, 3);
+      yield* executeStepScoped(s3, state2, 3, 3);
+      const logger = yield* AppLogger;
+      logger.success("Setup completed successfully");
+    })
+  );
+
+export const executeSteps4 = <S, A, B, C, D, E1, E2, E3, E4, R1, R2, R3, R4>(
+  steps: readonly [
+    SetupStep<S, A, E1, R1>,
+    SetupStep<S & A, B, E2, R2>,
+    SetupStep<S & A & B, C, E3, R3>,
+    SetupStep<S & A & B & C, D, E4, R4>,
+  ],
+  initialState: S
+): Effect.Effect<void, E1 | E2 | E3 | E4, R1 | R2 | R3 | R4 | AppLogger> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const [s1, s2, s3, s4] = steps;
+      const state1 = yield* executeStepScoped(s1, initialState, 1, 4);
+      const state2 = yield* executeStepScoped(s2, state1, 2, 4);
+      const state3 = yield* executeStepScoped(s3, state2, 3, 4);
+      yield* executeStepScoped(s4, state3, 4, 4);
+      const logger = yield* AppLogger;
+      logger.success("Setup completed successfully");
+    })
+  );
+
+export const executeSteps5 = <S, A, B, C, D, E, E1, E2, E3, E4, E5, R1, R2, R3, R4, R5>(
+  steps: readonly [
+    SetupStep<S, A, E1, R1>,
+    SetupStep<S & A, B, E2, R2>,
+    SetupStep<S & A & B, C, E3, R3>,
+    SetupStep<S & A & B & C, D, E4, R4>,
+    SetupStep<S & A & B & C & D, E, E5, R5>,
+  ],
+  initialState: S
+): Effect.Effect<void, E1 | E2 | E3 | E4 | E5, R1 | R2 | R3 | R4 | R5 | AppLogger> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const [s1, s2, s3, s4, s5] = steps;
+      const state1 = yield* executeStepScoped(s1, initialState, 1, 5);
+      const state2 = yield* executeStepScoped(s2, state1, 2, 5);
+      const state3 = yield* executeStepScoped(s3, state2, 3, 5);
+      const state4 = yield* executeStepScoped(s4, state3, 4, 5);
+      yield* executeStepScoped(s5, state4, 5, 5);
+      const logger = yield* AppLogger;
+      logger.success("Setup completed successfully");
+    })
   );
 
 // ============================================================================

@@ -11,18 +11,17 @@
  * Uses Effect's context system - dependencies accessed via yield*.
  */
 
-import { Array as Arr, Effect, Exit, pipe } from "effect";
-import {
-  type BackupError,
-  type ContainerError,
-  ErrorCode,
+import { Array as Arr, Effect, pipe } from "effect";
+import type {
+  BackupError,
+  ContainerError,
   GeneralError,
-  type ServiceError,
-  type SystemError,
+  ServiceError,
+  SystemError,
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { configFilePath } from "../../lib/paths";
-import type { AbsolutePath, ServiceName } from "../../lib/types";
+import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
 import {
   createEnvSecret,
   createHttpHealthCheck,
@@ -44,13 +43,17 @@ import {
 import { journalctl } from "../../system/systemctl";
 import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
+  type EmptyState,
   type FilesWriteResult,
+  Outcome,
   type ServicesEnableResult,
-  type SetupStepResource,
+  SetupStep,
+  cleanupFileBackups,
   createConfigValidator,
-  executeSetupStepsScoped,
-  releaseFileWrites,
+  emptyState,
+  executeSteps5,
   reloadAndEnableServicesTracked,
+  rollbackFileWrites,
   rollbackServiceChanges,
   wrapBackupResult,
   writeGeneratedFilesTracked,
@@ -227,8 +230,8 @@ const generate = (): Effect.Effect<
       devices: serverDevices.length > 0 ? [...serverDevices] : undefined,
       userNs: createKeepIdNs(),
       healthCheck: createHttpHealthCheck("http://localhost:2283/api/server/ping", {
-        interval: "30s",
-        startPeriod: "30s",
+        interval: duration("30s"),
+        startPeriod: duration("30s"),
       }),
       noNewPrivileges: true,
       service: { restart: "always" },
@@ -252,8 +255,8 @@ const generate = (): Effect.Effect<
             secrets: [createEnvSecret(dbSecretName, "DB_PASSWORD")],
             devices: mlDevices.length > 0 ? [...mlDevices] : undefined,
             healthCheck: createHttpHealthCheck("http://localhost:3003/ping", {
-              interval: "30s",
-              startPeriod: "60s",
+              interval: duration("30s"),
+              startPeriod: duration("60s"),
             }),
             noNewPrivileges: true,
             service: { restart: "always" },
@@ -292,26 +295,168 @@ const generate = (): Effect.Effect<
     };
   });
 
-/**
- * Setup state for Immich - tracks data passed between steps.
- */
-interface ImmichSetupState {
-  files?: GeneratedFiles;
-  createdSecrets?: readonly string[];
-  createdDirs?: readonly AbsolutePath[];
-  fileResults?: FilesWriteResult;
-  serviceResults?: ServicesEnableResult;
+// ============================================================================
+// Setup Step Output Types
+// ============================================================================
+
+/** Output from secrets step */
+interface SecretsOutput {
+  readonly createdSecrets: readonly string[];
 }
 
-/**
- * Setup step dependencies - union of all step requirements.
- */
-type ImmichSetupDeps =
-  | ImmichConfigTag
-  | ServicePaths
-  | ServiceUser
-  | SystemCapabilities
-  | AppLogger;
+/** Output from generate step */
+interface GenerateOutput {
+  readonly files: GeneratedFiles;
+}
+
+/** Output from create directories step */
+interface CreateDirsOutput {
+  readonly createdDirs: readonly AbsolutePath[];
+}
+
+/** Output from write files step */
+interface WriteFilesOutput {
+  readonly fileResults: FilesWriteResult;
+}
+
+/** Output from enable services step */
+interface EnableServicesOutput {
+  readonly serviceResults: ServicesEnableResult;
+}
+
+// ============================================================================
+// Setup Steps
+// ============================================================================
+
+/** Step 1: Generate secrets (resource - has release) */
+const secretsStep: SetupStep<
+  EmptyState,
+  SecretsOutput,
+  SystemError | GeneralError | ContainerError,
+  ServicePaths | ServiceUser
+> = SetupStep.resource(
+  "Generating secrets...",
+  (_state: EmptyState) =>
+    Effect.gen(function* () {
+      const paths = yield* ServicePaths;
+      const user = yield* ServiceUser;
+
+      const { createdSecrets } = yield* ensureServiceSecretsTracked(
+        SERVICE_NAME,
+        IMMICH_SECRETS,
+        paths.homeDir,
+        user.name,
+        user.uid,
+        user.gid
+      );
+      return { createdSecrets };
+    }),
+  (state, outcome): Effect.Effect<void, never, ServiceUser> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> => Effect.void,
+      onFailure: (): Effect.Effect<void, never, ServiceUser> =>
+        state.createdSecrets.length > 0
+          ? Effect.gen(function* () {
+              const user = yield* ServiceUser;
+              yield* deletePodmanSecrets([...state.createdSecrets], user.name, user.uid);
+            })
+          : Effect.void,
+    })
+);
+
+/** Step 2: Generate (pure - no release) */
+const generateStep: SetupStep<
+  EmptyState & SecretsOutput,
+  GenerateOutput,
+  ServiceError | GeneralError,
+  ImmichConfigTag | ServicePaths | SystemCapabilities
+> = SetupStep.pure("Generating configuration files...", (_state: EmptyState & SecretsOutput) =>
+  Effect.map(generate(), (files): GenerateOutput => ({ files }))
+);
+
+/** Step 3: Create directories (resource - has release) */
+const createDirsStep: SetupStep<
+  EmptyState & SecretsOutput & GenerateOutput,
+  CreateDirsOutput,
+  SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser
+> = SetupStep.resource(
+  "Creating data directories...",
+  (_state: EmptyState & SecretsOutput & GenerateOutput) =>
+    Effect.gen(function* () {
+      const config = yield* ImmichConfigTag;
+      const user = yield* ServiceUser;
+
+      const dataDir = config.paths.dataDir;
+      const dirs = [
+        `${dataDir}/upload`,
+        `${dataDir}/profile`,
+        `${dataDir}/thumbs`,
+        `${dataDir}/encoded`,
+        `${dataDir}/postgres`,
+        `${dataDir}/model-cache`,
+        `${dataDir}/backups`,
+      ] as AbsolutePath[];
+
+      const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
+        uid: user.uid,
+        gid: user.gid,
+      });
+      return { createdDirs: createdPaths };
+    }),
+  (state, outcome): Effect.Effect<void, never, never> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> => Effect.void,
+      onFailure: (): Effect.Effect<void, never, never> =>
+        removeDirectoriesReverse(state.createdDirs),
+    })
+);
+
+/** Step 4: Write files (resource - has release) */
+const writeFilesStep: SetupStep<
+  EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput,
+  WriteFilesOutput,
+  SystemError | GeneralError,
+  ServicePaths | ServiceUser
+> = SetupStep.resource(
+  "Writing configuration files...",
+  (state: EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput) =>
+    Effect.map(
+      writeGeneratedFilesTracked(state.files),
+      (fileResults): WriteFilesOutput => ({ fileResults })
+    ),
+  (state, outcome): Effect.Effect<void, never, never> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> =>
+        cleanupFileBackups(state.fileResults.results),
+      onFailure: (): Effect.Effect<void, never, never> =>
+        rollbackFileWrites(state.fileResults.results),
+    })
+);
+
+/** Step 5: Enable services (resource - has release) */
+const enableServicesStep: SetupStep<
+  EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput & WriteFilesOutput,
+  EnableServicesOutput,
+  ServiceError | SystemError | GeneralError,
+  ServiceUser
+> = SetupStep.resource(
+  "Reloading daemon and enabling services...",
+  (_state: EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput & WriteFilesOutput) =>
+    Effect.map(
+      reloadAndEnableServicesTracked(
+        [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
+        false
+      ),
+      (serviceResults): EnableServicesOutput => ({ serviceResults })
+    ),
+  (state, outcome): Effect.Effect<void, never, ServiceUser> =>
+    Outcome.match(outcome, {
+      onSuccess: (): Effect.Effect<void, never, never> => Effect.void,
+      onFailure: (): Effect.Effect<void, never, ServiceUser> =>
+        rollbackServiceChanges(state.serviceResults),
+    })
+);
 
 /**
  * Full setup for Immich service.
@@ -320,153 +465,12 @@ type ImmichSetupDeps =
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | ContainerError | GeneralError,
-  ImmichSetupDeps
-> => {
-  // Steps access dependencies via Effect context
-  const steps: SetupStepResource<
-    ImmichSetupState,
-    ServiceError | SystemError | ContainerError | GeneralError,
-    ImmichSetupDeps
-  >[] = [
-    {
-      message: "Generating secrets...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { createdSecrets: readonly string[] },
-        SystemError | GeneralError | ContainerError,
-        ServicePaths | ServiceUser
-      > =>
-        Effect.gen(function* () {
-          const paths = yield* ServicePaths;
-          const user = yield* ServiceUser;
-
-          const { createdSecrets } = yield* ensureServiceSecretsTracked(
-            SERVICE_NAME,
-            IMMICH_SECRETS,
-            paths.homeDir,
-            user.name,
-            user.uid,
-            user.gid
-          );
-          return { createdSecrets };
-        }),
-      release: (
-        state: ImmichSetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, ServiceUser> => {
-        if (Exit.isFailure(exit) && state.createdSecrets && state.createdSecrets.length > 0) {
-          const secretsToDelete = state.createdSecrets;
-          return Effect.gen(function* () {
-            const user = yield* ServiceUser;
-            yield* deletePodmanSecrets([...secretsToDelete], user.name, user.uid);
-          });
-        }
-        return Effect.void;
-      },
-    },
-    {
-      message: "Generating configuration files...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { files: GeneratedFiles },
-        ServiceError | GeneralError,
-        ImmichConfigTag | ServicePaths | SystemCapabilities
-      > => Effect.map(generate(), (files) => ({ files })),
-      // No release - pure in-memory computation
-    },
-    {
-      message: "Creating data directories...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { createdDirs: readonly AbsolutePath[] },
-        SystemError | GeneralError,
-        ImmichConfigTag | ServiceUser
-      > =>
-        Effect.gen(function* () {
-          const config = yield* ImmichConfigTag;
-          const user = yield* ServiceUser;
-
-          const dataDir = config.paths.dataDir;
-          const dirs = [
-            `${dataDir}/upload`,
-            `${dataDir}/profile`,
-            `${dataDir}/thumbs`,
-            `${dataDir}/encoded`,
-            `${dataDir}/postgres`,
-            `${dataDir}/model-cache`,
-            `${dataDir}/backups`,
-          ] as AbsolutePath[];
-
-          const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
-            uid: user.uid,
-            gid: user.gid,
-          });
-          return { createdDirs: createdPaths };
-        }),
-      release: (
-        state: ImmichSetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, never> =>
-        Exit.isFailure(exit) && state.createdDirs
-          ? removeDirectoriesReverse(state.createdDirs)
-          : Effect.void,
-    },
-    {
-      message: "Writing configuration files...",
-      acquire: (
-        state
-      ): Effect.Effect<
-        { fileResults: FilesWriteResult },
-        SystemError | GeneralError,
-        ServicePaths | ServiceUser
-      > =>
-        state.files
-          ? Effect.map(writeGeneratedFilesTracked(state.files), (fileResults) => ({
-              fileResults,
-            }))
-          : Effect.fail(
-              new GeneralError({
-                code: ErrorCode.GENERAL_ERROR as 1,
-                message: "No files generated",
-              })
-            ),
-      release: (
-        state: ImmichSetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, ServicePaths | ServiceUser | AppLogger> =>
-        releaseFileWrites(state.fileResults, Exit.isFailure(exit)),
-    },
-    {
-      message: "Reloading daemon and enabling services...",
-      acquire: (
-        _state
-      ): Effect.Effect<
-        { serviceResults: ServicesEnableResult },
-        ServiceError | SystemError | GeneralError,
-        ServiceUser
-      > =>
-        Effect.map(
-          reloadAndEnableServicesTracked(
-            [CONTAINERS.redis, CONTAINERS.postgres, CONTAINERS.server, CONTAINERS.ml],
-            false
-          ),
-          (serviceResults) => ({ serviceResults })
-        ),
-      release: (
-        state: ImmichSetupState,
-        exit: Exit.Exit<unknown, unknown>
-      ): Effect.Effect<void, never, ServiceUser> =>
-        Exit.isFailure(exit) && state.serviceResults
-          ? rollbackServiceChanges(state.serviceResults)
-          : Effect.void,
-    },
-  ];
-
-  return executeSetupStepsScoped(steps, {});
-};
+  ImmichConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+> =>
+  executeSteps5(
+    [secretsStep, generateStep, createDirsStep, writeFilesStep, enableServicesStep],
+    emptyState
+  );
 
 /**
  * Start Immich service.

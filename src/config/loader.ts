@@ -15,7 +15,7 @@ import { Config, Effect, type Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
-import type { AbsolutePath } from "../lib/types";
+import type { AbsolutePath, ServiceName } from "../lib/types";
 import { fileExists } from "../system/fs";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
 
@@ -142,7 +142,7 @@ export const loadServiceConfig = <A, I = A>(
  * Returns AbsolutePath once found.
  */
 export const findServiceConfig = (
-  serviceName: string,
+  serviceName: ServiceName,
   searchPaths?: readonly string[]
 ): Effect.Effect<AbsolutePath, ConfigError> => {
   // Default paths array is always non-empty (3 paths)

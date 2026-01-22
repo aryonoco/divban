@@ -82,7 +82,7 @@ export const getPodmanSecretName = (serviceName: ServiceName, secretName: string
 export const podmanSecretExists = (
   secretName: string,
   user: Username,
-  uid: number
+  uid: UserId
 ): Effect.Effect<boolean, SystemError | GeneralError> =>
   execAsUser(user, uid, ["podman", "secret", "exists", secretName]).pipe(
     Effect.retry({
@@ -106,7 +106,7 @@ const createPodmanSecret = (
   secretName: string,
   value: string,
   user: Username,
-  uid: number
+  uid: UserId
 ): Effect.Effect<void, SystemError | ContainerError> =>
   Effect.gen(function* () {
     // Use printf and pipe to pass secret value - more reliable than stdin option with sudo
@@ -152,12 +152,12 @@ export const ensureServiceSecrets = (
   definitions: readonly SecretDefinition[],
   homeDir: AbsolutePath,
   user: Username,
-  uid: number,
-  gid: number
+  uid: UserId,
+  gid: GroupId
 ): Effect.Effect<ServiceSecrets, SystemError | GeneralError | ContainerError> =>
   Effect.gen(function* () {
     const paths = getSecretPaths(homeDir, serviceName);
-    const owner = { uid: uid as UserId, gid: gid as GroupId };
+    const owner = { uid, gid };
 
     // Ensure age key directory exists
     yield* ensureDirectory(paths.ageKeyDir, owner, "0700");
@@ -295,15 +295,15 @@ export const ensureServiceSecretsTracked = (
   definitions: readonly SecretDefinition[],
   homeDir: AbsolutePath,
   user: Username,
-  uid: number,
-  gid: number
+  uid: UserId,
+  gid: GroupId
 ): Effect.Effect<
   { secrets: ServiceSecrets; createdSecrets: readonly string[] },
   SystemError | GeneralError | ContainerError
 > =>
   Effect.gen(function* () {
     const paths = getSecretPaths(homeDir, serviceName);
-    const owner = { uid: uid as UserId, gid: gid as GroupId };
+    const owner = { uid, gid };
 
     yield* ensureDirectory(paths.ageKeyDir, owner, "0700");
     const keypair = yield* ensureKeypair(paths.ageKeyPath);
@@ -397,7 +397,7 @@ export const ensureServiceSecretsTracked = (
 export const deletePodmanSecrets = (
   secretNames: readonly string[],
   user: Username,
-  uid: number
+  uid: UserId
 ): Effect.Effect<void, never> =>
   Effect.forEach(
     secretNames,

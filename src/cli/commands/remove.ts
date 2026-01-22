@@ -13,7 +13,7 @@ import { Effect, Either } from "effect";
 import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import type { AbsolutePath } from "../../lib/types";
+import type { AbsolutePath, UserId, Username } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { removeDirectory } from "../../system/directories";
 import { exec, execAsUser } from "../../system/exec";
@@ -113,7 +113,7 @@ export const executeRemove = (
 
     // Step 4: Stop systemd user service
     logger.step(4, totalSteps, "Stopping systemd user service...");
-    yield* stopUserService(uid as unknown as number);
+    yield* stopUserService(uid);
 
     // Step 5: Remove container storage (volumes, images, etc.)
     logger.step(5, totalSteps, "Removing container storage...");
@@ -121,7 +121,7 @@ export const executeRemove = (
 
     // Step 6: Kill any remaining user processes
     logger.step(6, totalSteps, "Killing user processes...");
-    yield* killUserProcesses(uid as unknown as number);
+    yield* killUserProcesses(uid);
 
     // Step 7: Delete user (also removes home directory with quadlet files)
     logger.step(7, totalSteps, "Deleting service user...");
@@ -145,7 +145,7 @@ export const executeRemove = (
 /**
  * Stop the systemd user service for a user.
  */
-const stopUserService = (uid: number): Effect.Effect<void, SystemError | GeneralError> =>
+const stopUserService = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
     yield* Effect.ignore(
       exec(["systemctl", "stop", `user@${uid}.service`], {
@@ -160,44 +160,32 @@ const stopUserService = (uid: number): Effect.Effect<void, SystemError | General
  * Clean up all podman resources for a user.
  */
 const cleanupPodmanResources = (
-  username: string,
-  uid: number
+  username: Username,
+  uid: UserId
 ): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
     // Remove all containers
     yield* Effect.ignore(
-      execAsUser(
-        username as unknown as Parameters<typeof execAsUser>[0],
-        uid,
-        ["podman", "rm", "--all", "--force"],
-        {
-          captureStdout: true,
-          captureStderr: true,
-        }
-      )
+      execAsUser(username, uid, ["podman", "rm", "--all", "--force"], {
+        captureStdout: true,
+        captureStderr: true,
+      })
     );
 
     // Remove all volumes
     yield* Effect.ignore(
-      execAsUser(
-        username as unknown as Parameters<typeof execAsUser>[0],
-        uid,
-        ["podman", "volume", "rm", "--all", "--force"],
-        {
-          captureStdout: true,
-          captureStderr: true,
-        }
-      )
+      execAsUser(username, uid, ["podman", "volume", "rm", "--all", "--force"], {
+        captureStdout: true,
+        captureStderr: true,
+      })
     );
 
     // List and remove networks (except podman default)
     const networksResult = yield* Effect.either(
-      execAsUser(
-        username as unknown as Parameters<typeof execAsUser>[0],
-        uid,
-        ["podman", "network", "ls", "--format", "{{.Name}}"],
-        { captureStdout: true, captureStderr: true }
-      )
+      execAsUser(username, uid, ["podman", "network", "ls", "--format", "{{.Name}}"], {
+        captureStdout: true,
+        captureStderr: true,
+      })
     );
 
     yield* Either.match(networksResult, {
@@ -217,12 +205,10 @@ const cleanupPodmanResources = (
             networks,
             (network) =>
               Effect.ignore(
-                execAsUser(
-                  username as unknown as Parameters<typeof execAsUser>[0],
-                  uid,
-                  ["podman", "network", "rm", network],
-                  { captureStdout: true, captureStderr: true }
-                )
+                execAsUser(username, uid, ["podman", "network", "rm", network], {
+                  captureStdout: true,
+                  captureStderr: true,
+                })
               ),
             { discard: true }
           );
@@ -256,7 +242,7 @@ const cleanupContainerStorage = (
 /**
  * Kill all processes belonging to a user.
  */
-const killUserProcesses = (uid: number): Effect.Effect<void, SystemError | GeneralError> =>
+const killUserProcesses = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
     // pkill -U sends SIGTERM to all processes owned by the user
     yield* Effect.ignore(

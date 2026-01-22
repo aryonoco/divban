@@ -10,6 +10,7 @@
  */
 
 import { Option, pipe } from "effect";
+import { duration } from "../../lib/types";
 import type { Entries } from "../entry";
 import { empty } from "../entry";
 import { concat, fromValue } from "../entry-combinators";
@@ -39,10 +40,10 @@ export const createHealthCheck = (
   options?: Partial<Omit<HealthCheck, "cmd">>
 ): HealthCheck => ({
   cmd,
-  interval: options?.interval ?? "30s",
-  timeout: options?.timeout ?? "30s",
+  interval: options?.interval ?? duration("30s"),
+  timeout: options?.timeout ?? duration("30s"),
   retries: options?.retries ?? 3,
-  startPeriod: options?.startPeriod ?? "0s",
+  startPeriod: options?.startPeriod ?? duration("0s"),
   onFailure: options?.onFailure ?? "none",
 });
 
@@ -55,7 +56,7 @@ export const createHttpHealthCheck = (
 ): HealthCheck =>
   createHealthCheck(`curl -sf ${url} || exit 1`, {
     ...options,
-    startPeriod: options?.startPeriod ?? "10s",
+    startPeriod: options?.startPeriod ?? duration("10s"),
   });
 
 /**
@@ -67,7 +68,7 @@ export const createWgetHealthCheck = (
 ): HealthCheck =>
   createHealthCheck(`wget -qO- ${url} || exit 1`, {
     ...options,
-    startPeriod: options?.startPeriod ?? "10s",
+    startPeriod: options?.startPeriod ?? duration("10s"),
   });
 
 /**
@@ -79,9 +80,9 @@ export const createPostgresHealthCheck = (
   options?: Partial<Omit<HealthCheck, "cmd">>
 ): HealthCheck =>
   createHealthCheck(`pg_isready -U ${user} -d ${db}`, {
-    interval: "10s",
-    timeout: "5s",
-    startPeriod: "30s",
+    interval: duration("10s"),
+    timeout: duration("5s"),
+    startPeriod: duration("30s"),
     ...options,
   });
 
@@ -90,9 +91,9 @@ export const createPostgresHealthCheck = (
  */
 export const createRedisHealthCheck = (options?: Partial<Omit<HealthCheck, "cmd">>): HealthCheck =>
   createHealthCheck("redis-cli ping | grep -q PONG", {
-    interval: "10s",
-    timeout: "5s",
-    startPeriod: "5s",
+    interval: duration("10s"),
+    timeout: duration("5s"),
+    startPeriod: duration("5s"),
     ...options,
   });
 
@@ -101,8 +102,8 @@ export const createRedisHealthCheck = (options?: Partial<Omit<HealthCheck, "cmd"
  */
 export const createNoopHealthCheck = (): HealthCheck =>
   createHealthCheck("true", {
-    interval: "60s",
-    timeout: "5s",
+    interval: duration("60s"),
+    timeout: duration("5s"),
   });
 
 /**

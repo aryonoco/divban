@@ -12,6 +12,7 @@
 import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
 import { isValidIP } from "../../lib/schema-utils";
+import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
 
 /**
  * Actual Budget configuration (output after decoding).
@@ -20,13 +21,13 @@ export interface ActualConfig {
   /** Path configuration */
   readonly paths: {
     /** Directory for Actual data (database, user files) */
-    readonly dataDir: string;
+    readonly dataDir: AbsolutePath;
   };
   /** Container configuration */
   readonly container?:
     | {
         /** Container image */
-        readonly image: string;
+        readonly image: ContainerImage;
         /** Auto-update policy */
         readonly autoUpdate?: "registry" | "local" | undefined;
       }
@@ -74,7 +75,8 @@ export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> 
   container: Schema.optional(
     Schema.Struct({
       image: Schema.optionalWith(containerImageSchema, {
-        default: (): string => "docker.io/actualbudget/actual-server:latest",
+        default: (): ContainerImage =>
+          containerImage("docker.io/actualbudget/actual-server:latest"),
       }),
       autoUpdate: Schema.optional(Schema.Literal("registry", "local")),
     })
@@ -101,13 +103,13 @@ export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> 
  * Default configuration values.
  */
 interface ActualDefaults {
-  readonly container: { readonly image: string };
+  readonly container: { readonly image: ContainerImage };
   readonly network: { readonly port: number; readonly host: string };
 }
 
 export const actualDefaults: ActualDefaults = {
   container: {
-    image: "docker.io/actualbudget/actual-server:latest",
+    image: containerImage("docker.io/actualbudget/actual-server:latest"),
   },
   network: {
     port: 5006,

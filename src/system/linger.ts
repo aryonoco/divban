@@ -19,7 +19,7 @@ import {
   pollingSchedule,
   systemRetrySchedule,
 } from "../lib/retry";
-import type { UserId, Username } from "../lib/types";
+import type { ServiceName, UserId, Username } from "../lib/types";
 import type { Acquired } from "../services/helpers";
 import { exec, execSuccess } from "./exec";
 import { fileExists } from "./fs";
@@ -213,7 +213,7 @@ export const getLingeringUsers = (): Effect.Effect<string[], never> =>
 export const ensureLinger = (
   username: Username,
   uid: UserId,
-  serviceName: string
+  serviceName: ServiceName
 ): Effect.Effect<void, SystemError | GeneralError> =>
   enableLinger(username, uid).pipe(
     Effect.mapError(

@@ -11,6 +11,7 @@
 
 import { Option } from "effect";
 import { mapOr, nonEmpty } from "../../lib/option-helpers";
+import type { AbsolutePath } from "../../lib/types";
 import type { VolumeMount } from "../../quadlet/types";
 import type { ExternalLibrary } from "./schema";
 
@@ -64,7 +65,7 @@ export const getLibraryEnvironment = (
  */
 export const validateLibraryPaths = async (
   libraries: readonly ExternalLibrary[] | undefined
-): Promise<Option.Option<readonly string[]>> => {
+): Promise<Option.Option<readonly AbsolutePath[]>> => {
   const libs = nonEmpty(libraries);
   if (!Option.isSome(libs)) {
     return Option.none();
@@ -77,6 +78,6 @@ export const validateLibraryPaths = async (
     })
   );
 
-  const missing = checks.filter((path): path is string => path !== null);
+  const missing = checks.filter((path): path is AbsolutePath => path !== null);
   return nonEmpty(missing);
 };

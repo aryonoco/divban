@@ -11,6 +11,7 @@
 
 import { Array as Arr, pipe } from "effect";
 
+import type { GroupId, UserId } from "../../lib/types";
 import { mergeEnv } from "../../stack/environment";
 import type { Entries } from "../entry";
 import { concat, fromArray, fromRecord } from "../entry-combinators";
@@ -53,9 +54,9 @@ export const CommonEnvVars: Record<
   /** Timezone */
   TZ: (tz: string): Record<string, string> => ({ TZ: tz }),
   /** User ID */
-  PUID: (uid: number): Record<string, string> => ({ PUID: String(uid) }),
+  PUID: (uid: UserId): Record<string, string> => ({ PUID: String(uid) }),
   /** Group ID */
-  PGID: (gid: number): Record<string, string> => ({ PGID: String(gid) }),
+  PGID: (gid: GroupId): Record<string, string> => ({ PGID: String(gid) }),
   /** Disable telemetry */
   NO_TELEMETRY: { DO_NOT_TRACK: "1" },
 } as const satisfies Record<

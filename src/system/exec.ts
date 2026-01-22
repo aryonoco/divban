@@ -11,8 +11,9 @@
  */
 
 import { $ } from "bun";
-import { Effect } from "effect";
-import { ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
+import { Effect, Option, ParseResult, Schema, pipe } from "effect";
+import { ConfigError, ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
+import type { UserId, Username } from "../lib/types";
 
 export interface ExecOptions {
   env?: Record<string, string>;
@@ -163,8 +164,8 @@ export const commandExists = (command: string): boolean => Bun.which(command) !=
  * Run command as a specific user with proper environment.
  */
 export const execAsUser = (
-  user: string,
-  uid: number,
+  user: Username,
+  uid: UserId,
   command: readonly string[],
   options: Omit<ExecOptions, "user"> = {}
 ): Effect.Effect<ExecResult, SystemError | GeneralError> =>
@@ -182,7 +183,7 @@ export const execAsUser = (
 export interface ShellOptions {
   cwd?: string;
   env?: Record<string, string>;
-  uid?: number;
+  uid?: UserId;
 }
 
 const buildShellEnv = (options: ShellOptions): Record<string, string | undefined> => ({
@@ -281,8 +282,8 @@ export const shellBraces = (pattern: string): string[] => $.braces(pattern);
  * Execute shell command as another user via sudo.
  */
 export const shellAsUser = (
-  user: string,
-  uid: number,
+  user: Username,
+  uid: UserId,
   command: string,
   options: Omit<ShellOptions, "uid"> = {}
 ): Effect.Effect<ExecResult, SystemError> => {
@@ -298,26 +299,59 @@ export const shellAsUser = (
 };
 
 /**
- * Execute a shell command and parse stdout as JSON.
+ * Build shell command with options applied via Option.match (no conditionals).
  */
-export const shellJson = <T>(
+const buildShellCommand = (command: string, options: ShellOptions): ReturnType<typeof $> =>
+  pipe(
+    $`${{ raw: command }}`.quiet(),
+    (cmd) =>
+      pipe(
+        Option.fromNullable(options.cwd),
+        Option.match({
+          onNone: (): ReturnType<typeof $> => cmd,
+          onSome: (cwd): ReturnType<typeof $> => cmd.cwd(cwd),
+        })
+      ),
+    (cmd) => cmd.env(buildShellEnv(options))
+  );
+
+/**
+ * Execute shell command and parse stdout as validated JSON.
+ *
+ * The `unknown` type appears only at the parse boundary - the raw JSON
+ * from the external command. Schema validation immediately converts to
+ * the concrete type A.
+ *
+ * @param command - Shell command to execute
+ * @param schema - Effect Schema for validation (A = output type, I = encoded type)
+ * @param options - Shell execution options
+ * @returns Effect producing validated A or SystemError/ConfigError
+ */
+export const shellJson = <A, I>(
   command: string,
+  schema: Schema.Schema<A, I, never>,
   options: ShellOptions = {}
-): Effect.Effect<T, SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<T> => {
-      let cmd = $`${{ raw: command }}`.quiet();
-
-      if (options.cwd) {
-        cmd = cmd.cwd(options.cwd);
-      }
-
-      cmd = cmd.env(buildShellEnv(options));
-
-      return (await cmd.json()) as T;
-    },
-    catch: (e): SystemError => execError(command, e),
-  });
+): Effect.Effect<A, SystemError | ConfigError> =>
+  pipe(
+    // Step 1: Execute command, get raw JSON (unknown at boundary)
+    Effect.tryPromise({
+      try: (): Promise<unknown> => buildShellCommand(command, options).json(),
+      catch: (e): SystemError => execError(command, e),
+    }),
+    // Step 2: Validate unknown → A via schema
+    Effect.flatMap((json: unknown) =>
+      pipe(
+        Schema.decodeUnknown(schema)(json),
+        Effect.mapError(
+          (e): ConfigError =>
+            new ConfigError({
+              code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+              message: `JSON validation failed: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
+            })
+        )
+      )
+    )
+  );
 
 /**
  * Execute a shell command and return stdout as a Blob.

@@ -10,6 +10,7 @@
  * Quadlets are systemd generator files for Podman containers.
  */
 
+import type { DurationString } from "../lib/types";
 import type { ContainerCapabilitiesConfig } from "./container/capabilities";
 import type { ContainerEnvironmentConfig } from "./container/environment";
 import type { ImageConfig } from "./container/image";
@@ -68,13 +69,13 @@ export interface HealthCheck {
   /** Command to run for health check */
   cmd: string;
   /** Time between checks */
-  interval: string;
+  interval: DurationString;
   /** Timeout for each check */
-  timeout: string;
+  timeout: DurationString;
   /** Number of retries before marking unhealthy */
   retries: number;
   /** Initial delay before starting checks */
-  startPeriod: string;
+  startPeriod: DurationString;
   /** Action on failure */
   onFailure: "none" | "kill" | "restart" | "stop";
 }

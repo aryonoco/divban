@@ -27,6 +27,7 @@ import {
   AbsolutePathSchema,
   type AbsolutePath as AbsolutePathType,
   type GroupId,
+  type ServiceName,
   type UserId,
   type Username,
   pathJoin,
@@ -66,7 +67,7 @@ export const getContextOptions = (
  * Common config file locations for a service.
  * Search paths are plain strings (may be relative).
  */
-const getConfigPaths = (serviceName: string, homeDir: AbsolutePathType): string[] => [
+const getConfigPaths = (serviceName: ServiceName, homeDir: AbsolutePathType): string[] => [
   pathJoin(homeDir, ".config", "divban", `${serviceName}.toml`),
   `/etc/divban/${serviceName}.toml`,
   `./divban-${serviceName}.toml`,
@@ -102,7 +103,7 @@ const tryLoadConfigFromPath = <C>(
  * Used when no explicit config path is provided.
  */
 export const findAndLoadConfig = <C>(
-  serviceName: string,
+  serviceName: ServiceName,
   homeDir: AbsolutePathType,
   // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type
   schema: Schema.Schema<C, any, never>
@@ -257,7 +258,7 @@ export interface ResolvedServiceUser {
  * Returns error if user doesn't exist.
  */
 export const resolveServiceUser = (
-  serviceName: string
+  serviceName: ServiceName
 ): Effect.Effect<ResolvedServiceUser, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
@@ -327,7 +328,7 @@ export const buildServicePathsFromHome = (
  * Config loading is handled separately inside apply().
  */
 export const resolvePrerequisites = (
-  serviceName: string,
+  serviceName: ServiceName,
   dataDirOverride: string | null
 ): Effect.Effect<Prerequisites, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {

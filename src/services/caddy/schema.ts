@@ -17,10 +17,20 @@ import {
   type PortConfigInput,
   type ServiceRestartPolicy,
   type VolumeMountConfig,
+  type VolumeMountConfigInput,
   absolutePathSchema,
+  containerImageSchema,
   portSchema,
+  volumeMountSchema,
 } from "../../config/schema";
-import { isValidContainerImage, isValidEmail, isValidUrl } from "../../lib/schema-utils";
+import { isValidEmail, isValidUrl } from "../../lib/schema-utils";
+import {
+  type AbsolutePath,
+  type ContainerImage,
+  type DurationString,
+  DurationStringSchema,
+  duration,
+} from "../../lib/types";
 
 // The interface must explicitly include undefined for exactOptionalPropertyTypes
 // Use readonly arrays to match Effect Schema's default behavior
@@ -221,19 +231,19 @@ export const caddyfileSchema: Schema.Schema<CaddyfileConfig> = Schema.Struct({
  * Similar to ContainerBaseConfig but with Caddy-specific defaults applied.
  */
 export interface CaddyContainerConfig {
-  readonly image: string;
+  readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
   readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
   readonly ports: readonly PortConfig[];
   readonly volumes?: readonly VolumeMountConfig[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
-  readonly environmentFiles?: readonly string[] | undefined;
+  readonly environmentFiles?: readonly AbsolutePath[] | undefined;
   readonly healthCheck?: HealthCheckConfig | undefined;
   readonly readOnlyRootfs: boolean;
   readonly noNewPrivileges: boolean;
   readonly capAdd?: readonly string[] | undefined;
   readonly capDrop?: readonly string[] | undefined;
-  readonly seccompProfile?: string | undefined;
+  readonly seccompProfile?: AbsolutePath | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
   readonly autoUpdate: "registry" | "local" | false;
@@ -251,7 +261,7 @@ export interface CaddyContainerConfigInput {
   readonly imageDigest?: string | undefined;
   readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
   readonly ports?: readonly PortConfigInput[] | undefined;
-  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly volumes?: readonly VolumeMountConfigInput[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
   readonly environmentFiles?: readonly string[] | undefined;
   readonly healthCheck?: HealthCheckConfigInput | undefined;
@@ -271,11 +281,7 @@ export interface CaddyContainerConfigInput {
 
 export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyContainerConfigInput> =
   Schema.Struct({
-    image: Schema.String.pipe(
-      Schema.filter(isValidContainerImage, {
-        message: (): string => "Invalid container image format",
-      })
-    ),
+    image: containerImageSchema,
     imageDigest: Schema.optional(Schema.String),
     networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns", "host", "none"), {
       default: (): "pasta" => "pasta",
@@ -287,29 +293,27 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
         { host: 443, container: 443, protocol: "udp" },
       ],
     }),
-    volumes: Schema.optional(
-      Schema.Array(
-        Schema.Struct({
-          source: Schema.String,
-          target: Schema.String,
-          options: Schema.optional(Schema.String),
-        })
-      )
-    ),
+    volumes: Schema.optional(Schema.Array(volumeMountSchema)),
     environment: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-    environmentFiles: Schema.optional(Schema.Array(Schema.String)),
+    environmentFiles: Schema.optional(Schema.Array(absolutePathSchema)),
     healthCheck: Schema.optional(
       Schema.Struct({
         cmd: Schema.String,
-        interval: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
-        timeout: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+        interval: Schema.optionalWith(DurationStringSchema, {
+          default: (): DurationString => duration("30s"),
+        }),
+        timeout: Schema.optionalWith(DurationStringSchema, {
+          default: (): DurationString => duration("30s"),
+        }),
         retries: Schema.optionalWith(
           Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)),
           {
             default: (): number => 3,
           }
         ),
-        startPeriod: Schema.optionalWith(Schema.String, { default: (): string => "0s" }),
+        startPeriod: Schema.optionalWith(DurationStringSchema, {
+          default: (): DurationString => duration("0s"),
+        }),
         onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
           default: (): "none" => "none",
         }),
@@ -319,7 +323,7 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
     noNewPrivileges: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
     capAdd: Schema.optional(Schema.Array(Schema.String)),
     capDrop: Schema.optional(Schema.Array(Schema.String)),
-    seccompProfile: Schema.optional(Schema.String),
+    seccompProfile: Schema.optional(absolutePathSchema),
     shmSize: Schema.optional(Schema.String),
     devices: Schema.optional(Schema.Array(Schema.String)),
     autoUpdate: Schema.optionalWith(
@@ -353,7 +357,7 @@ const caddyNetworkSchema = Schema.Struct({
  */
 export interface CaddyConfig {
   readonly paths: {
-    readonly dataDir: string;
+    readonly dataDir: AbsolutePath;
   };
   readonly container?: CaddyContainerConfig | undefined;
   readonly network?:

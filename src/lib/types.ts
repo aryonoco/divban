@@ -13,6 +13,7 @@ import { type Brand, Effect, Option, ParseResult, Schema, type SchemaAST, pipe }
 
 import { ErrorCode, GeneralError } from "./errors";
 import {
+  isValidContainerImage,
   isValidContainerName,
   isValidPosixUsername,
   isValidServiceName,
@@ -55,6 +56,9 @@ export type VolumeName = string & Brand.Brand<"VolumeName">;
 /** Private IPv4 (RFC 1918) or IPv6 (RFC 4193 ULA) address */
 export type PrivateIP = string & Brand.Brand<"PrivateIP">;
 
+/** Container image reference (registry/image:tag@sha256:digest) */
+export type ContainerImage = string & Brand.Brand<"ContainerImage">;
+
 // ============================================================================
 // Message Functions
 // ============================================================================
@@ -74,6 +78,7 @@ const networkNameMsg = (): string => "Invalid network name";
 const volumeNameMsg = (): string => "Invalid volume name";
 const privateIPEmptyMsg = (): string => "IP address cannot be empty";
 const privateIPInvalidMsg = (): string => "Must be RFC 1918 IPv4 or RFC 4193 IPv6";
+const containerImageMsg = (): string => "Invalid container image format";
 
 // ============================================================================
 // Numeric Branded Schemas
@@ -144,6 +149,48 @@ export const VolumeNameSchema: Schema.BrandSchema<VolumeName, string, never> = S
   Schema.brand("VolumeName")
 );
 
+/** Container image schema (registry/image:tag@sha256:digest) */
+export const ContainerImageSchema: Schema.BrandSchema<ContainerImage, string, never> =
+  Schema.String.pipe(
+    Schema.filter(isValidContainerImage, { message: containerImageMsg }),
+    Schema.brand("ContainerImage")
+  );
+
+// ============================================================================
+// Duration String Types
+// ============================================================================
+
+/** Branded duration string for runtime validation */
+export type DurationString = string & Brand.Brand<"DurationString">;
+
+/** Duration pattern: digits followed by unit */
+const DURATION_PATTERN = /^[0-9]+(?:ms|s|m|h|d)$/;
+
+const durationMsg = (): string => "Duration must be number followed by unit (ms, s, m, h, d)";
+
+export const DurationStringSchema: Schema.BrandSchema<DurationString, string, never> =
+  Schema.String.pipe(
+    Schema.filter((s): boolean => DURATION_PATTERN.test(s), { message: durationMsg }),
+    Schema.brand("DurationString")
+  );
+
+export const isDurationString: (u: unknown) => u is DurationString =
+  Schema.is(DurationStringSchema);
+
+export const decodeDurationString: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<DurationString, ParseResult.ParseError, never> =
+  Schema.decode(DurationStringSchema);
+
+/**
+ * Compile-time validated duration literal.
+ * Template literal type restricts to valid patterns.
+ */
+export const duration = <const S extends `${number}${"ms" | "s" | "m" | "h" | "d"}`>(
+  literal: S
+): DurationString => literal as string as DurationString;
+
 // ============================================================================
 // PrivateIP Branded Schema
 // ============================================================================
@@ -208,6 +255,8 @@ export const isContainerName: (u: unknown) => u is ContainerName = Schema.is(Con
 export const isNetworkName: (u: unknown) => u is NetworkName = Schema.is(NetworkNameSchema);
 export const isVolumeName: (u: unknown) => u is VolumeName = Schema.is(VolumeNameSchema);
 export const isPrivateIP: (u: unknown) => u is PrivateIP = Schema.is(PrivateIPSchema);
+export const isContainerImage: (u: unknown) => u is ContainerImage =
+  Schema.is(ContainerImageSchema);
 
 // ============================================================================
 // Effect-Based Decoders (for untrusted input in Effect pipelines)
@@ -265,6 +314,12 @@ export const decodePrivateIP: (
   i: string,
   options?: SchemaAST.ParseOptions
 ) => Effect.Effect<PrivateIP, ParseResult.ParseError, never> = Schema.decode(PrivateIPSchema);
+
+export const decodeContainerImage: (
+  i: string,
+  options?: SchemaAST.ParseOptions
+) => Effect.Effect<ContainerImage, ParseResult.ParseError, never> =
+  Schema.decode(ContainerImageSchema);
 
 // ============================================================================
 // Error Conversion Helper
@@ -330,6 +385,18 @@ type AbsolutePathLiteral = `/${string}`;
  */
 export const path = <const S extends AbsolutePathLiteral>(literal: S): AbsolutePath =>
   literal as string as AbsolutePath;
+
+/**
+ * Create a ContainerImage from a string literal.
+ *
+ * For default values and known images, use this function.
+ * For dynamic/user input, use decodeContainerImage() for runtime validation.
+ *
+ * @example
+ * const image = containerImage("docker.io/library/nginx:latest");
+ */
+export const containerImage = <const S extends string>(literal: S): ContainerImage =>
+  literal as string as ContainerImage;
 
 // ============================================================================
 // Type-Safe Path Concatenation

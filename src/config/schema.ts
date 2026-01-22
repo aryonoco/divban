@@ -12,34 +12,32 @@
 
 import { Effect, Schema } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
-import { isValidContainerImage, isValidIP, isValidPosixUsername } from "../lib/schema-utils";
+import { isValidIP, isValidPosixUsername } from "../lib/schema-utils";
 import {
+  path,
   type AbsolutePath,
+  AbsolutePathSchema,
+  type ContainerImage,
+  ContainerImageSchema,
+  type DurationString,
+  DurationStringSchema,
+  type ServiceName,
   type Username,
+  UsernameSchema,
   decodeAbsolutePath,
+  duration,
   parseErrorToGeneralError,
 } from "../lib/types";
 
 /**
- * Reusable schema components
+ * Re-export branded schemas for backwards compatibility.
+ * These are the canonical schemas from lib/types.ts.
  */
-export const absolutePathSchema: Schema.Schema<string> = Schema.String.pipe(
-  Schema.filter((s): s is string => s.startsWith("/"), {
-    message: (): string => "Path must be absolute (start with /)",
-  })
-);
-
-export const usernameSchema: Schema.Schema<string> = Schema.String.pipe(
-  Schema.filter(isValidPosixUsername, {
-    message: (): string => "Username must match [a-z_][a-z0-9_-]*",
-  })
-);
-
-export const containerImageSchema: Schema.Schema<string> = Schema.String.pipe(
-  Schema.filter(isValidContainerImage, {
-    message: (): string => "Invalid container image format",
-  })
-);
+export const absolutePathSchema: Schema.BrandSchema<AbsolutePath, string, never> =
+  AbsolutePathSchema;
+export const usernameSchema: Schema.BrandSchema<Username, string, never> = UsernameSchema;
+export const containerImageSchema: Schema.BrandSchema<ContainerImage, string, never> =
+  ContainerImageSchema;
 
 /** Port mapping configuration (output after decoding) */
 export interface PortConfig {
@@ -70,26 +68,34 @@ export const portSchema: Schema.Schema<PortConfig, PortConfigInput> = Schema.Str
   protocol: Schema.optionalWith(Schema.Literal("tcp", "udp"), { default: (): "tcp" => "tcp" }),
 });
 
-/** Volume mount configuration */
+/** Volume mount configuration (output after decoding) */
 export interface VolumeMountConfig {
+  readonly source: string;
+  readonly target: AbsolutePath;
+  readonly options?: string | undefined;
+}
+
+/** Volume mount configuration (input before decoding) */
+export interface VolumeMountConfigInput {
   readonly source: string;
   readonly target: string;
   readonly options?: string | undefined;
 }
 
-export const volumeMountSchema: Schema.Schema<VolumeMountConfig> = Schema.Struct({
-  source: Schema.String,
-  target: absolutePathSchema,
-  options: Schema.optional(Schema.String),
-});
+export const volumeMountSchema: Schema.Schema<VolumeMountConfig, VolumeMountConfigInput> =
+  Schema.Struct({
+    source: Schema.String,
+    target: absolutePathSchema,
+    options: Schema.optional(Schema.String),
+  });
 
 /** Health check configuration (output after decoding) */
 export interface HealthCheckConfig {
   readonly cmd: string;
-  readonly interval: string;
-  readonly timeout: string;
+  readonly interval: DurationString;
+  readonly timeout: DurationString;
   readonly retries: number;
-  readonly startPeriod: string;
+  readonly startPeriod: DurationString;
   readonly onFailure: "none" | "kill" | "restart" | "stop";
 }
 
@@ -106,12 +112,18 @@ export interface HealthCheckConfigInput {
 export const healthCheckSchema: Schema.Schema<HealthCheckConfig, HealthCheckConfigInput> =
   Schema.Struct({
     cmd: Schema.String,
-    interval: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
-    timeout: Schema.optionalWith(Schema.String, { default: (): string => "30s" }),
+    interval: Schema.optionalWith(DurationStringSchema, {
+      default: (): DurationString => duration("30s"),
+    }),
+    timeout: Schema.optionalWith(DurationStringSchema, {
+      default: (): DurationString => duration("30s"),
+    }),
     retries: Schema.optionalWith(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1)), {
       default: (): number => 3,
     }),
-    startPeriod: Schema.optionalWith(Schema.String, { default: (): string => "0s" }),
+    startPeriod: Schema.optionalWith(DurationStringSchema, {
+      default: (): DurationString => duration("0s"),
+    }),
     onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
       default: (): "none" => "none",
     }),
@@ -141,19 +153,19 @@ export const serviceRestartSchema: Schema.Schema<ServiceRestartPolicy> = Schema.
  * Uses readonly to match Effect Schema's default output.
  */
 export interface ContainerBaseConfig {
-  readonly image: string;
+  readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
   readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
   readonly ports?: readonly PortConfig[] | undefined;
   readonly volumes?: readonly VolumeMountConfig[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
-  readonly environmentFiles?: readonly string[] | undefined;
+  readonly environmentFiles?: readonly AbsolutePath[] | undefined;
   readonly healthCheck?: HealthCheckConfig | undefined;
   readonly readOnlyRootfs: boolean;
   readonly noNewPrivileges: boolean;
   readonly capAdd?: readonly string[] | undefined;
   readonly capDrop?: readonly string[] | undefined;
-  readonly seccompProfile?: string | undefined;
+  readonly seccompProfile?: AbsolutePath | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
   readonly autoUpdate: "registry" | "local" | false;
@@ -172,7 +184,7 @@ export interface ContainerBaseConfigInput {
   readonly imageDigest?: string | undefined;
   readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
   readonly ports?: readonly PortConfigInput[] | undefined;
-  readonly volumes?: readonly VolumeMountConfig[] | undefined;
+  readonly volumes?: readonly VolumeMountConfigInput[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
   readonly environmentFiles?: readonly string[] | undefined;
   readonly healthCheck?: HealthCheckConfigInput | undefined;
@@ -260,7 +272,7 @@ export interface GlobalConfig {
     readonly format: "pretty" | "json";
   };
   readonly paths: {
-    readonly baseDataDir: string;
+    readonly baseDataDir: AbsolutePath;
   };
   readonly timeouts: {
     /** Timeout for validation/reload operations in ms (default: 60000 = 60s) */
@@ -378,11 +390,13 @@ export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> 
   ),
   paths: Schema.optionalWith(
     Schema.Struct({
-      baseDataDir: Schema.optionalWith(absolutePathSchema, { default: (): string => "/srv" }),
+      baseDataDir: Schema.optionalWith(absolutePathSchema, {
+        default: (): AbsolutePath => path("/srv"),
+      }),
     }),
     {
       default: (): GlobalConfig["paths"] => ({
-        baseDataDir: "/srv",
+        baseDataDir: path("/srv"),
       }),
     }
   ),
@@ -412,21 +426,31 @@ export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> 
 });
 
 /**
- * Service base configuration - common to all services.
+ * Service base configuration - common to all services (output after decoding).
  * Note: Username is derived from service name as "divban-<service>"
  * UID is dynamically allocated from range 10000-59999
  */
 export interface ServiceBaseConfig {
   paths: {
+    dataDir: AbsolutePath;
+  };
+}
+
+/**
+ * Service base configuration - common to all services (input before decoding).
+ */
+export interface ServiceBaseConfigInput {
+  paths: {
     dataDir: string;
   };
 }
 
-export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig> = Schema.Struct({
-  paths: Schema.Struct({
-    dataDir: absolutePathSchema,
-  }),
-});
+export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig, ServiceBaseConfigInput> =
+  Schema.Struct({
+    paths: Schema.Struct({
+      dataDir: absolutePathSchema,
+    }),
+  });
 
 // ============================================================================
 // Effect-based Helper Functions
@@ -437,7 +461,9 @@ export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig> = Schema.Struct
  * Pattern: divban-<service>
  * Examples: divban-caddy, divban-immich, divban-actual
  */
-export const getServiceUsername = (serviceName: string): Effect.Effect<Username, GeneralError> => {
+export const getServiceUsername = (
+  serviceName: ServiceName
+): Effect.Effect<Username, GeneralError> => {
   const username = `divban-${serviceName}`;
 
   // Validate against POSIX username rules
@@ -466,7 +492,7 @@ export const getServiceUsername = (serviceName: string): Effect.Effect<Username,
  * Pattern: <baseDataDir>/divban-<service>
  */
 export const getServiceDataDir = (
-  serviceName: string,
+  serviceName: ServiceName,
   baseDataDir = "/srv"
 ): Effect.Effect<AbsolutePath, GeneralError> =>
   Effect.gen(function* () {

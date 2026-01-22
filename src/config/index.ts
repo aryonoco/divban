@@ -30,6 +30,8 @@ export type {
   ContainerBaseConfig,
   GlobalConfig,
   ServiceBaseConfig,
+  VolumeMountConfig,
+  VolumeMountConfigInput,
 } from "./schema";
 
 // Loader exports
