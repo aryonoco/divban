@@ -10,7 +10,7 @@
  * Handles generation, podman secret creation, and encrypted backup.
  */
 
-import { Array as Arr, Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Either, Option, pipe } from "effect";
 import { generatePassword } from "../lib/crypto";
 import { ContainerError, ErrorCode, type GeneralError, type SystemError } from "../lib/errors";
 import { userConfigDir } from "../lib/paths";
@@ -167,17 +167,15 @@ export const ensureServiceSecrets = (
 
     // Check if we have existing encrypted secrets
     const hasBackup = yield* fileExists(paths.secretsBackupPath);
-    let existingSecrets: Record<string, string> = {};
-
-    if (hasBackup) {
-      const decryptResult = yield* Effect.either(
-        decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey)
-      );
-      if (decryptResult._tag === "Right") {
-        existingSecrets = decryptResult.right;
-      }
-      // If decryption fails, we'll regenerate secrets
-    }
+    const existingSecrets: Record<string, string> = hasBackup
+      ? Either.match(
+          yield* Effect.either(decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey)),
+          {
+            onLeft: (): Record<string, string> => ({}), // If decryption fails, we'll regenerate secrets
+            onRight: (secrets): Record<string, string> => secrets,
+          }
+        )
+      : {};
 
     // Generate or reuse secrets using Effect.forEach
     const results = yield* Effect.forEach(

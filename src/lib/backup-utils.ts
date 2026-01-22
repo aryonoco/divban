@@ -175,25 +175,22 @@ export const validateBackupService = (
   metadata: Option.Option<ArchiveMetadata>,
   expectedService: string,
   logger: Logger
-): Effect.Effect<void, BackupError> => {
-  if (Option.isNone(metadata)) {
-    return Effect.void; // No metadata = legacy backup, allow
-  }
-
-  const { service, timestamp } = metadata.value;
-
-  if (service !== expectedService) {
-    return Effect.fail(
-      new BackupError({
-        code: ErrorCode.RESTORE_FAILED as 52,
-        message: `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`,
-      })
-    );
-  }
-
-  logger.info(`Backup from: ${timestamp}, service: ${service}`);
-  return Effect.void;
-};
+): Effect.Effect<void, BackupError> =>
+  Option.match(metadata, {
+    onNone: (): Effect.Effect<void, BackupError> => Effect.void, // No metadata = legacy backup, allow
+    onSome: ({ service, timestamp }): Effect.Effect<void, BackupError> => {
+      if (service !== expectedService) {
+        return Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 52,
+            message: `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`,
+          })
+        );
+      }
+      logger.info(`Backup from: ${timestamp}, service: ${service}`);
+      return Effect.void;
+    },
+  });
 
 // ============================================================================
 // FP-style Directory Scanning Utilities

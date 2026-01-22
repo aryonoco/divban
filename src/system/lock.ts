@@ -148,20 +148,21 @@ const tryAcquireLock = (
     const pidContent = `${process.pid}\n${Date.now()}\n`;
     const result = yield* writeFileExclusive(lockPath, pidContent);
 
-    if (Option.isSome(result)) {
-      return true; // Lock acquired via exclusive create
-    }
-
-    // Lock file exists - check if stale
-    const stale = yield* isLockStale(lockPath);
-    if (stale) {
-      const takeoverResult = yield* takeoverStaleLock(lockPath, resourceName);
-      if (takeoverResult) {
-        return true;
-      }
-    }
-
-    return yield* Effect.fail(new LockBusyError(resourceName));
+    return yield* Option.match(result, {
+      onSome: (): Effect.Effect<boolean, SystemError | LockBusyError> => Effect.succeed(true),
+      onNone: (): Effect.Effect<boolean, SystemError | LockBusyError> =>
+        Effect.gen(function* () {
+          // Lock file exists - check if stale
+          const stale = yield* isLockStale(lockPath);
+          if (stale) {
+            const takeoverResult = yield* takeoverStaleLock(lockPath, resourceName);
+            if (takeoverResult) {
+              return true;
+            }
+          }
+          return yield* Effect.fail(new LockBusyError(resourceName));
+        }),
+    });
   });
 
 /**

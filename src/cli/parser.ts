@@ -154,23 +154,19 @@ const parseService = (positionals: readonly string[]): string =>
  * Parse command from second positional.
  * Returns Effect to handle invalid command error.
  */
-const parseCommand = (positionals: readonly string[]): Effect.Effect<Command, GeneralError> => {
-  const cmdOpt = getPositional(positionals, 1);
-
-  if (Option.isNone(cmdOpt)) {
-    return Effect.succeed("status" as Command);
-  }
-
-  const cmd = cmdOpt.value;
-  return isCommand(cmd)
-    ? Effect.succeed(cmd)
-    : Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Unknown command: ${cmd}. Available commands: ${COMMANDS.join(", ")}`,
-        })
-      );
-};
+const parseCommand = (positionals: readonly string[]): Effect.Effect<Command, GeneralError> =>
+  Option.match(getPositional(positionals, 1), {
+    onNone: (): Effect.Effect<Command, GeneralError> => Effect.succeed("status" as Command),
+    onSome: (cmd): Effect.Effect<Command, GeneralError> =>
+      isCommand(cmd)
+        ? Effect.succeed(cmd)
+        : Effect.fail(
+            new GeneralError({
+              code: ErrorCode.INVALID_ARGS as 2,
+              message: `Unknown command: ${cmd}. Available commands: ${COMMANDS.join(", ")}`,
+            })
+          ),
+  });
 
 /**
  * Get maximum positionals for command using Match (exhaustive).
@@ -279,27 +275,22 @@ const extractStringOptions = (values: ParsedValues): Partial<ParsedArgs> => {
 const extractPositionalArgs = (
   positionals: readonly string[],
   command: Command
-): Partial<ParsedArgs> => {
-  const thirdOpt = getPositional(positionals, 2);
-
-  if (Option.isNone(thirdOpt)) {
-    return {};
-  }
-
-  const third = thirdOpt.value;
-
-  return Match.value(command).pipe(
-    Match.when("restore", () => ({ backupPath: third })),
-    Match.when("backup-config", () => ({ configPath: third })),
-    Match.when("secret", (): Partial<ParsedArgs> => {
-      const fourthOpt = getPositional(positionals, 3);
-      return Option.isSome(fourthOpt)
-        ? { subcommand: third, secretName: fourthOpt.value }
-        : { subcommand: third };
-    }),
-    Match.orElse(() => ({ configPath: third }))
-  );
-};
+): Partial<ParsedArgs> =>
+  Option.match(getPositional(positionals, 2), {
+    onNone: (): Partial<ParsedArgs> => ({}),
+    onSome: (third): Partial<ParsedArgs> =>
+      Match.value(command).pipe(
+        Match.when("restore", () => ({ backupPath: third })),
+        Match.when("backup-config", () => ({ configPath: third })),
+        Match.when("secret", (): Partial<ParsedArgs> => {
+          const fourthOpt = getPositional(positionals, 3);
+          return Option.isSome(fourthOpt)
+            ? { subcommand: third, secretName: fourthOpt.value }
+            : { subcommand: third };
+        }),
+        Match.orElse(() => ({ configPath: third }))
+      ),
+  });
 
 // ============================================================================
 // Main Parse Function

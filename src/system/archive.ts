@@ -10,7 +10,7 @@
  * MUST be used for ALL archive operations - no external tar commands.
  */
 
-import { Array as Arr, Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Match, Option, pipe } from "effect";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
@@ -84,13 +84,13 @@ export const extractArchive = (
   options?: { decompress?: "gzip" | "zstd" }
 ): Effect.Effect<Map<string, Uint8Array>, never> =>
   Effect.promise(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Bun type definitions don't perfectly match runtime
-    let archiveData: any = data;
-    if (options?.decompress === "gzip") {
-      archiveData = Bun.gunzipSync(data as Uint8Array<ArrayBuffer>);
-    } else if (options?.decompress === "zstd") {
-      archiveData = Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>);
-    }
+    const archiveData = pipe(
+      options?.decompress,
+      Match.value,
+      Match.when("gzip", () => Bun.gunzipSync(data as Uint8Array<ArrayBuffer>)),
+      Match.when("zstd", () => Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>)),
+      Match.orElse(() => data)
+    );
 
     const archive = new Bun.Archive(archiveData);
     const filesMap = await archive.files();
@@ -112,13 +112,13 @@ export const listArchive = (
   options?: { decompress?: "gzip" | "zstd" }
 ): Effect.Effect<string[], never> =>
   Effect.promise(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Bun type definitions don't perfectly match runtime
-    let archiveData: any = data;
-    if (options?.decompress === "gzip") {
-      archiveData = Bun.gunzipSync(data as Uint8Array<ArrayBuffer>);
-    } else if (options?.decompress === "zstd") {
-      archiveData = Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>);
-    }
+    const archiveData = pipe(
+      options?.decompress,
+      Match.value,
+      Match.when("gzip", () => Bun.gunzipSync(data as Uint8Array<ArrayBuffer>)),
+      Match.when("zstd", () => Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>)),
+      Match.orElse(() => data)
+    );
 
     const archive = new Bun.Archive(archiveData);
     const filesMap = await archive.files();
@@ -213,12 +213,13 @@ export const extractArchiveToDirectory = (
   options?: { decompress?: "gzip" | "zstd" }
 ): Effect.Effect<number, never> =>
   Effect.promise(async () => {
-    let archiveData: Uint8Array = data;
-    if (options?.decompress === "gzip") {
-      archiveData = Bun.gunzipSync(data as Uint8Array<ArrayBuffer>);
-    } else if (options?.decompress === "zstd") {
-      archiveData = Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>);
-    }
+    const archiveData = pipe(
+      options?.decompress,
+      Match.value,
+      Match.when("gzip", () => Bun.gunzipSync(data as Uint8Array<ArrayBuffer>)),
+      Match.when("zstd", () => Bun.zstdDecompressSync(data as Uint8Array<ArrayBuffer>)),
+      Match.orElse(() => data)
+    );
 
     const archive = new Bun.Archive(archiveData);
     return await archive.extract(directory);

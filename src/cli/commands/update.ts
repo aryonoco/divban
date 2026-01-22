@@ -9,7 +9,7 @@
  * Effect-based update command - update container images.
  */
 
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import {
   type ConfigError,
@@ -117,15 +117,24 @@ export const executeUpdate = (
         )
       );
 
-      if (applyResult._tag === "Left" || applyResult.right.exitCode !== 0) {
-        const stderr = applyResult._tag === "Right" ? applyResult.right.stderr : "";
-        return yield* Effect.fail(
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Failed to apply updates: ${stderr}`,
-          })
-        );
-      }
+      yield* Either.match(applyResult, {
+        onLeft: (): Effect.Effect<void, GeneralError> =>
+          Effect.fail(
+            new GeneralError({
+              code: ErrorCode.GENERAL_ERROR as 1,
+              message: "Failed to apply updates",
+            })
+          ),
+        onRight: (result): Effect.Effect<void, GeneralError> =>
+          result.exitCode !== 0
+            ? Effect.fail(
+                new GeneralError({
+                  code: ErrorCode.GENERAL_ERROR as 1,
+                  message: `Failed to apply updates: ${result.stderr}`,
+                })
+              )
+            : Effect.void,
+      });
 
       logger.success("Updates applied successfully");
     } else {

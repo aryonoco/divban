@@ -154,19 +154,21 @@ export const restoreActual = (
 
     // Read and validate metadata
     const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: "gzip" });
-    if (Option.isSome(metadataOpt)) {
-      const metadata = metadataOpt.value;
-      if (metadata.service !== "actual") {
-        return yield* Effect.fail(
-          new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
-            message: `Backup is for service '${metadata.service}', not 'actual'. Use the correct restore command.`,
-            path: backupPath,
-          })
-        );
-      }
-      logger.info(`Backup from: ${metadata.timestamp}, files: ${metadata.files.length}`);
-    }
+    yield* Option.match(metadataOpt, {
+      onNone: (): Effect.Effect<void, BackupError> => Effect.void,
+      onSome: (metadata): Effect.Effect<void, BackupError> =>
+        metadata.service !== "actual"
+          ? Effect.fail(
+              new BackupError({
+                code: ErrorCode.RESTORE_FAILED as 51,
+                message: `Backup is for service '${metadata.service}', not 'actual'. Use the correct restore command.`,
+                path: backupPath,
+              })
+            )
+          : Effect.sync(() =>
+              logger.info(`Backup from: ${metadata.timestamp}, files: ${metadata.files.length}`)
+            ),
+    });
 
     // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: "gzip" });

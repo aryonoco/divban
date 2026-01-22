@@ -9,7 +9,7 @@
  * Immich database restore command.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
 import type { Logger } from "../../../lib/logger";
@@ -22,15 +22,20 @@ import { CONTAINERS } from "../constants";
 /**
  * Detect compression format from file extension.
  */
-const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> => {
-  if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
-    return Option.some("gzip");
-  }
-  if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
-    return Option.some("zstd");
-  }
-  return Option.none();
-};
+const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> =>
+  pipe(
+    path,
+    Match.value,
+    Match.when(
+      (p) => p.endsWith(".tar.gz") || p.endsWith(".gz"),
+      () => Option.some("gzip" as const)
+    ),
+    Match.when(
+      (p) => p.endsWith(".tar.zst") || p.endsWith(".zst"),
+      () => Option.some("zstd" as const)
+    ),
+    Match.orElse(() => Option.none())
+  );
 
 export interface RestoreOptions {
   /** Path to backup file */
@@ -100,19 +105,21 @@ export const restoreDatabase = (
 
     // Read and validate metadata
     const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: compression });
-    if (Option.isSome(metadataOpt)) {
-      const metadata = metadataOpt.value;
-      if (metadata.service !== "immich") {
-        return yield* Effect.fail(
-          new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
-            message: `Backup is for service '${metadata.service}', not 'immich'. Use the correct restore command.`,
-            path: backupPath,
-          })
-        );
-      }
-      logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`);
-    }
+    yield* Option.match(metadataOpt, {
+      onNone: (): Effect.Effect<void, BackupError> => Effect.void,
+      onSome: (metadata): Effect.Effect<void, BackupError> =>
+        metadata.service !== "immich"
+          ? Effect.fail(
+              new BackupError({
+                code: ErrorCode.RESTORE_FAILED as 51,
+                message: `Backup is for service '${metadata.service}', not 'immich'. Use the correct restore command.`,
+                path: backupPath,
+              })
+            )
+          : Effect.sync(() =>
+              logger.info(`Backup from: ${metadata.timestamp}, service: ${metadata.service}`)
+            ),
+    });
 
     // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: compression });

@@ -133,14 +133,15 @@ export const ensureKeypair = (
     const keypair = yield* generateKeypair();
     const created = yield* writeFileExclusive(keyPath, `${keypair.secretKey}\n`);
 
-    if (Option.isSome(created)) {
-      // New file created, set permissions
-      yield* chmod(keyPath, "0600");
-      return keypair;
-    }
-
-    // File already exists, load existing keypair
-    return yield* loadExistingKeypair(keyPath);
+    return yield* Option.match(created, {
+      onSome: (): Effect.Effect<AgeKeypair, SystemError | GeneralError> =>
+        Effect.gen(function* () {
+          yield* chmod(keyPath, "0600");
+          return keypair;
+        }),
+      onNone: (): Effect.Effect<AgeKeypair, SystemError | GeneralError> =>
+        loadExistingKeypair(keyPath),
+    });
   });
 
 /**

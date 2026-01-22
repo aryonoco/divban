@@ -9,7 +9,7 @@
  * Effect-based remove command - completely remove a service.
  */
 
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -104,9 +104,12 @@ export const executeRemove = (
     // Step 3: Disable linger
     logger.step(3, totalSteps, "Disabling linger...");
     const lingerResult = yield* Effect.either(disableLinger(username));
-    if (lingerResult._tag === "Left") {
-      logger.warn(`Failed to disable linger: ${lingerResult.left.message}`);
-    }
+    Either.match(lingerResult, {
+      onLeft: (err): void => {
+        logger.warn(`Failed to disable linger: ${err.message}`);
+      },
+      onRight: (): void => undefined,
+    });
 
     // Step 4: Stop systemd user service
     logger.step(4, totalSteps, "Stopping systemd user service...");
@@ -128,9 +131,12 @@ export const executeRemove = (
     if (!args.preserveData) {
       logger.step(8, totalSteps, "Removing data directory...");
       const rmResult = yield* Effect.either(removeDirectory(dataDir, true));
-      if (rmResult._tag === "Left") {
-        logger.warn(`Failed to remove data directory: ${rmResult.left.message}`);
-      }
+      Either.match(rmResult, {
+        onLeft: (err): void => {
+          logger.warn(`Failed to remove data directory: ${err.message}`);
+        },
+        onRight: (): void => undefined,
+      });
     }
 
     logger.success(`Service ${serviceName} removed successfully`);
@@ -194,26 +200,34 @@ const cleanupPodmanResources = (
       )
     );
 
-    if (networksResult._tag === "Right" && networksResult.right.stdout) {
-      const networks = networksResult.right.stdout
-        .split("\n")
-        .map((n) => n.trim())
-        .filter((n) => n && n !== "podman");
+    yield* Either.match(networksResult, {
+      onLeft: (): Effect.Effect<void> => Effect.void,
+      onRight: (result): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          if (!result.stdout) {
+            return;
+          }
 
-      for (const network of networks) {
-        yield* Effect.ignore(
-          execAsUser(
-            username as unknown as Parameters<typeof execAsUser>[0],
-            uid,
-            ["podman", "network", "rm", network],
-            {
-              captureStdout: true,
-              captureStderr: true,
-            }
-          )
-        );
-      }
-    }
+          const networks = result.stdout
+            .split("\n")
+            .map((n) => n.trim())
+            .filter((n) => n && n !== "podman");
+
+          for (const network of networks) {
+            yield* Effect.ignore(
+              execAsUser(
+                username as unknown as Parameters<typeof execAsUser>[0],
+                uid,
+                ["podman", "network", "rm", network],
+                {
+                  captureStdout: true,
+                  captureStderr: true,
+                }
+              )
+            );
+          }
+        }),
+    });
   });
 
 /**
@@ -231,9 +245,12 @@ const cleanupContainerStorage = (
     }
 
     const result = yield* Effect.either(removeDirectory(storageDir, true));
-    if (result._tag === "Left") {
-      logger.warn(`Failed to remove container storage: ${result.left.message}`);
-    }
+    Either.match(result, {
+      onLeft: (err): void => {
+        logger.warn(`Failed to remove container storage: ${err.message}`);
+      },
+      onRight: (): void => undefined,
+    });
   });
 
 /**

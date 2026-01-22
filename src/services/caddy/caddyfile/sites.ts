@@ -9,7 +9,7 @@
  * Site block generation for Caddyfile.
  */
 
-import { Option, pipe } from "effect";
+import { Array as Arr, Option, pipe } from "effect";
 import { nonEmpty } from "../../../lib/option-helpers";
 import type { Directive, Route, Site } from "../schema";
 import { directivesOps } from "./directives";
@@ -96,22 +96,19 @@ export const siteOps = (site: Site): CaddyOp => {
  * Generate operations for multiple sites.
  * Intersperse with blank lines.
  */
-export const sitesOps = (sites: readonly Site[]): CaddyOp => {
-  if (sites.length === 0) {
-    return Caddy.id;
-  }
-
-  const firstSite = sites[0];
-  if (!firstSite) {
-    return Caddy.id;
-  }
-
-  // First site without leading blank, remaining sites with leading blank
-  return Caddy.seq(
-    siteOps(firstSite),
-    ...sites.slice(1).map((site) => Caddy.seq(Caddy.blank, siteOps(site)))
+export const sitesOps = (sites: readonly Site[]): CaddyOp =>
+  pipe(
+    Arr.head(sites),
+    Option.match({
+      onNone: (): CaddyOp => Caddy.id,
+      onSome: (firstSite): CaddyOp =>
+        // First site without leading blank, remaining sites with leading blank
+        Caddy.seq(
+          siteOps(firstSite),
+          ...sites.slice(1).map((site) => Caddy.seq(Caddy.blank, siteOps(site)))
+        ),
+    })
   );
-};
 
 // ============================================================================
 // String-returning functions (backward compatibility)

@@ -236,20 +236,19 @@ const prepareOutputPath = (
   serviceName: string,
   customPath: string | undefined
 ): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
-  Effect.gen(function* () {
-    // If custom path provided, validate and use it
-    const customOpt = Option.fromNullable(customPath);
-    if (Option.isSome(customOpt)) {
-      return yield* toAbsolutePathEffect(customOpt.value);
-    }
+  Option.match(Option.fromNullable(customPath), {
+    onSome: (path): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
+      toAbsolutePathEffect(path),
+    onNone: (): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
+      Effect.gen(function* () {
+        // Generate timestamped default path
+        const timestamp = createBackupTimestamp();
+        const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
+        const backupDir = pathJoin(configDir, "backups");
 
-    // Generate timestamped default path
-    const timestamp = createBackupTimestamp();
-    const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
-    const backupDir = pathJoin(configDir, "backups");
-
-    yield* ensureDirectory(backupDir);
-    return pathJoin(backupDir, filename);
+        yield* ensureDirectory(backupDir);
+        return pathJoin(backupDir, filename);
+      }),
   });
 
 // ============================================================================
