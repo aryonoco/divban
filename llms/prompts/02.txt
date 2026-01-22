@@ -1,572 +1,418 @@
-  Comprehensive Effect Adoption Report                                                                                                                                         
-                                                                                                                                                                               
-  Executive Summary                                                                                                                                                            
-                                                                                                                                                                               
-  Your codebase demonstrates mature Effect adoption for resource management and schema validation. This updated analysis identifies all remaining opportunities to leverage Effect's ecosystem, prioritized by value and effort.                               
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Current Effect Usage: Complete Inventory                                                                                                                                     
-  ┌───────────────────────┬─────────┬─────────────┬─────────────────────────────┐                                                                                              
-  │        Feature        │ Status  │ Usage Count │            Notes            │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.gen            │ ✅ Full │ 595         │ Primary composition pattern │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.scoped         │ ✅ Full │ 27          │ Resource management         │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.acquireRelease │ ✅ Full │ ~15         │ Automatic cleanup           │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect Schema         │ ✅ Full │ 191         │ Config validation           │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.Option         │ ✅ Full │ ~50         │ Nullable handling           │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.Either         │ ✅ Full │ ~20         │ Error bifurcation           │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Exit.isFailure        │ ✅ Full │ 14          │ Conditional rollback        │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.all            │ ✅ Full │ ~30         │ Parallel/sequential         │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.pipe           │ ✅ Full │ ~200        │ Functional composition      │                                                                                              
-  ├───────────────────────┼─────────┼─────────────┼─────────────────────────────┤                                                                                              
-  │ Effect.tryPromise     │ ✅ Full │ ~40         │ Async bridging              │                                                                                              
-  └───────────────────────┴─────────┴─────────────┴─────────────────────────────┘                                                                                              
-  ---                                                                                                                                                                          
-  Effect Tools Not Yet Adopted                                                                                                                                                 
-  ┌─────────────────────────────┬───────────────┬─────────────────────────────────┬─────────────────────────────────────┐                                                      
-  │            Tool             │   Category    │      Your Current Approach      │               Benefit               │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Context.Tag + Layer         │ DI            │ Manual ServiceContext<C> struct │ Type-safe DI, testability           │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Effect Logging              │ Observability │ Custom Logger class             │ Structured logs, levels, spans      │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Effect Config               │ Configuration │ getEnv/getEnvOrDefault          │ Typed config, validation, providers │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Schema.brand                │ Type Safety   │ Custom __brand pattern          │ Unified with Schema pipeline        │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Effect.retry                │ Resilience    │ None                            │ Auto-retry with schedules           │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ @effect/platform Command    │ Exec          │ Custom exec/shell wrappers      │ Typed, composable commands          │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ @effect/platform FileSystem │ Files         │ Custom fs.ts helpers            │ Cross-platform, scoped files        │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Metrics                     │ Observability │ None                            │ Counters, gauges, histograms        │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Tracing                     │ Observability │ None                            │ Spans, distributed traces           │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ TestClock                   │ Testing       │ None                            │ Time-controlled tests               │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Ref                         │ State         │ None (stateless operations)     │ Concurrent state management         │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Redacted                    │ Security      │ None                            │ Protect sensitive values            │                                                      
-  ├─────────────────────────────┼───────────────┼─────────────────────────────────┼─────────────────────────────────────┤                                                      
-  │ Schedule                    │ Scheduling    │ None                            │ Composable schedules                │                                                      
-  └─────────────────────────────┴───────────────┴─────────────────────────────────┴─────────────────────────────────────┘                                                      
-  ---                                                                                                                                                                          
-  Detailed Adoption Plan by Priority                                                                                                                                           
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 1: Effect Config (Immediate Value, Low Effort)                                                                                                                      
-                                                                                                                                                                               
-  Current code (lib/types.ts:429-436):                                                                                                                                         
-  export const getEnv = (key: string): Option.Option<string> =>                                                                                                                
-    Option.fromNullable(Bun.env[key]);                                                                                                                                         
-                                                                                                                                                                               
-  export const getEnvOrDefault = (key: string, defaultValue: string): string =>                                                                                                
-    Bun.env[key] ?? defaultValue;                                                                                                                                              
-                                                                                                                                                                               
-  Effect Config provides:                                                                                                                                                      
-  - Typed configuration with automatic validation                                                                                                                              
-  - Composable config primitives                                                                                                                                               
-  - Integration with Schema for complex configs                                                                                                                                
-  - Default values, optional configs, redacted secrets                                                                                                                         
-  - Swappable ConfigProvider (env, file, remote)                                                                                                                               
-                                                                                                                                                                               
-  Migration:                                                                                                                                                                   
-                                                                                                                                                                               
-  // src/lib/config.ts                                                                                                                                                         
-  import { Config, Effect, Redacted, Schema } from "effect";                                                                                                                   
-                                                                                                                                                                               
-  // Simple configs                                                                                                                                                            
-  export const LogLevel = Config.literal("debug", "info", "warn", "error")("LOG_LEVEL")                                                                                        
-    .pipe(Config.withDefault("info"));                                                                                                                                         
-                                                                                                                                                                               
-  export const DataDir = Config.string("DIVBAN_DATA_DIR")                                                                                                                      
-    .pipe(Config.withDefault("/srv"));                                                                                                                                         
-                                                                                                                                                                               
-  // Sensitive values (won't leak in logs)                                                                                                                                     
-  export const DatabasePassword = Config.redacted("DB_PASSWORD");                                                                                                              
-                                                                                                                                                                               
-  // Config with Schema validation                                                                                                                                             
-  export const PortConfig = Schema.Config(                                                                                                                                     
-    "PORT",                                                                                                                                                                    
-    Schema.Number.pipe(Schema.int(), Schema.between(1, 65535))                                                                                                                 
-  ).pipe(Config.withDefault(8080));                                                                                                                                            
-                                                                                                                                                                               
-  // Nested config groups                                                                                                                                                      
-  export const AppConfig = Config.all({                                                                                                                                        
-    logLevel: LogLevel,                                                                                                                                                        
-    dataDir: DataDir,                                                                                                                                                          
-    port: PortConfig,                                                                                                                                                          
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  // Usage in your effects                                                                                                                                                     
-  const program = Effect.gen(function* () {                                                                                                                                    
-    const config = yield* AppConfig;                                                                                                                                           
-    // config: { logLevel: "info" | "debug" | ..., dataDir: string, port: number }                                                                                             
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  Files to modify: src/lib/types.ts, create src/lib/config.ts                                                                                                                  
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 2: Schema.brand (Medium Effort, High Value)                                                                                                                         
-                                                                                                                                                                               
-  Current code (lib/types.ts:66-76):                                                                                                                                           
-  export type UserId = number & { readonly __brand: "UserId" };                                                                                                                
-                                                                                                                                                                               
-  export const UserId = (n: number): ValidationResult<UserId> => {                                                                                                             
-    if (!Number.isInteger(n) || n < 0 || n > 65534) {                                                                                                                          
-      return Err(new GeneralError({ ... }));                                                                                                                                   
-    }                                                                                                                                                                          
-    return Ok(n as UserId);                                                                                                                                                    
-  };                                                                                                                                                                           
-                                                                                                                                                                               
-  Effect Brand provides:                                                                                                                                                       
-  - Same compile-time type safety                                                                                                                                              
-  - Integration with Schema decode/encode pipeline                                                                                                                             
-  - Automatic error messages                                                                                                                                                   
-  - Works with Schema.Struct for nested branded types                                                                                                                          
-                                                                                                                                                                               
-  Migration:                                                                                                                                                                   
-                                                                                                                                                                               
-  // src/lib/types.ts - New approach                                                                                                                                           
-  import { Schema, Brand } from "effect";                                                                                                                                      
-                                                                                                                                                                               
-  // Define branded schemas                                                                                                                                                    
-  export const UserIdSchema = Schema.Number.pipe(                                                                                                                              
-    Schema.int(),                                                                                                                                                              
-    Schema.between(0, 65534),                                                                                                                                                  
-    Schema.brand("UserId")                                                                                                                                                     
-  );                                                                                                                                                                           
-  export type UserId = Schema.Schema.Type<typeof UserIdSchema>;                                                                                                                
-                                                                                                                                                                               
-  export const GroupIdSchema = Schema.Number.pipe(                                                                                                                             
-    Schema.int(),                                                                                                                                                              
-    Schema.between(0, 65534),                                                                                                                                                  
-    Schema.brand("GroupId")                                                                                                                                                    
-  );                                                                                                                                                                           
-  export type GroupId = Schema.Schema.Type<typeof GroupIdSchema>;                                                                                                              
-                                                                                                                                                                               
-  export const AbsolutePathSchema = Schema.String.pipe(                                                                                                                        
-    Schema.filter((s) => s.startsWith("/"), {                                                                                                                                  
-      message: () => "Path must be absolute (start with /)"                                                                                                                    
-    }),                                                                                                                                                                        
-    Schema.brand("AbsolutePath")                                                                                                                                               
-  );                                                                                                                                                                           
-  export type AbsolutePath = Schema.Schema.Type<typeof AbsolutePathSchema>;                                                                                                    
-                                                                                                                                                                               
-  export const UsernameSchema = Schema.String.pipe(                                                                                                                            
-    Schema.pattern(/^[a-z_][a-z0-9_-]*$/),                                                                                                                                     
-    Schema.brand("Username")                                                                                                                                                   
-  );                                                                                                                                                                           
-  export type Username = Schema.Schema.Type<typeof UsernameSchema>;                                                                                                            
-                                                                                                                                                                               
-  // Effect-based constructors (replaces ValidationResult pattern)                                                                                                             
-  export const decodeUserId = Schema.decode(UserIdSchema);                                                                                                                     
-  export const decodeAbsolutePath = Schema.decode(AbsolutePathSchema);                                                                                                         
-                                                                                                                                                                               
-  // Usage                                                                                                                                                                     
-  const program = Effect.gen(function* () {                                                                                                                                    
-    const uid = yield* decodeUserId(1000); // Effect<UserId, ParseError>                                                                                                       
-    const path = yield* decodeAbsolutePath("/srv/data"); // Effect<AbsolutePath, ParseError>                                                                                   
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  This eliminates:                                                                                                                                                             
-  - Custom ValidationResult<T> type                                                                                                                                            
-  - Ok/Err constructors                                                                                                                                                        
-  - Manual validation logic per type                                                                                                                                           
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 3: Effect.retry with Schedule (Low Effort, Medium Value)                                                                                                            
-                                                                                                                                                                               
-  Current code: No retry logic in exec.ts or other system operations.                                                                                                          
-                                                                                                                                                                               
-  Your use case: System operations (user creation, systemd commands) can fail transiently.                                                                                     
-                                                                                                                                                                               
-  Effect provides:                                                                                                                                                             
-                                                                                                                                                                               
-  import { Effect, Schedule } from "effect";                                                                                                                                   
-                                                                                                                                                                               
-  // Retry with exponential backoff                                                                                                                                            
-  const retryPolicy = Schedule.exponential("100 millis").pipe(                                                                                                                 
-    Schedule.jittered,                                                                                                                                                         
-    Schedule.compose(Schedule.recurs(3)) // Max 3 retries                                                                                                                      
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  // Apply to any operation                                                                                                                                                    
-  export const execSuccessWithRetry = (                                                                                                                                        
-    command: readonly string[],                                                                                                                                                
-    options: ExecOptions = {}                                                                                                                                                  
-  ): Effect.Effect<ExecResult, SystemError | GeneralError> =>                                                                                                                  
-    execSuccess(command, options).pipe(                                                                                                                                        
-      Effect.retry({                                                                                                                                                           
-        schedule: retryPolicy,                                                                                                                                                 
-        while: (error) => error._tag === "SystemError" && error.code === 26 // EXEC_FAILED                                                                                     
-      })                                                                                                                                                                       
-    );                                                                                                                                                                         
-                                                                                                                                                                               
-  // Or use simple retries                                                                                                                                                     
-  const simpleRetry = execSuccess(["systemctl", "restart", "caddy"]).pipe(                                                                                                     
-    Effect.retry({ times: 3 })                                                                                                                                                 
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  // Retry with fallback                                                                                                                                                       
-  const withFallback = Effect.retryOrElse(                                                                                                                                     
-    execSuccess(["systemctl", "start", "caddy"]),                                                                                                                              
-    retryPolicy,                                                                                                                                                               
-    (error, _) => Effect.logError("Failed after retries", { error })                                                                                                           
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 4: Effect Logging (Medium Effort, High Value)                                                                                                                       
-                                                                                                                                                                               
-  Current code (lib/logger.ts):                                                                                                                                                
-  export interface Logger {                                                                                                                                                    
-    debug(message: string, context?: Record<string, unknown>): void;                                                                                                           
-    info(message: string, context?: Record<string, unknown>): void;                                                                                                            
-    step(current: number, total: number, message: string): void;                                                                                                               
-    success(message: string): void;                                                                                                                                            
-    fail(message: string): void;                                                                                                                                               
-  }                                                                                                                                                                            
-                                                                                                                                                                               
-  Effect Logging provides:                                                                                                                                                     
-  - Dynamic log level control                                                                                                                                                  
-  - Structured logging with automatic context propagation                                                                                                                      
-  - Log annotations that flow through fiber context                                                                                                                            
-  - Integration with Layer system for testability                                                                                                                              
-  - Span support for timing operations                                                                                                                                         
-                                                                                                                                                                               
-  Migration strategy:                                                                                                                                                          
-                                                                                                                                                                               
-  // src/lib/logger.ts - Effect integration                                                                                                                                    
-  import { Effect, Logger, LogLevel, Layer } from "effect";                                                                                                                    
-                                                                                                                                                                               
-  // Use Effect's built-in logging                                                                                                                                             
-  export const logStep = (current: number, total: number, message: string) =>                                                                                                  
-    Effect.log(message).pipe(                                                                                                                                                  
-      Effect.annotateLogs("step", `${current}/${total}`),                                                                                                                      
-      Effect.annotateLogs("type", "step")                                                                                                                                      
-    );                                                                                                                                                                         
-                                                                                                                                                                               
-  export const logSuccess = (message: string) =>                                                                                                                               
-    Effect.log(message).pipe(Effect.annotateLogs("type", "success"));                                                                                                          
-                                                                                                                                                                               
-  export const logFail = (message: string) =>                                                                                                                                  
-    Effect.logError(message).pipe(Effect.annotateLogs("type", "fail"));                                                                                                        
-                                                                                                                                                                               
-  // Custom logger for CLI formatting                                                                                                                                          
-  const CLILogger = Logger.make(({ message, annotations, logLevel }) => {                                                                                                      
-    const step = annotations.get("step");                                                                                                                                      
-    const type = annotations.get("type");                                                                                                                                      
-                                                                                                                                                                               
-    if (step) {                                                                                                                                                                
-      // Format: [1/5] → message                                                                                                                                               
-      console.log(`[${step}] → ${message}`);                                                                                                                                   
-    } else if (type === "success") {                                                                                                                                           
-      console.log(`✓ ${message}`);                                                                                                                                             
-    } else if (type === "fail") {                                                                                                                                              
-      console.error(`✗ ${message}`);                                                                                                                                           
-    } else {                                                                                                                                                                   
-      console.log(message);                                                                                                                                                    
-    }                                                                                                                                                                          
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  // Create a Layer                                                                                                                                                            
-  export const CLILoggerLive = Layer.succeed(Logger.Logger, CLILogger);                                                                                                        
-                                                                                                                                                                               
-  // Usage in services                                                                                                                                                         
-  const setup = Effect.gen(function* () {                                                                                                                                      
-    yield* logStep(1, 5, "Creating user...");                                                                                                                                  
-    yield* createUser();                                                                                                                                                       
-    yield* logSuccess("User created");                                                                                                                                         
-  }).pipe(                                                                                                                                                                     
-    Logger.withMinimumLogLevel(LogLevel.Debug)                                                                                                                                 
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  Hybrid approach: Keep your current Logger for immediate CLI output, add Effect logging for structured operations that benefit from context propagation.                      
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 5: Context.Tag + Layer System (High Effort, Very High Value)                                                                                                        
-                                                                                                                                                                               
-  Current code (services/types.ts:67-107):                                                                                                                                     
-  export interface ServiceContext<C> {                                                                                                                                         
-    config: C;                                                                                                                                                                 
-    logger: Logger;                                                                                                                                                            
-    paths: { dataDir, quadletDir, configDir, homeDir };                                                                                                                        
-    user: { name, uid, gid };                                                                                                                                                  
-    options: { dryRun, verbose, force };                                                                                                                                       
-    system: SystemCapabilities;                                                                                                                                                
-  }                                                                                                                                                                            
-                                                                                                                                                                               
-  This is passed explicitly to every function.                                                                                                                                 
-                                                                                                                                                                               
-  With Effect Layers:                                                                                                                                                          
-                                                                                                                                                                               
-  // src/services/context.ts                                                                                                                                                   
-  import { Context, Effect, Layer } from "effect";                                                                                                                             
-                                                                                                                                                                               
-  // Define each as a Context.Tag                                                                                                                                              
-  class ServiceLogger extends Context.Tag("ServiceLogger")<                                                                                                                    
-    ServiceLogger,                                                                                                                                                             
-    {                                                                                                                                                                          
-      readonly step: (current: number, total: number, msg: string) => Effect.Effect<void>;                                                                                     
-      readonly success: (msg: string) => Effect.Effect<void>;                                                                                                                  
-      readonly fail: (msg: string) => Effect.Effect<void>;                                                                                                                     
-    }                                                                                                                                                                          
-  >() {}                                                                                                                                                                       
-                                                                                                                                                                               
-  class ServicePaths extends Context.Tag("ServicePaths")<                                                                                                                      
-    ServicePaths,                                                                                                                                                              
-    {                                                                                                                                                                          
-      readonly dataDir: AbsolutePath;                                                                                                                                          
-      readonly quadletDir: AbsolutePath;                                                                                                                                       
-      readonly configDir: AbsolutePath;                                                                                                                                        
-      readonly homeDir: AbsolutePath;                                                                                                                                          
-    }                                                                                                                                                                          
-  >() {}                                                                                                                                                                       
-                                                                                                                                                                               
-  class ServiceUser extends Context.Tag("ServiceUser")<                                                                                                                        
-    ServiceUser,                                                                                                                                                               
-    {                                                                                                                                                                          
-      readonly name: Username;                                                                                                                                                 
-      readonly uid: UserId;                                                                                                                                                    
-      readonly gid: GroupId;                                                                                                                                                   
-    }                                                                                                                                                                          
-  >() {}                                                                                                                                                                       
-                                                                                                                                                                               
-  class ServiceOptions extends Context.Tag("ServiceOptions")<                                                                                                                  
-    ServiceOptions,                                                                                                                                                            
-    {                                                                                                                                                                          
-      readonly dryRun: boolean;                                                                                                                                                
-      readonly verbose: boolean;                                                                                                                                               
-      readonly force: boolean;                                                                                                                                                 
-    }                                                                                                                                                                          
-  >() {}                                                                                                                                                                       
-                                                                                                                                                                               
-  // Layers construct services                                                                                                                                                 
-  const ServiceLoggerLive = Layer.succeed(ServiceLogger, {                                                                                                                     
-    step: (current, total, msg) => Effect.log(msg).pipe(Effect.annotateLogs("step", `${current}/${total}`)),                                                                   
-    success: (msg) => Effect.log(msg).pipe(Effect.annotateLogs("type", "success")),                                                                                            
-    fail: (msg) => Effect.logError(msg),                                                                                                                                       
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  // Effects use services implicitly                                                                                                                                           
-  const generate = Effect.gen(function* () {                                                                                                                                   
-    const logger = yield* ServiceLogger;                                                                                                                                       
-    const paths = yield* ServicePaths;                                                                                                                                         
-    const user = yield* ServiceUser;                                                                                                                                           
-                                                                                                                                                                               
-    yield* logger.step(1, 5, "Generating quadlets...");                                                                                                                        
-    // ... use paths.quadletDir, user.uid, etc.                                                                                                                                
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  // Compose all layers                                                                                                                                                        
-  const AppLive = Layer.mergeAll(                                                                                                                                              
-    ServiceLoggerLive,                                                                                                                                                         
-    ServicePathsLive,                                                                                                                                                          
-    ServiceUserLive,                                                                                                                                                           
-    ServiceOptionsLive                                                                                                                                                         
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  // Run with all dependencies                                                                                                                                                 
-  Effect.provide(generate, AppLive);                                                                                                                                           
-                                                                                                                                                                               
-  Benefits:                                                                                                                                                                    
-  - Dependencies are type-checked at compile time                                                                                                                              
-  - Easy to swap implementations for testing                                                                                                                                   
-  - No manual passing of context objects                                                                                                                                       
-  - Layer memoization prevents duplicate construction                                                                                                                          
-                                                                                                                                                                               
-  Migration path:                                                                                                                                                              
-  1. Start with one service (Logger)                                                                                                                                           
-  2. Create Layer and update one service method                                                                                                                                
-  3. Gradually migrate other context fields                                                                                                                                    
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 6: @effect/platform (Medium Effort, High Value)                                                                                                                     
-                                                                                                                                                                               
-  Your exec.ts and file operations could use @effect/platform for:                                                                                                             
-                                                                                                                                                                               
-  Command Module                                                                                                                                                               
-                                                                                                                                                                               
-  Current:                                                                                                                                                                     
-  export const exec = (command: readonly string[], options: ExecOptions = {}) =>                                                                                               
-    Effect.tryPromise({ ... });                                                                                                                                                
-                                                                                                                                                                               
-  With @effect/platform:                                                                                                                                                       
-  import { Command } from "@effect/platform";                                                                                                                                  
-  import { BunContext, BunRuntime } from "@effect/platform-bun";                                                                                                               
-                                                                                                                                                                               
-  const listFiles = Command.make("ls", "-la").pipe(                                                                                                                            
-    Command.workingDirectory("/srv"),                                                                                                                                          
-    Command.env({ CUSTOM_VAR: "value" })                                                                                                                                       
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  // Get output as string                                                                                                                                                      
-  const output = Command.string(listFiles);                                                                                                                                    
-                                                                                                                                                                               
-  // Get exit code only                                                                                                                                                        
-  const exitCode = Command.exitCode(listFiles);                                                                                                                                
-                                                                                                                                                                               
-  // Stream output                                                                                                                                                             
-  const stream = Command.stream(listFiles);                                                                                                                                    
-                                                                                                                                                                               
-  // Provide platform context                                                                                                                                                  
-  const program = output.pipe(Effect.provide(BunContext.layer));                                                                                                               
-                                                                                                                                                                               
-  FileSystem Module                                                                                                                                                            
-                                                                                                                                                                               
-  Current: Custom helpers in fs.ts                                                                                                                                             
-                                                                                                                                                                               
-  With @effect/platform:                                                                                                                                                       
-  import { FileSystem } from "@effect/platform";                                                                                                                               
-  import { BunContext } from "@effect/platform-bun";                                                                                                                           
-                                                                                                                                                                               
-  const program = Effect.gen(function* () {                                                                                                                                    
-    const fs = yield* FileSystem.FileSystem;                                                                                                                                   
-                                                                                                                                                                               
-    // Check existence                                                                                                                                                         
-    const exists = yield* fs.exists("/srv/caddy");                                                                                                                             
-                                                                                                                                                                               
-    // Read file                                                                                                                                                               
-    const content = yield* fs.readFileString("/etc/passwd");                                                                                                                   
-                                                                                                                                                                               
-    // Write file                                                                                                                                                              
-    yield* fs.writeFileString("/tmp/test.txt", "content");                                                                                                                     
-                                                                                                                                                                               
-    // Create temp directory (auto-cleanup with scope)                                                                                                                         
-    const tempDir = yield* fs.makeTempDirectoryScoped();                                                                                                                       
-                                                                                                                                                                               
-    // Copy recursively                                                                                                                                                        
-    yield* fs.copy("/src", "/dest");                                                                                                                                           
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  program.pipe(Effect.scoped, Effect.provide(BunContext.layer));                                                                                                               
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 7: Metrics & Tracing (Low Priority, High Value for Observability)                                                                                                   
-                                                                                                                                                                               
-  Metrics - Track operation counts and durations:                                                                                                                              
-                                                                                                                                                                               
-  import { Metric, Effect } from "effect";                                                                                                                                     
-                                                                                                                                                                               
-  // Define metrics                                                                                                                                                            
-  const userCreationCount = Metric.counter("divban_user_created_total", {                                                                                                      
-    description: "Total number of users created"                                                                                                                               
-  }).pipe(Metric.withConstantInput(1));                                                                                                                                        
-                                                                                                                                                                               
-  const setupDuration = Metric.histogram("divban_setup_duration_seconds", {                                                                                                    
-    description: "Setup operation duration",                                                                                                                                   
-    boundaries: [0.1, 0.5, 1, 5, 10, 30]                                                                                                                                       
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  // Apply to operations                                                                                                                                                       
-  const createUserWithMetrics = createUser.pipe(                                                                                                                               
-    Effect.tap(() => userCreationCount(Effect.void)),                                                                                                                          
-    Metric.trackDuration(setupDuration)                                                                                                                                        
-  );                                                                                                                                                                           
-                                                                                                                                                                               
-  Tracing - Add spans to operations:                                                                                                                                           
-                                                                                                                                                                               
-  import { Effect } from "effect";                                                                                                                                             
-                                                                                                                                                                               
-  // Wrap operations in spans                                                                                                                                                  
-  const setup = Effect.gen(function* () {                                                                                                                                      
-    yield* createUser.pipe(Effect.withSpan("create-user"));                                                                                                                    
-    yield* enableLinger.pipe(Effect.withSpan("enable-linger"));                                                                                                                
-    yield* createDirectories.pipe(Effect.withSpan("create-directories"));                                                                                                      
-  }).pipe(Effect.withSpan("divban-setup"));                                                                                                                                    
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 8: TestClock (For Time-Dependent Tests)                                                                                                                             
-                                                                                                                                                                               
-  Use case: Testing timeout behavior, scheduled operations.                                                                                                                    
-                                                                                                                                                                               
-  import { Effect, TestClock, Fiber, TestContext } from "effect";                                                                                                              
-                                                                                                                                                                               
-  const test = Effect.gen(function* () {                                                                                                                                       
-    // Fork an operation with timeout                                                                                                                                          
-    const fiber = yield* myOperationWithTimeout.pipe(Effect.fork);                                                                                                             
-                                                                                                                                                                               
-    // Advance time without waiting                                                                                                                                            
-    yield* TestClock.adjust("5 minutes");                                                                                                                                      
-                                                                                                                                                                               
-    // Check result                                                                                                                                                            
-    const result = yield* Fiber.join(fiber);                                                                                                                                   
-  }).pipe(Effect.provide(TestContext.TestContext));                                                                                                                            
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Priority 9: Redacted for Sensitive Values                                                                                                                                    
-                                                                                                                                                                               
-  Use case: Secrets that shouldn't appear in logs.                                                                                                                             
-                                                                                                                                                                               
-  import { Config, Redacted, Effect } from "effect";                                                                                                                           
-                                                                                                                                                                               
-  // Config automatically wraps in Redacted                                                                                                                                    
-  const apiKey = Config.redacted("API_KEY");                                                                                                                                   
-                                                                                                                                                                               
-  const program = Effect.gen(function* () {                                                                                                                                    
-    const key = yield* apiKey;                                                                                                                                                 
-                                                                                                                                                                               
-    // Safe to log - shows "<redacted>"                                                                                                                                        
-    console.log(`Key: ${key}`);                                                                                                                                                
-                                                                                                                                                                               
-    // Access actual value when needed                                                                                                                                         
-    const actualValue = Redacted.value(key);                                                                                                                                   
-  });                                                                                                                                                                          
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Implementation Roadmap                                                                                                                                                       
-                                                                                                                                                                               
-  ┌─────────────────────────────────────────────────────────────────────────────────┐                                                                                          
-  │  Phase 1 (Week 1-2)          Phase 2 (Week 3-4)          Phase 3 (Week 5+)      │                                                                                          
-  │  ─────────────────           ─────────────────           ─────────────────      │                                                                                          
-  │  ✓ Effect Config             ✓ Effect.retry              ✓ Layer system         │                                                                                          
-  │  ✓ Schema.brand              ✓ Effect Logging            ✓ @effect/platform     │                                                                                          
-  │  ✓ Redacted                  ✓ Ref (if stateful)         ✓ Metrics/Tracing      │                                                                                          
-  │                                                                                  │                                                                                         
-  │  Effort: Low                 Effort: Medium              Effort: High           │                                                                                          
-  │  Risk: None                  Risk: Low                   Risk: Medium           │                                                                                          
-  └─────────────────────────────────────────────────────────────────────────────────┘                                                                                          
-                                                                                                                                                                               
-  ---                                                                                                                                                                          
-  Quick Reference: What to Use When                                                                                                                                            
-  ┌────────────────────────────┬──────────────────────────────────────────────────┐                                                                                            
-  │         Situation          │                   Effect Tool                    │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Environment variables      │ Config.string, Config.number, Config.redacted    │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Validated env vars         │ Schema.Config                                    │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Branded types              │ Schema.brand                                     │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Retrying failed operations │ Effect.retry with Schedule                       │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Structured logging         │ Effect.log, Effect.logDebug, Effect.annotateLogs │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Dependency injection       │ Context.Tag + Layer                              │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Running shell commands     │ @effect/platform Command                         │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ File operations            │ @effect/platform FileSystem                      │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Mutable shared state       │ Ref, SynchronizedRef                             │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Operation timing           │ Metric.histogram, Effect.withSpan                │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Counting events            │ Metric.counter                                   │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Time-controlled tests      │ TestClock                                        │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Sensitive data             │ Redacted                                         │                                                                                            
-  ├────────────────────────────┼──────────────────────────────────────────────────┤                                                                                            
-  │ Timeout operations         │ Effect.timeout, Effect.timeoutTo                 │                                                                                            
-  └────────────────────────────┴──────────────────────────────────────────────────┘                                                                                            
+ Executive Summary
+
+  Your codebase demonstrates mature Effect adoption across core areas. This updated analysis
+  reflects significant progress since the previous report - several priorities have been fully
+  implemented. The remaining opportunities focus on deeper Effect ecosystem integration.
+
+  ---
+  Current Effect Usage: Complete Inventory
+
+  Fully Adopted Features
+  ┌───────────────────────────────┬───────────┬─────────────┬──────────────────────────────────────┐
+  │            Feature            │  Status   │    Usage    │               Location               │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.gen                    │ ✅ Full   │ 41 files    │ Primary composition pattern          │
+  │                               │           │             │ throughout                           │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.scoped +               │ ✅ Full   │ 3 core      │ setup.ts, helpers.ts, user.ts        │
+  │ acquireRelease                │           │ files       │                                      │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect Schema                 │ ✅ Full   │ All config  │ src/config/schema.ts,                │
+  │                               │           │             │ src/lib/types.ts                     │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Schema.brand                  │ ✅ Full   │ 10 types    │ src/lib/types.ts:82-194              │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Brand.Brand<>                 │ ✅ Full   │ 10 types    │ src/lib/types.ts:28-56               │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.Config                 │ ✅ Full   │ 5 configs   │ src/config/env.ts:48-118             │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.retry + Schedule       │ ✅ Full   │ 25+ sites   │ src/lib/retry.ts, system/*.ts        │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.Option                 │ ✅ Full   │ ~50 uses    │ Throughout                           │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.Either                 │ ✅ Full   │ 19 files    │ Error bifurcation                    │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Exit.isFailure                │ ✅ Full   │ 6 files     │ Conditional rollback                 │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.all/forEach/reduce     │ ✅ Full   │ ~30 uses    │ Parallel/sequential composition      │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Effect.tryPromise             │ ✅ Full   │ 6 files     │ Async bridging                       │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ FiberRef (Logger)             │ ✅        │ 1 file      │ src/lib/logger.ts:202-213            │
+  │                               │ Defined   │             │                                      │
+  ├───────────────────────────────┼───────────┼─────────────┼──────────────────────────────────────┤
+  │ Match.exhaustive              │ ✅ Full   │ CLI routing │ Pattern matching                     │
+  └───────────────────────────────┴───────────┴─────────────┴──────────────────────────────────────┘
+  Not Yet Adopted
+  ┌───────────────────────────┬───────────────┬─────────────────────────┬──────────────────────────┐
+  │          Feature          │   Category    │    Current Approach     │         Benefit          │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ Context.Tag + Layer       │ DI            │ Manual                  │ Type-safe DI,            │
+  │                           │               │ ServiceContext<C>       │ testability              │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ Effect.log/logDebug       │ Logging       │ Custom Logger class     │ Structured logs, spans   │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ @effect/platform Command  │ Exec          │ Custom exec.ts wrapper  │ Typed, composable        │
+  │                           │               │                         │ commands                 │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ @effect/platform          │ Files         │ Custom fs.ts helpers    │ Cross-platform, scoped   │
+  │ FileSystem                │               │                         │                          │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ Redacted                  │ Security      │ Plain strings for       │ Protect sensitive values │
+  │                           │               │ secrets                 │                          │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ Metrics                   │ Observability │ None                    │ Counters, histograms     │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ Tracing                   │ Observability │ None                    │ Spans, distributed       │
+  │                           │               │                         │ traces                   │
+  ├───────────────────────────┼───────────────┼─────────────────────────┼──────────────────────────┤
+  │ TestClock                 │ Testing       │ None                    │ Time-controlled tests    │
+  └───────────────────────────┴───────────────┴─────────────────────────┴──────────────────────────┘
+  ---
+  What Has Been Implemented Since Previous Report
+
+  1. Schema.brand (Priority 2) - COMPLETE
+
+  Location: src/lib/types.ts:82-194
+
+  The codebase now uses Effect's Schema.brand() throughout:
+
+  // Current implementation (lines 83-87)
+  export const UserIdSchema: Schema.BrandSchema<UserId, number, never> = Schema.Number.pipe(
+    Schema.int({ message: userIdIntMsg }),
+    Schema.between(0, 65534, { message: userIdRangeMsg }),
+    Schema.brand("UserId")
+  );
+
+  All branded types (UserId, GroupId, AbsolutePath, Username, ServiceName, etc.) are implemented
+  with:
+  - Brand.Brand<"TypeName"> for type definitions (lines 28-56)
+  - Schema.brand() for runtime validation (lines 82-194)
+  - Schema.decode() for Effect-based constructors (lines 217-268)
+  - Schema.is() for type guards (lines 199-211)
+
+  2. Effect Config (Priority 1) - COMPLETE
+
+  Location: src/config/env.ts:48-118
+
+  Environment configuration uses Effect's Config module properly:
+
+  // Current implementation
+  export const LogLevelConfig: Config.Config<LogLevel> = Config.nested(
+    Config.literal("debug", "info", "warn", "error")("LOG_LEVEL")
+      .pipe(Config.withDefault("info" as const)),
+    "DIVBAN"
+  );
+
+  export const EnvConfigSpec: Config.Config<EnvConfig> = Config.all([
+    HomeConfig, LogLevelConfig, LogFormatConfig, BaseDataDirConfig, DebugModeConfig
+  ]).pipe(Config.map(([home, logLevel, ...]) => ({ ... })));
+
+  Features used:
+  - Config.string, Config.boolean, Config.literal
+  - Config.withDefault for fallbacks
+  - Config.nested for namespacing (DIVBAN_ prefix)
+  - Config.all + Config.map for composition
+  - ConfigProvider.fromMap for testing
+
+  3. Effect.retry with Schedule (Priority 3) - COMPLETE
+
+  Location: src/lib/retry.ts + 7 system modules
+
+  Comprehensive retry infrastructure:
+
+  // src/lib/retry.ts - Schedule definitions
+  export const systemRetrySchedule = pipe(
+    Schedule.exponential(Duration.millis(200)),
+    Schedule.jittered,
+    Schedule.intersect(Schedule.recurs(4))
+  );
+
+  // Usage in src/system/user.ts:353-370
+  const retrySchedule = pipe(
+    systemRetrySchedule,
+    Schedule.whileInput((err: SystemError | GeneralError) => isUidConflictError(err))
+  );
+  yield* Effect.retry(createUserWithUid(...), retrySchedule);
+
+  Retry is used in:
+  - src/services/caddy/commands/reload.ts (4 sites)
+  - src/system/directories.ts (4 sites)
+  - src/system/linger.ts (4 sites)
+  - src/system/lock.ts (1 site)
+  - src/system/user.ts (1 site)
+  - src/system/systemctl.ts (7 sites)
+  - src/system/secrets.ts (3 sites)
+
+  Includes error classification for retry decisions:
+  - isTransientSystemError() - retryable patterns
+  - isTransientServiceError() - service-specific patterns
+  - isDbusSessionError() - D-Bus session issues
+
+  ---
+  Remaining Adoption Opportunities (Updated Priorities)
+
+  Priority 1: Redacted for Secrets (Low Effort, High Value)
+
+  Why now: Your src/system/secrets.ts handles sensitive data (passwords, tokens) that could leak in
+  logs.
+
+  Current code:
+  // src/system/secrets.ts:42-48
+  export interface ServiceSecrets {
+    values: Record<string, string>;  // Plain strings - could leak
+    keypair: AgeKeypair;
+  }
+
+  Effect approach:
+  import { Redacted } from "effect";
+
+  export interface ServiceSecrets {
+    values: Record<string, Redacted.Redacted<string>>;
+    keypair: AgeKeypair;
+  }
+
+  // Creation
+  const secret = Redacted.make(passwordValue);
+
+  // Safe to log - shows "<redacted>"
+  Effect.log(`Created secret: ${secret}`);
+
+  // Access when needed
+  const actual = Redacted.value(secret);
+
+  Files to modify: src/system/secrets.ts, src/services/*/setup.ts
+
+  ---
+  Priority 2: Effect Logging (Medium Effort, High Value)
+
+  Why: Your custom Logger works but doesn't integrate with Effect's context propagation or span
+  timing.
+
+  Current code:
+  // src/lib/logger.ts:59-70
+  export interface Logger {
+    debug(message: string, context?: Record<string, unknown>): void;
+    step(current: number, total: number, message: string): void;
+    success(message: string): void;
+    // ...
+  }
+
+  Hybrid approach (recommended): Keep your Logger for CLI output, add Effect logging for operations
+  that benefit from context propagation:
+
+  // Add to src/lib/logger.ts
+  export const effectStep = (current: number, total: number, message: string) =>
+    Effect.log(message).pipe(
+      Effect.annotateLogs("step", `${current}/${total}`),
+      Effect.annotateLogs("type", "step")
+    );
+
+  export const effectSuccess = (message: string) =>
+    Effect.log(message).pipe(Effect.annotateLogs("type", "success"));
+
+  // Usage with spans for timing
+  const setup = Effect.gen(function* () {
+    yield* createUser.pipe(Effect.withSpan("create-user"));
+    yield* enableLinger.pipe(Effect.withSpan("enable-linger"));
+  }).pipe(Effect.withSpan("divban-setup"));
+
+  Value: Automatic timing, context propagation through fiber hierarchy, integration with tracing.
+
+  ---
+  Priority 3: Context.Tag + Layer (High Effort, Very High Value)
+
+  Why: This would be the biggest architectural improvement, enabling proper DI and testability.
+
+  Current code:
+  // src/services/types.ts:67-107
+  export interface ServiceContext<C> {
+    config: C;
+    logger: Logger;
+    paths: { dataDir, quadletDir, configDir, homeDir };
+    user: { name, uid, gid };
+    options: { dryRun, verbose, force };
+    system: SystemCapabilities;
+  }
+
+  // Passed explicitly everywhere
+  const files = yield* service.generate(ctx);
+
+  Effect approach:
+  // src/services/context.ts
+  import { Context, Layer } from "effect";
+
+  class ServiceLogger extends Context.Tag("ServiceLogger")<
+    ServiceLogger,
+    { step: (n: number, t: number, m: string) => Effect.Effect<void> }
+  >() {}
+
+  class ServicePaths extends Context.Tag("ServicePaths")<
+    ServicePaths,
+    { dataDir: AbsolutePath; quadletDir: AbsolutePath; ... }
+  >() {}
+
+  class ServiceUser extends Context.Tag("ServiceUser")<
+    ServiceUser,
+    { name: Username; uid: UserId; gid: GroupId }
+  >() {}
+
+  // Effects use services implicitly
+  const generate = Effect.gen(function* () {
+    const logger = yield* ServiceLogger;
+    const paths = yield* ServicePaths;
+    yield* logger.step(1, 5, "Generating quadlets...");
+  });
+
+  // Compose and provide
+  const AppLive = Layer.mergeAll(ServiceLoggerLive, ServicePathsLive, ...);
+  Effect.provide(generate, AppLive);
+
+  Migration path:
+  1. Start with one Tag (ServiceLogger)
+  2. Create Layer and update one service method
+  3. Gradually migrate other context fields
+  4. Eventually remove ServiceContext
+
+  Benefits:
+  - Type-checked dependencies at compile time
+  - Easy test mocking via Layer replacement
+  - No manual context threading
+  - Layer memoization prevents duplicate construction
+
+  ---
+  Priority 4: @effect/platform (Medium Effort, High Value)
+
+  Why: Your custom exec.ts and fs.ts could use Effect's platform-specific, composable abstractions.
+
+  Current exec.ts:
+  // src/system/exec.ts
+  export const exec = (command: readonly string[], options: ExecOptions = {}) =>
+    Effect.tryPromise({ try: async () => { ... }, catch: ... });
+
+  @effect/platform Command:
+  import { Command } from "@effect/platform";
+  import { BunContext } from "@effect/platform-bun";
+
+  const listFiles = Command.make("ls", "-la").pipe(
+    Command.workingDirectory("/srv"),
+    Command.env({ CUSTOM_VAR: "value" })
+  );
+
+  // Get output as string
+  const output = Command.string(listFiles);
+
+  // Provide platform context
+  const program = output.pipe(Effect.provide(BunContext.layer));
+
+  Current fs.ts:
+  // src/system/fs.ts
+  export const readFile = (path: AbsolutePath) =>
+    Effect.gen(function* () {
+      const exists = yield* Effect.tryPromise({ ... });
+      return yield* Effect.tryPromise({ ... });
+    });
+
+  @effect/platform FileSystem:
+  import { FileSystem } from "@effect/platform";
+
+  const program = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const content = yield* fs.readFileString("/etc/passwd");
+    const tempDir = yield* fs.makeTempDirectoryScoped(); // Auto-cleanup
+  });
+
+  program.pipe(Effect.scoped, Effect.provide(BunContext.layer));
+
+  Decision point: This is a larger change. Consider if the benefits (cross-platform, scoped temp
+  files, composable commands) outweigh migration effort.
+
+  ---
+  Priority 5: Metrics & Tracing (Low Priority, Future Value)
+
+  When: Once you have observability requirements or performance monitoring needs.
+
+  Metrics:
+  import { Metric } from "effect";
+
+  const userCreationCount = Metric.counter("divban_user_created_total");
+  const setupDuration = Metric.histogram("divban_setup_duration_seconds", {
+    boundaries: [0.1, 0.5, 1, 5, 10, 30]
+  });
+
+  const createUserWithMetrics = createUser.pipe(
+    Effect.tap(() => userCreationCount(Effect.void)),
+    Metric.trackDuration(setupDuration)
+  );
+
+  Tracing:
+  const setup = Effect.gen(function* () {
+    yield* createUser.pipe(Effect.withSpan("create-user"));
+    yield* enableLinger.pipe(Effect.withSpan("enable-linger"));
+  }).pipe(Effect.withSpan("divban-setup"));
+
+  ---
+  Priority 6: TestClock (Future)
+
+  When: You need to test timeout behavior or scheduled operations.
+
+  import { Effect, TestClock, Fiber, TestContext } from "effect";
+
+  const test = Effect.gen(function* () {
+    const fiber = yield* myOperationWithTimeout.pipe(Effect.fork);
+    yield* TestClock.adjust("5 minutes");
+    const result = yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestContext.TestContext));
+
+  ---
+  Implementation Roadmap (Updated)
+
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │  Phase 1 (Completed)         Phase 2 (Current)         Phase 3 (Future)    │
+  │  ─────────────────           ─────────────────         ─────────────────   │
+  │  ✅ Schema.brand             → Redacted                → Context/Layer     │
+  │  ✅ Effect Config            → Effect Logging          → @effect/platform  │
+  │  ✅ Effect.retry             → Effect.withSpan         → Metrics/Tracing   │
+  │  ✅ FiberRef (Logger)                                  → TestClock         │
+  │                                                                             │
+  │  Effort: Complete            Effort: Low-Medium        Effort: High        │
+  │  Risk: None                  Risk: None                Risk: Medium        │
+  └─────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  Quick Reference: Current Patterns
+  ┌───────────────────────────┬─────────────────────────────────┬───────────────────────────────┐
+  │         Situation         │        What You're Using        │      Effect Alternative       │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Environment variables     │ ✅ Config.string, Config.nested │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Branded types             │ ✅ Schema.brand                 │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Retrying operations       │ ✅ Effect.retry with Schedule   │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Service config validation │ ✅ Effect Schema                │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Resource cleanup          │ ✅ acquireRelease/Scope         │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Error composition         │ ✅ Effect.gen + yield*          │ Already using Effect          │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Secrets                   │ Plain strings                   │ → Redacted                    │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Logging                   │ Custom Logger                   │ → Effect.log + annotateLogs   │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Dependency injection      │ ServiceContext                  │ → Context.Tag + Layer         │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Shell commands            │ Custom exec.ts                  │ → @effect/platform Command    │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ File operations           │ Custom fs.ts                    │ → @effect/platform FileSystem │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Operation timing          │ None                            │ → Effect.withSpan             │
+  ├───────────────────────────┼─────────────────────────────────┼───────────────────────────────┤
+  │ Performance metrics       │ None                            │ → Metric.counter/histogram    │
+  └───────────────────────────┴─────────────────────────────────┴───────────────────────────────┘
+  ---
+  Recommended Next Steps
+
+  1. Redacted for secrets - Low effort, high security value
+  2. Effect.withSpan - Add to setup steps for timing visibility
+  3. Evaluate Context.Tag - Consider for one service as pilot
