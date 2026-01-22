@@ -1,6 +1,6 @@
 {
   "name": "divban",
-  "version": "0.4.11",
+  "version": "0.4.12",
   "type": "module",
   "description": "Unified rootless Podman service manager",
   "bin": {
