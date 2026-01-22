@@ -11,8 +11,9 @@
 
 import type { Entries } from "./entry";
 import { concat, fromArray, fromRecord, fromValue } from "./entry-combinators";
-import { makeSection, makeSimpleQuadletGenerator } from "./factory";
+import { makeSimpleQuadletGenerator } from "./factory";
 import type { IniSection } from "./format";
+import { makeSection } from "./section-factory";
 import type { GeneratedQuadlet, NetworkQuadlet } from "./types";
 
 export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>

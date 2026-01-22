@@ -314,7 +314,10 @@ const buildParsedArgs = (
 ): Effect.Effect<ParsedArgs, GeneralError> =>
   Effect.gen(function* () {
     if (positionals.length === 0) {
-      return { ...defaultArgs, help: true };
+      // Preserve boolean flags (version, verbose, etc) from parsed values
+      // If no version flag, show help by default
+      const flags = extractBooleanFlags(values);
+      return { ...defaultArgs, ...flags, help: !flags.version };
     }
 
     const service = parseService(positionals);

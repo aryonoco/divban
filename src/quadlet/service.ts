@@ -11,8 +11,8 @@
 
 import type { Entries } from "./entry";
 import { concat, fromValue } from "./entry-combinators";
-import { makeSection } from "./factory";
 import type { IniSection } from "./format";
+import { makeSection } from "./section-factory";
 import type { ServiceConfig } from "./types";
 
 export const getServiceSectionEntries = (config: ServiceConfig): Entries =>

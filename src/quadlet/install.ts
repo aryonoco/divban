@@ -11,8 +11,8 @@
 
 import type { Entries } from "./entry";
 import { fromValue } from "./entry-combinators";
-import { makeSection } from "./factory";
 import type { IniSection } from "./format";
+import { makeSection } from "./section-factory";
 
 export interface InstallConfig {
   /** Target to install to (default: default.target) */

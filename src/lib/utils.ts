@@ -19,7 +19,7 @@ import { filterCharsToString, mapCharsToString } from "./str-transform";
 
 /**
  * Generate a sortable UUID v7.
- * UUIDv7 is time-sortable, making it ideal for database keys and log correlation.
+ * UUIDv7 is time-sortable, making it ideal.
  */
 export const generateId = (): string => Bun.randomUUIDv7();
 

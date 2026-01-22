@@ -13,12 +13,10 @@ import { Option } from "effect";
 import { listServices } from "../services";
 import { COMMANDS, type Command } from "./parser";
 
-const VERSION = "0.1.0";
-
 /**
  * Main help text.
  */
-export const getMainHelp = (): string => {
+export const getMainHelp = (version: string): string => {
   const services = listServices();
   const serviceList =
     services.length > 0
@@ -26,7 +24,7 @@ export const getMainHelp = (): string => {
       : "  (no services registered)";
 
   return `
-divban v${VERSION} - Unified Rootless Podman Service Manager
+divban v${version} - Unified Rootless Podman Service Manager
 
 USAGE:
   divban <service> <command> [options]
@@ -318,6 +316,4 @@ EXAMPLES:
 /**
  * Print version information.
  */
-export const getVersion = (): string => {
-  return `divban v${VERSION}`;
-};
+export const getVersion = (version: string): string => `divban v${version}`;

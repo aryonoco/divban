@@ -47,7 +47,7 @@ import { executeStop } from "./commands/stop";
 import { executeUpdate } from "./commands/update";
 import { executeValidate } from "./commands/validate";
 
-type DivbanEffectError =
+export type DivbanEffectError =
   | GeneralError
   | ConfigError
   | SystemError
@@ -56,13 +56,16 @@ type DivbanEffectError =
   | BackupError;
 
 /**
- * Run the CLI with the given arguments.
+ * CLI program as pure Effect.
+ * Initialization and execution happen in the Effect context.
+ * Error type is unknown since we handle various error types (our custom errors + Effect's ConfigError)
+ * dynamically at runtime in the entry point.
  */
-export const run = async (argv: string[]): Promise<number> => {
-  // Initialize services registry
-  await initializeServices();
+export const program = (argv: readonly string[]): Effect.Effect<number, unknown> =>
+  Effect.gen(function* () {
+    // Initialize services registry inside Effect
+    yield* Effect.promise(() => initializeServices());
 
-  const program = Effect.gen(function* () {
     // Parse arguments
     const args = yield* parseArgs(argv);
 
@@ -104,8 +107,11 @@ export const run = async (argv: string[]): Promise<number> => {
 
     // Handle help
     if (args.help || args.command === "help") {
-      const { getMainHelp } = yield* Effect.promise(() => import("./help"));
-      console.info(getMainHelp());
+      const [{ getMainHelp }, pkg] = yield* Effect.all([
+        Effect.promise(() => import("./help")),
+        Effect.promise(() => import("../../package.json")),
+      ]);
+      console.info(getMainHelp(pkg.version));
       return 0;
     }
 
@@ -139,22 +145,6 @@ export const run = async (argv: string[]): Promise<number> => {
 
     return 0;
   });
-
-  const exit = await Effect.runPromiseExit(program);
-  if (exit._tag === "Failure") {
-    const error = exit.cause;
-    if ("_tag" in error && error._tag === "Fail") {
-      const err = error.error as DivbanEffectError & { code: number };
-      console.error(`Error: ${err.message}`);
-      return err.code;
-    }
-    // Unexpected error
-    console.error("Unexpected error:", error);
-    return 1;
-  }
-
-  return exit.value;
-};
 
 /**
  * Execute a command on a single service.

@@ -11,8 +11,9 @@
 
 import type { Entries } from "./entry";
 import { concat, fromRecord, fromValue } from "./entry-combinators";
-import { makeSection, makeSimpleQuadletGenerator } from "./factory";
+import { makeSimpleQuadletGenerator } from "./factory";
 import type { IniSection } from "./format";
+import { makeSection } from "./section-factory";
 import type { GeneratedQuadlet, VolumeQuadlet } from "./types";
 
 export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>

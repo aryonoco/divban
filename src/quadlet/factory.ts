@@ -10,24 +10,10 @@
  */
 
 import { Array as Arr, Option, identity, pipe } from "effect";
-import type { Entries } from "./entry";
 import { createQuadletFile } from "./format";
 import type { IniSection } from "./format";
 import type { GeneratedQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
-
-/**
- * Factory for creating section builders.
- * Eliminates boilerplate: (name, getEntries) → (config → IniSection)
- *
- * Note: Explicit return type required for isolatedDeclarations.
- */
-export const makeSection =
-  <C>(name: string, getEntries: (config: C) => Entries): ((config: C) => IniSection) =>
-  (config: C): IniSection => ({
-    name,
-    entries: getEntries(config),
-  });
 
 /**
  * Factory for simple quadlet generators (network, volume pattern).

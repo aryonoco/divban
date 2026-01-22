@@ -13,8 +13,8 @@ import { Array as Arr, Option, pipe } from "effect";
 import { stripSuffix } from "../lib/str-transform";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromValue } from "./entry-combinators";
-import { makeSection } from "./factory";
 import type { IniSection } from "./format";
+import { makeSection } from "./section-factory";
 
 export interface UnitConfig {
   /** Human-readable description */
