@@ -26,13 +26,15 @@ SIGINT
 SIGTERM
 
 # Services
+actualbudget
 caddy
 Caddy
 caddyfile
 Caddyfile
+freshrss
+FreshRSS
 immich
 Immich
-actualbudget
 
 # Bun & TypeScript
 biomejs

@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: 0BSD
+# SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
+#
+# divban-freshrss.toml - FreshRSS configuration
+
+
+[paths]
+# Directory for FreshRSS data (database, config, extensions)
+dataDir = "/srv/divban-freshrss"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Container Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[container]
+# Container image to use
+image = "docker.io/freshrss/freshrss:latest"
+
+# Auto-update policy
+autoUpdate = "registry"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Network Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+[network]
+# Port to expose FreshRSS on
+port = 8080
+
+# Host IP to bind to
+# Default: 127.0.0.1
+# Set to 0.0.0.0 to expose on all interfaces (insecure)
+host = "127.0.0.1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FreshRSS Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Timezone (TZ environment variable)
+timezone = "UTC"
+
+# Cron schedule for feed refresh (CRON_MIN environment variable)
+# Examples: "3,33" for twice per hour, "*/15" for every 15 minutes
+cronMinutes = "3,33"
+
+# Trusted proxy CIDR ranges (TRUSTED_PROXY environment variable)
+# Uncomment if FreshRSS is behind a reverse proxy
+# trustedProxy = "172.16.0.1/12 192.168.0.1/16"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logging
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Log level
+# Options: "debug", "info", "warn", "error"
+logLevel = "info"

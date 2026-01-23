@@ -80,8 +80,10 @@ export const initializeServices = async (): Promise<void> => {
   const { caddyService } = await import("./caddy");
   const { immichService } = await import("./immich");
   const { actualService } = await import("./actual");
+  const { freshRssService } = await import("./freshrss");
 
   registerService(caddyService);
   registerService(immichService);
   registerService(actualService);
+  registerService(freshRssService);
 };
