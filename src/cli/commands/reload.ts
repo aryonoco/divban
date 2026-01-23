@@ -12,7 +12,7 @@
  * directing users to use restart instead.
  */
 
-import { Effect, Either, Match, pipe } from "effect";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -104,9 +104,20 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     logger
                   );
 
-                  // reload is optional, use non-null assertion after capability check
-                  // biome-ignore lint/style/noNonNullAssertion: capability check above ensures reload exists
-                  yield* s.reload!().pipe(Effect.provide(layer));
+                  yield* pipe(
+                    Option.fromNullable(s.reload),
+                    Option.match({
+                      onNone: (): Effect.Effect<never, GeneralError> =>
+                        Effect.fail(
+                          new GeneralError({
+                            code: ErrorCode.GENERAL_ERROR as 1,
+                            message: `Service '${service.definition.name}' reload method not implemented`,
+                          })
+                        ),
+                      onSome: (reloadFn): Effect.Effect<void, DivbanEffectError> =>
+                        reloadFn().pipe(Effect.provide(layer)),
+                    })
+                  );
                 })
               );
 

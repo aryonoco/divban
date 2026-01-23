@@ -52,6 +52,7 @@ Code must follow these constraints strictly. They are non-negotiable.
 ### Type Safety
 - **No `any`/`unknown` in business logic**: Only acceptable at validation boundaries (type guards, Schema decode, catch variables)
 - **Branded types required**: Use types from `src/lib/types.ts` (AbsolutePath, Username, UserId, etc.) - never raw strings/numbers for domain values
+- **No type casting**: Type assertions (`as T`) are highly discouraged and should be kept to an absolute minimum. Anti-patterns like `as unknown as T` must be avoided entirely. If casting is needed, it signals that either the types or the implementation approach is wrong - review the whole design first before resorting to casts
 - **Strict tsconfig**: Code must compile with all strict flags enabled (see `tsconfig.json`)
 
 ### String Handling

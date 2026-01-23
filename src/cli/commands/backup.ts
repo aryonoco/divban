@@ -12,12 +12,12 @@
  * support before attempting - not all services implement backup.
  */
 
-import { Effect, Either, Match, pipe } from "effect";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
-import type { ExistentialService } from "../../services/types";
+import type { BackupResult, ExistentialService } from "../../services/types";
 import type { ParsedArgs } from "../parser";
 import {
   createServiceLayer,
@@ -111,9 +111,20 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     logger
                   );
 
-                  // backup is optional, use non-null assertion after capability check
-                  // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
-                  return yield* s.backup!().pipe(Effect.provide(layer));
+                  return yield* pipe(
+                    Option.fromNullable(s.backup),
+                    Option.match({
+                      onNone: (): Effect.Effect<never, GeneralError> =>
+                        Effect.fail(
+                          new GeneralError({
+                            code: ErrorCode.GENERAL_ERROR as 1,
+                            message: `Service '${service.definition.name}' backup method not implemented`,
+                          })
+                        ),
+                      onSome: (backupFn): Effect.Effect<BackupResult, DivbanEffectError> =>
+                        backupFn().pipe(Effect.provide(layer)),
+                    })
+                  );
                 })
               );
 

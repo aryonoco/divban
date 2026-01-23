@@ -13,8 +13,10 @@
 import { Glob } from "bun";
 import { Array as Arr, Effect, Option, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
+import { CURRENT_BACKUP_SCHEMA_VERSION } from "./backup-version";
 import { collectAsyncOrDie } from "./collection-utils";
 import { mapCharsToString } from "./str-transform";
+import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "./version";
 
 /** Sanitize ISO timestamp for filenames: replace : and . with - */
 const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" : c));
@@ -26,9 +28,9 @@ export const createBackupMetadata = (
   service: string,
   files: readonly string[]
 ): ArchiveMetadata => ({
-  version: "1.0",
-  producer: "divban",
-  producerVersion: "0.5.1",
+  schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
+  producer: DIVBAN_PRODUCER_NAME,
+  producerVersion: DIVBAN_VERSION,
   service,
   timestamp: new Date().toISOString(),
   files,

@@ -19,6 +19,7 @@ import { execAsUser } from "../../system/exec";
 import { fileExists } from "../../system/fs";
 import { startService, stopService } from "../../system/systemctl";
 import { collectFilesWithContent } from "../backup-utils";
+import { BACKUP_METADATA_FILENAME } from "../backup-version";
 import {
   BackupError,
   ErrorCode,
@@ -382,7 +383,9 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
       // Restore additional files
       const filesToWrite = pipe(
         Array.from(files.entries()),
-        Arr.filter(([name]): boolean => name !== "metadata.json" && name !== config.sqlitePath)
+        Arr.filter(
+          ([name]): boolean => name !== BACKUP_METADATA_FILENAME && name !== config.sqlitePath
+        )
       );
 
       yield* Effect.forEach(
@@ -445,7 +448,7 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
       // Write all files to data directory
       const filesToWrite = pipe(
         Array.from(files.entries()),
-        Arr.filter(([name]): boolean => name !== "metadata.json")
+        Arr.filter(([name]): boolean => name !== BACKUP_METADATA_FILENAME)
       );
 
       yield* Effect.forEach(

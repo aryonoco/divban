@@ -12,15 +12,17 @@
  */
 
 import { Array as Arr, Effect, Match, Option, pipe } from "effect";
+import type { DivbanBackUpSchemaVersion, DivbanProducerVersion } from "../lib/backup-version";
+import { BACKUP_METADATA_FILENAME } from "../lib/backup-version";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
-  /** Schema version for this metadata format */
-  readonly version: string;
+  /** Schema version for this metadata format (semver) */
+  readonly schemaVersion: DivbanBackUpSchemaVersion;
   /** Producer application name */
-  readonly producer: string;
+  readonly producer: "divban";
   /** Producer application version (semver) */
-  readonly producerVersion: string;
+  readonly producerVersion: DivbanProducerVersion;
   /** Service this backup is for */
   readonly service: string;
   /** ISO 8601 timestamp when backup was created */
@@ -61,7 +63,9 @@ export const createArchive = (
     );
 
     const archiveFiles: Record<string, string | Uint8Array> = {
-      ...(options?.metadata ? { "metadata.json": JSON.stringify(options.metadata, null, 2) } : {}),
+      ...(options?.metadata
+        ? { [BACKUP_METADATA_FILENAME]: JSON.stringify(options.metadata, null, 2) }
+        : {}),
       ...Object.fromEntries(processedEntries),
     };
 
@@ -145,7 +149,7 @@ export const readArchiveMetadata = (
 ): Effect.Effect<Option.Option<ArchiveMetadata>, never> =>
   Effect.gen(function* () {
     const files = yield* extractArchive(data, options);
-    const metadataBytes = files.get("metadata.json");
+    const metadataBytes = files.get(BACKUP_METADATA_FILENAME);
 
     if (metadataBytes === undefined) {
       return Option.none();
@@ -192,7 +196,9 @@ export const createArchiveFromDirectory = (
     // Prepare files object with metadata
     const archiveFiles: Record<string, string | Uint8Array> = {
       ...files,
-      ...(options?.metadata ? { "metadata.json": JSON.stringify(options.metadata, null, 2) } : {}),
+      ...(options?.metadata
+        ? { [BACKUP_METADATA_FILENAME]: JSON.stringify(options.metadata, null, 2) }
+        : {}),
     };
 
     // Create archive with optional compression

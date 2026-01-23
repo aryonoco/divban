@@ -13,7 +13,7 @@
  * setup skips existing resources and doesn't delete them on rollback.
  */
 
-import { Array as Arr, Effect, Exit, Match, Option, type Schema, type Scope, pipe } from "effect";
+import { Array as Arr, Data, Effect, Exit, Option, type Schema, type Scope, pipe } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type { ConfigError, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
@@ -515,15 +515,18 @@ export const wrapBackupResult = <E>(
 /**
  * Outcome discriminant - avoids unknown in release signatures.
  * A simple sum type for success/failure branching.
+ * Uses Data.TaggedEnum for idiomatic _tag generation.
  */
-export type Outcome = { readonly _tag: "Success" } | { readonly _tag: "Failure" };
+export type Outcome = Data.TaggedEnum<{
+  Success: {};
+  Failure: {};
+}>;
 
-type OutcomeSuccess = { readonly _tag: "Success" };
-type OutcomeFailure = { readonly _tag: "Failure" };
+const { Success, Failure, $match } = Data.taggedEnum<Outcome>();
 
 interface OutcomeOps {
-  readonly success: OutcomeSuccess;
-  readonly failure: OutcomeFailure;
+  readonly success: Outcome;
+  readonly failure: Outcome;
   readonly fromExit: <A, E>(exit: Exit.Exit<A, E>) => Outcome;
   readonly match: <A>(
     outcome: Outcome,
@@ -532,10 +535,8 @@ interface OutcomeOps {
 }
 
 export const Outcome: OutcomeOps = {
-  // biome-ignore lint/style/useNamingConvention: _tag is standard Effect-ts discriminant
-  success: { _tag: "Success" },
-  // biome-ignore lint/style/useNamingConvention: _tag is standard Effect-ts discriminant
-  failure: { _tag: "Failure" },
+  success: Success(),
+  failure: Failure(),
 
   fromExit: <A, E>(exit: Exit.Exit<A, E>): Outcome =>
     Exit.match(exit, {
@@ -549,13 +550,7 @@ export const Outcome: OutcomeOps = {
       readonly onSuccess: () => A;
       readonly onFailure: () => A;
     }
-  ): A =>
-    pipe(
-      Match.value(outcome),
-      Match.tag("Success", cases.onSuccess),
-      Match.tag("Failure", cases.onFailure),
-      Match.exhaustive
-    ) as A,
+  ): A => $match({ Success: cases.onSuccess, Failure: cases.onFailure })(outcome) as A,
 };
 
 // ============================================================================
@@ -612,13 +607,17 @@ export const SetupStep = {
 /**
  * Empty state - branded to prevent accidental extension.
  * All pipelines start here.
+ * Uses symbol-based brand to avoid naming convention lint.
  */
+const EmptyStateBrand: unique symbol = Symbol.for("divban/EmptyState");
+
 export interface EmptyState {
-  readonly __brand: "EmptyState";
+  readonly [EmptyStateBrand]: typeof EmptyStateBrand;
 }
 
-// biome-ignore lint/style/useNamingConvention: __brand is standard TypeScript branding pattern
-export const emptyState: EmptyState = { __brand: "EmptyState" };
+export const emptyState: EmptyState = {
+  [EmptyStateBrand]: EmptyStateBrand,
+};
 
 // ============================================================================
 // Pipeline Builder Pattern

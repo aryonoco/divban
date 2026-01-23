@@ -16,6 +16,7 @@ import { Glob } from "bun";
 import { Effect, Either, Match, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import { createBackupTimestamp } from "../../lib/backup-utils";
+import { CURRENT_BACKUP_SCHEMA_VERSION } from "../../lib/backup-version";
 import { collectAsyncOrDie } from "../../lib/collection-utils";
 import {
   type ConfigError,
@@ -28,6 +29,7 @@ import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect, userConfigDir } from "../../lib/paths";
 import type { AbsolutePath, ServiceName } from "../../lib/types";
 import { pathJoin } from "../../lib/types";
+import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "../../lib/version";
 import type { ExistentialService } from "../../services/types";
 import { type ArchiveMetadata, createArchive } from "../../system/archive";
 import {
@@ -320,9 +322,9 @@ export const executeBackupConfig = (
 
                 // Step 6: Create archive with metadata
                 const metadata: ArchiveMetadata = {
-                  version: "1.0",
-                  producer: "divban",
-                  producerVersion: "0.5.1",
+                  schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
+                  producer: DIVBAN_PRODUCER_NAME,
+                  producerVersion: DIVBAN_VERSION,
                   service: serviceName,
                   timestamp: new Date().toISOString(),
                   files: fileNames,

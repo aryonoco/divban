@@ -224,8 +224,20 @@ const performRestore = (
           logger
         );
 
-        // biome-ignore lint/style/noNonNullAssertion: capability check ensures restore exists
-        yield* s.restore!(backupPath).pipe(Effect.provide(layer));
+        yield* pipe(
+          Option.fromNullable(s.restore),
+          Option.match({
+            onNone: (): Effect.Effect<never, GeneralError> =>
+              Effect.fail(
+                new GeneralError({
+                  code: ErrorCode.GENERAL_ERROR as 1,
+                  message: `Service '${service.definition.name}' restore method not implemented`,
+                })
+              ),
+            onSome: (restoreFn): Effect.Effect<void, DivbanEffectError> =>
+              restoreFn(backupPath).pipe(Effect.provide(layer)),
+          })
+        );
       })
     );
 

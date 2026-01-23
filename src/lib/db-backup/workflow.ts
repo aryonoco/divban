@@ -21,6 +21,12 @@ import {
   detectCompressionFormat,
 } from "../backup-utils";
 import {
+  BACKUP_METADATA_FILENAME,
+  type DivbanBackUpSchemaVersion,
+  type DivbanProducerVersion,
+  validateBackupCompatibility,
+} from "../backup-version";
+import {
   BackupError,
   ErrorCode,
   type GeneralError,
@@ -29,6 +35,7 @@ import {
 } from "../errors";
 import type { AbsolutePath, ServiceName, UserId, Username } from "../types";
 import { pathJoin, userIdToGroupId } from "../types";
+import { DIVBAN_VERSION } from "../version";
 import { freshRssCliStrategy, postgresStrategy, sqliteStopStrategy } from "./strategies";
 import type { BackupConfig, BackupStrategy } from "./types";
 
@@ -130,8 +137,8 @@ const executeRestore = <C extends BackupConfig>(
 
     const files = yield* extractArchive(compressedData, { decompress: compression });
 
-    // Validate metadata - backup MUST have metadata.json with correct producer and service
-    const metadataBytes = files.get("metadata.json");
+    // Validate metadata - backup MUST have metadata with correct producer and service
+    const metadataBytes = files.get(BACKUP_METADATA_FILENAME);
     yield* pipe(
       Effect.succeed(metadataBytes),
       Effect.filterOrFail(
@@ -139,7 +146,7 @@ const executeRestore = <C extends BackupConfig>(
         (): BackupError =>
           new BackupError({
             code: ErrorCode.RESTORE_FAILED as 51,
-            message: "Invalid backup: missing metadata.json",
+            message: `Invalid backup: missing ${BACKUP_METADATA_FILENAME}`,
           })
       ),
       Effect.flatMap(
@@ -150,7 +157,7 @@ const executeRestore = <C extends BackupConfig>(
             catch: (): BackupError =>
               new BackupError({
                 code: ErrorCode.RESTORE_FAILED as 51,
-                message: "Invalid backup: malformed metadata.json",
+                message: `Invalid backup: malformed ${BACKUP_METADATA_FILENAME}`,
               }),
           })
       ),
@@ -170,7 +177,14 @@ const executeRestore = <C extends BackupConfig>(
             message: `Backup is for '${meta.service}', not '${serviceName}'`,
           })
       ),
-      Effect.asVoid
+      Effect.flatMap(
+        (meta): Effect.Effect<void, BackupError> =>
+          validateBackupCompatibility(
+            meta.schemaVersion as DivbanBackUpSchemaVersion,
+            meta.producerVersion as DivbanProducerVersion,
+            DIVBAN_VERSION
+          )
+      )
     );
 
     yield* strategy.restoreData(config, { serviceName, dataDir, user, uid, files });
