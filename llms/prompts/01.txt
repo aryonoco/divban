@@ -117,22 +117,22 @@ Ensure your plan achieves a clean refactor, with no legacy code, compatibility b
 
 ---
 
- I still feel like there is a lot of duplication in
+ I still feel the plan is not optimal. 
 
-Think like a SRE level Haskell expert with a penchant for type theory, and then think very carefully and see if there is a way to restructure/refactor 
-@src/quadlet/ 
-in a more composable and FP-oriented way while still respecting my TS compiler settings @tsconfig.json
+Think like a senior Ocaml/Haskell developer and then analyse the existing codebase and see if there is a way to make tthe plan more DRY, more composable and more FP-oriented way while still respecting my TS compiler settings @tsconfig.json
+
+The plan should aim for maximal code reuse 
 
 
 ---
 
 Ensure your plan follows the idiomatic FP-pattern used across the codebase. No loops of any kind are allowed. No mutable data structures are allowed. Business logic and types cannot use "any", "unknown" or "undefined", they are only acceptable on the input side of a vlidation machine, or as internal part of an API when TypeScript's HKT limitations make them unavoidable (the public API should always be fully typed). 
 
-Ensure you plan does not use any if, switch or other such conditional statements, only exhaustive pattern matching using Effect library is allowed. 
+Ensure you plan does not use any switch statements. "if" statemtns are only allowed if evaluating a boolean,  for all other such conditional statements only exhaustive pattern matching using Effect library is allowed. 
 
 Ensure the plan is compatible with my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)
 
-Ensure the plan fully leverages all the relevant facilities available in Effect
+Ensure the plan optimally leverages all the relevant facilities available in Effect
 
 Read @llms/effect.llms.headline.txt 
 
@@ -140,3 +140,28 @@ To find out the details of something in Effect, read the relevant parts of llms/
 
 
 Ensure the plan is fully in alignment with the error handling, retry mechanism, and type system used across the codebase. 
+
+--- 
+
+Analyse the documentt @comment-catalogue.md This file is a high level overview of the state of comments in all the typescript files in this repo (excluding tests)
+
+One by one, Open the 5 files which constitute 
+Batch 20
+in this document. 
+
+Review all the comments in each file in detail. Examine the file does, how it fits in with the codebase, and what that particular function does. Rewrite the comments comprehensively to be concise and to follow software engineering best practices. The comment should describe why the code does what it does, not what it does (which is evident from the code anyway) Think of the libraries which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library itself and model the comments in these files after them. 
+
+Once you have rewritten these comments in this batch, mark the files with a tickbox in @comment-catalogue.md  and then stop. Do not do anything about the other files. Do not change anything other than the commetns of these files. 
+
+
+---
+
+Analyse this codebase in detail, how it is setup and what it achieves to do. 
+
+I'm now trying to develop a prompt, or an instruction document that I can give to an LLM/AI agent on how to add a service to divban. 
+
+Say I want to give the AI agent a docker compose file I've found on the internet. And I want to tell it to "Add support for X" to divban. And then I want the LLM agent to do everyting correctly, generate the appropriate divban-x.toml file from the docker compose and store it in @examples and then follow all the rules, register things properly, setup all the required commands properly, create all the required services and types and interfaces and anything else that's required so divban then also supports x
+
+I've created two such documents already. Analayse the codebase and then determine which one is better in which regards. Then create an optimised, synthesided new document called
+divban-add-service-guide-06.md 
+which includes the best parts of the existing documents and removes their weak or incorrect parts. 
