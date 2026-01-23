@@ -15,7 +15,13 @@ import { Effect, Either, Match, pipe } from "effect";
 import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import type { AbsolutePath, ServiceName, UserId, Username } from "../../lib/types";
+import {
+  type AbsolutePath,
+  type ServiceName,
+  type UserId,
+  type Username,
+  pathJoin,
+} from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { removeDirectory } from "../../system/directories";
 import { exec, execAsUser } from "../../system/exec";
@@ -238,12 +244,12 @@ const cleanupContainerStorage = (
   logger: Logger
 ): Effect.Effect<void, SystemError | GeneralError> =>
   pipe(
-    directoryExists(`${homeDir}/.local/share/containers/storage` as AbsolutePath),
+    directoryExists(pathJoin(homeDir, ".local/share/containers/storage")),
     Effect.flatMap((exists) =>
       Effect.if(exists, {
         onTrue: (): Effect.Effect<void, SystemError | GeneralError> =>
           Effect.gen(function* () {
-            const storageDir = `${homeDir}/.local/share/containers/storage` as AbsolutePath;
+            const storageDir = pathJoin(homeDir, ".local/share/containers/storage");
             const result = yield* Effect.either(removeDirectory(storageDir, true));
             Either.match(result, {
               onLeft: (err): void => {

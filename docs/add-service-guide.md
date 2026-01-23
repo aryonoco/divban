@@ -490,8 +490,8 @@ import { type {ServiceName}Config, {servicename}ConfigSchema } from "./schema";
 // Constants
 // ============================================================================
 
-const SERVICE_NAME = "{servicename}" as ServiceName;
-const CONTAINER_NAME = "{servicename}" as ServiceName;
+const SERVICE_NAME = serviceName("{servicename}");
+const CONTAINER_NAME = containerName("{servicename}");
 
 // ============================================================================
 // Service Definition
@@ -646,7 +646,7 @@ const createDirsStep: SetupStep<
       const user = yield* ServiceUser;
 
       const dataDir = config.paths.dataDir;
-      const dirs = [dataDir] as AbsolutePath[];  // Add subdirectories as needed
+      const dirs: readonly AbsolutePath[] = [dataDir];  // Add subdirectories as needed
 
       const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
         uid: user.uid,
@@ -737,13 +737,13 @@ export const {servicename}Service: ServiceEffect<{ServiceName}Config, {ServiceNa
 ### Key Implementation Notes
 
 1. **`ServicePaths` import** - Use `type ServicePaths` in the import (it's a type-only import)
-2. **`createSingleContainerOps`** - Takes `{ serviceName, displayName }` object
+2. **`createSingleContainerOps`** - Takes `{ containerName, displayName }` object
 3. **`writeGeneratedFilesTracked`** - Takes `files` from accumulated state (`state.files`)
 4. **`relabelVolumes`** - Handles SELinux `:Z` relabeling based on system capabilities
 5. **`duration("30s")`** - Creates branded duration strings for health checks
 6. **`SetupStep.pure`** - For computations without cleanup
 7. **`SetupStep.resource`** - For operations requiring rollback on failure
-8. **Branded types** - Use `as ServiceName` for service names, not raw strings
+8. **Branded types** - Use `serviceName()` and `containerName()` constructors, not raw strings
 
 ---
 

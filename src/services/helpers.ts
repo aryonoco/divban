@@ -29,8 +29,8 @@ import type { ConfigError, GeneralError, ServiceError, SystemError } from "../li
 import { configFilePath, quadletFilePath } from "../lib/paths";
 import {
   type AbsolutePath,
+  type ContainerName,
   type GroupId,
-  type ServiceName,
   type UserId,
   pathWithSuffix,
 } from "../lib/types";
@@ -389,8 +389,8 @@ export const cleanupConfigBackup = (result: ConfigCopyResult): Effect.Effect<voi
 // ============================================================================
 
 export interface SingleContainerConfig {
-  serviceName: ServiceName;
-  displayName: string;
+  readonly containerName: ContainerName;
+  readonly displayName: string;
 }
 
 export interface SingleContainerOps {
@@ -420,7 +420,7 @@ export interface SingleContainerOps {
 }
 
 export const createSingleContainerOps = (config: SingleContainerConfig): SingleContainerOps => {
-  const unit = `${config.serviceName}.service`;
+  const unit = `${config.containerName}.service`;
 
   return {
     start: (): Effect.Effect<
@@ -478,7 +478,7 @@ export const createSingleContainerOps = (config: SingleContainerConfig): SingleC
           running,
           containers: [
             {
-              name: config.serviceName,
+              name: config.containerName,
               status: running ? { status: "running" } : { status: "stopped" },
             },
           ],

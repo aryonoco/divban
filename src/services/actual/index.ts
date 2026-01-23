@@ -13,7 +13,14 @@
 import { Effect } from "effect";
 import { backupService, restoreService } from "../../lib/db-backup";
 import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
-import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
+import {
+  type AbsolutePath,
+  containerImage,
+  containerName,
+  duration,
+  pathJoin,
+  serviceName,
+} from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
@@ -45,8 +52,8 @@ import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } f
 import { ActualConfigTag } from "./config";
 import { type ActualConfig, actualConfigSchema } from "./schema";
 
-const SERVICE_NAME = "actual" as ServiceName;
-const CONTAINER_NAME = "actual" as ServiceName;
+const SERVICE_NAME = serviceName("actual");
+const CONTAINER_NAME = containerName("actual");
 
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
@@ -62,7 +69,7 @@ const definition: ServiceDefinition = {
 };
 
 const ops = createSingleContainerOps({
-  serviceName: CONTAINER_NAME,
+  containerName: CONTAINER_NAME,
   displayName: "Actual",
 });
 
@@ -84,7 +91,8 @@ const generate = (): Effect.Effect<
       name: CONTAINER_NAME,
       containerName: CONTAINER_NAME,
       description: "Actual Budget Server",
-      image: config.container?.image ?? "docker.io/actualbudget/actual-server:latest",
+      image:
+        config.container?.image ?? containerImage("docker.io/actualbudget/actual-server:latest"),
 
       // Network - bind to localhost by default for security
       ports: [
@@ -177,12 +185,12 @@ const createDirsStep: SetupStep<
       const user = yield* ServiceUser;
 
       const dataDir = config.paths.dataDir;
-      const dirs = [
+      const dirs: readonly AbsolutePath[] = [
         dataDir,
-        `${dataDir}/server-files`,
-        `${dataDir}/user-files`,
-        `${dataDir}/backups`,
-      ] as AbsolutePath[];
+        pathJoin(dataDir, "server-files"),
+        pathJoin(dataDir, "user-files"),
+        pathJoin(dataDir, "backups"),
+      ];
 
       const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
         uid: user.uid,

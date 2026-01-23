@@ -46,7 +46,16 @@ export {
   pathJoin,
   pathWithSuffix,
   userIdToGroupId,
+  // Literal constructors
+  containerImage,
+  containerName,
+  networkName,
+  serviceName,
+  serviceNameToContainerName,
+  username,
+  volumeName,
 } from "./types";
+export { databaseName, databaseUser } from "./db-backup/types";
 export type {
   AbsolutePath as AbsolutePathType,
   ContainerName as ContainerNameType,

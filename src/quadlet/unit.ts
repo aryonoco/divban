@@ -15,6 +15,7 @@
 
 import { Array as Arr, Option, pipe } from "effect";
 import { stripSuffix } from "../lib/str-transform";
+import type { ContainerName } from "../lib/types";
 import type { Entries } from "./entry";
 import { concat, fromArray, fromValue } from "./entry-combinators";
 import type { IniSection } from "./format";
@@ -66,11 +67,10 @@ export const buildUnitSection: (config: UnitConfig) => IniSection = makeSection(
 );
 
 /** Quadlet generator names the resulting systemd unit `<container>.service`. */
-export const toUnitName = (containerName: string): string => {
-  return `${containerName}.service`;
-};
+export const toUnitName = (name: string): string => `${name}.service`;
 
-export const fromUnitName = (unitName: string): string => pipe(unitName, stripSuffix(".service"));
+export const fromUnitName = (unitName: string): ContainerName =>
+  pipe(unitName, stripSuffix(".service")) as string as ContainerName;
 
 /** Transforms container names to unit names for Requires/Wants/After/Before directives. */
 export const buildUnitDependencies = (

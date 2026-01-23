@@ -40,6 +40,9 @@ export interface Directive {
   readonly block?: readonly Directive[] | undefined;
 }
 
+// Type erasure required: Effect Schema cannot infer recursive types.
+// The Schema.suspend() creates a different structural type that requires
+// explicit annotation. This is a known Effect Schema limitation.
 export const directiveSchema: Schema.Schema<Directive> = Schema.Struct({
   name: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
@@ -80,6 +83,7 @@ const matcherFieldsWithoutName = {
   expression: Schema.optional(Schema.String),
 };
 
+// Type erasure required: Effect Schema recursive type limitation.
 export const namedMatcherSchema: Schema.Schema<NamedMatcher> = Schema.Struct({
   name: Schema.String,
   ...matcherFieldsWithoutName,

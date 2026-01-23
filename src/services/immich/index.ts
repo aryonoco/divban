@@ -16,7 +16,13 @@ import type {
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { configFilePath } from "../../lib/paths";
-import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
+import {
+  type AbsolutePath,
+  containerImage,
+  duration,
+  pathJoin,
+  serviceName,
+} from "../../lib/types";
 import {
   createEnvSecret,
   createHttpHealthCheck,
@@ -74,7 +80,10 @@ import { getLibraryEnvironment, librariesToVolumeMounts } from "./libraries";
 import { type ImmichConfig, immichConfigSchema } from "./schema";
 import { IMMICH_SECRETS, ImmichSecretNames } from "./secrets";
 
-const SERVICE_NAME = "immich" as ServiceName;
+const SERVICE_NAME = serviceName("immich");
+
+// Placeholder image for stack operations (start/stop/status) where actual image is irrelevant
+const PLACEHOLDER_IMAGE = containerImage("placeholder");
 
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
@@ -253,7 +262,7 @@ const generate = (): Effect.Effect<
     ];
 
     const stack = createStack({
-      name: "immich",
+      name: SERVICE_NAME,
       network: { name: NETWORK_NAME, internal: true },
       containers: [...containers], // spread to mutable array for createStack
     });
@@ -352,15 +361,15 @@ const createDirsStep: SetupStep<
       const user = yield* ServiceUser;
 
       const dataDir = config.paths.dataDir;
-      const dirs = [
-        `${dataDir}/upload`,
-        `${dataDir}/profile`,
-        `${dataDir}/thumbs`,
-        `${dataDir}/encoded`,
-        `${dataDir}/postgres`,
-        `${dataDir}/model-cache`,
-        `${dataDir}/backups`,
-      ] as AbsolutePath[];
+      const dirs: readonly AbsolutePath[] = [
+        pathJoin(dataDir, "upload"),
+        pathJoin(dataDir, "profile"),
+        pathJoin(dataDir, "thumbs"),
+        pathJoin(dataDir, "encoded"),
+        pathJoin(dataDir, "postgres"),
+        pathJoin(dataDir, "model-cache"),
+        pathJoin(dataDir, "backups"),
+      ];
 
       const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
         uid: user.uid,
@@ -447,16 +456,22 @@ const start = (): Effect.Effect<
 
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const baseContainers: StackContainer[] = [
-      { name: CONTAINERS.redis, image: "", requires: [] },
-      { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
-      { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
+      { name: CONTAINERS.redis, image: PLACEHOLDER_IMAGE, requires: [] },
+      { name: CONTAINERS.postgres, image: PLACEHOLDER_IMAGE, requires: [CONTAINERS.redis] },
+      {
+        name: CONTAINERS.server,
+        image: PLACEHOLDER_IMAGE,
+        requires: [CONTAINERS.redis, CONTAINERS.postgres],
+      },
     ];
     const containers = pipe(
       baseContainers,
-      Arr.appendAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "", requires: [] }] : [])
+      Arr.appendAll(
+        mlEnabled ? [{ name: CONTAINERS.ml, image: PLACEHOLDER_IMAGE, requires: [] }] : []
+      )
     );
 
-    const stack = createStack({ name: "immich", containers: [...containers] });
+    const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
     yield* startStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
@@ -472,16 +487,20 @@ const stop = (): Effect.Effect<
 
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const baseContainers: StackContainer[] = [
-      { name: CONTAINERS.server, image: "", requires: [CONTAINERS.redis, CONTAINERS.postgres] },
-      { name: CONTAINERS.postgres, image: "", requires: [CONTAINERS.redis] },
-      { name: CONTAINERS.redis, image: "" },
+      {
+        name: CONTAINERS.server,
+        image: PLACEHOLDER_IMAGE,
+        requires: [CONTAINERS.redis, CONTAINERS.postgres],
+      },
+      { name: CONTAINERS.postgres, image: PLACEHOLDER_IMAGE, requires: [CONTAINERS.redis] },
+      { name: CONTAINERS.redis, image: PLACEHOLDER_IMAGE },
     ];
     const containers = pipe(
       baseContainers,
-      Arr.prependAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "" }] : [])
+      Arr.prependAll(mlEnabled ? [{ name: CONTAINERS.ml, image: PLACEHOLDER_IMAGE }] : [])
     );
 
-    const stack = createStack({ name: "immich", containers: [...containers] });
+    const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
     yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
@@ -508,16 +527,16 @@ const status = (): Effect.Effect<
 
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const baseContainers: StackContainer[] = [
-      { name: CONTAINERS.redis, image: "" },
-      { name: CONTAINERS.postgres, image: "" },
-      { name: CONTAINERS.server, image: "" },
+      { name: CONTAINERS.redis, image: PLACEHOLDER_IMAGE },
+      { name: CONTAINERS.postgres, image: PLACEHOLDER_IMAGE },
+      { name: CONTAINERS.server, image: PLACEHOLDER_IMAGE },
     ];
     const containers = pipe(
       baseContainers,
-      Arr.appendAll(mlEnabled ? [{ name: CONTAINERS.ml, image: "" }] : [])
+      Arr.appendAll(mlEnabled ? [{ name: CONTAINERS.ml, image: PLACEHOLDER_IMAGE }] : [])
     );
 
-    const stack = createStack({ name: "immich", containers: [...containers] });
+    const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
     // Note: getStackStatus requires logger but we can use a no-op one since status is just a query
     const noopLogger: Logger = {
       debug: () => undefined,

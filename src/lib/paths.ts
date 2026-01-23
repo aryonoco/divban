@@ -19,6 +19,7 @@ import {
   path,
   AbsolutePathSchema,
   type AbsolutePath as AbsolutePathType,
+  type Username,
   joinPath,
   pathJoin,
 } from "./types";
@@ -45,7 +46,7 @@ export const SYSTEM_PATHS: {
 
 export const lookupUserHomeFromPasswd = (
   passwdContent: string,
-  username: string
+  username: Username
 ): Option.Option<AbsolutePathType> =>
   pipe(
     passwdContent.split("\n"),
@@ -71,9 +72,9 @@ export const lookupUserHomeFromPasswd = (
  * The cache is encapsulated in a closure, not a module-level mutable variable.
  * Memoization is a controlled side effect pattern used in FP.
  */
-const createMemoizedHomeDir = (): ((username: string) => AbsolutePathType) => {
-  const cache = new Map<string, AbsolutePathType>();
-  return (username: string): AbsolutePathType =>
+const createMemoizedHomeDir = (): ((username: Username) => AbsolutePathType) => {
+  const cache = new Map<Username, AbsolutePathType>();
+  return (username: Username): AbsolutePathType =>
     pipe(
       Option.fromNullable(cache.get(username)),
       Option.getOrElse(() => {
@@ -99,7 +100,7 @@ const createMemoizedHomeDir = (): ((username: string) => AbsolutePathType) => {
  * Get user's home directory from /etc/passwd.
  * Falls back to /home/<username> if user not found.
  */
-export const userHomeDir: (username: string) => AbsolutePathType = createMemoizedHomeDir();
+export const userHomeDir: (username: Username) => AbsolutePathType = createMemoizedHomeDir();
 
 export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>
   pathJoin(homeDir, ".config/containers/systemd");
@@ -110,7 +111,7 @@ export const userConfigDir = (homeDir: AbsolutePathType): AbsolutePathType =>
 export const userDataDir = (homeDir: AbsolutePathType): AbsolutePathType =>
   pathJoin(homeDir, "data");
 
-export const lingerFile = (username: string): AbsolutePathType =>
+export const lingerFile = (username: Username): AbsolutePathType =>
   pathJoin(SYSTEM_PATHS.lingerDir, username);
 
 /** Rejects null bytes to prevent path injection attacks. */

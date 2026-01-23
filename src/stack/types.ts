@@ -13,6 +13,13 @@
  */
 
 import type {
+  ContainerImage,
+  ContainerName,
+  NetworkName,
+  ServiceName,
+  VolumeName,
+} from "../lib/types";
+import type {
   HealthCheck,
   PortMapping,
   SecretMount,
@@ -26,11 +33,11 @@ import type {
  */
 export interface StackContainer {
   /** Container name (unique within stack) */
-  name: string;
+  readonly name: ContainerName;
   /** Human-readable description */
-  description?: string | undefined;
+  readonly description?: string | undefined;
   /** Container image reference */
-  image: string;
+  readonly image: ContainerImage;
   /** Optional image digest for pinning */
   imageDigest?: string | undefined;
 
@@ -88,9 +95,9 @@ export interface StackContainer {
  */
 export interface StackNetwork {
   /** Network name */
-  name: string;
+  readonly name: NetworkName;
   /** Internal network (no external connectivity) */
-  internal?: boolean | undefined;
+  readonly internal?: boolean | undefined;
   /** Additional network options */
   options?: Record<string, string> | undefined;
 }
@@ -100,9 +107,9 @@ export interface StackNetwork {
  */
 export interface StackVolume {
   /** Volume name */
-  name: string;
+  readonly name: VolumeName;
   /** Volume options */
-  options?: Record<string, string> | undefined;
+  readonly options?: Record<string, string> | undefined;
 }
 
 /**
@@ -110,9 +117,9 @@ export interface StackVolume {
  */
 export interface Stack {
   /** Stack name (used as prefix for resources) */
-  name: string;
+  readonly name: ServiceName;
   /** Human-readable description */
-  description?: string | undefined;
+  readonly description?: string | undefined;
 
   /** Internal network for stack communication */
   network?: StackNetwork | undefined;

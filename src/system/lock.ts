@@ -15,7 +15,7 @@
 import { Effect, Either, Option, Schedule, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { pollingSchedule } from "../lib/retry";
-import type { AbsolutePath } from "../lib/types";
+import { path, type AbsolutePath, pathJoin, pathWithSuffix } from "../lib/types";
 import {
   deleteFile,
   ensureDirectory,
@@ -25,7 +25,7 @@ import {
   writeFileExclusive,
 } from "./fs";
 
-const LOCK_DIR = "/var/lock/divban" as AbsolutePath;
+const LOCK_DIR = path("/var/lock/divban");
 const STALE_LOCK_AGE_MS = 60000; // 1 minute
 
 /** Validate resource name doesn't contain path traversal characters */
@@ -103,7 +103,7 @@ const takeoverStaleLock = (
 ): Effect.Effect<boolean, SystemError> =>
   Effect.gen(function* () {
     const pidContent = `${process.pid}\n${Date.now()}\n`;
-    const tempPath = `${lockPath}.${process.pid}.tmp` as AbsolutePath;
+    const tempPath = pathWithSuffix(lockPath, `.${process.pid}.tmp`);
 
     // Write our PID to temp file
     const writeResult = yield* Effect.either(writeFile(tempPath, pidContent));
@@ -193,7 +193,7 @@ export const withLock = <T, E>(
       );
     }
 
-    const lockPath = `${LOCK_DIR}/${resourceName}.lock` as AbsolutePath;
+    const lockPath = pathJoin(LOCK_DIR, `${resourceName}.lock`);
 
     // Ensure lock directory exists
     yield* ensureDirectory(LOCK_DIR).pipe(

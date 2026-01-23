@@ -13,7 +13,7 @@
  * StackGeneratedFiles map for batch filesystem operations.
  */
 
-import type { AbsolutePath } from "../lib/types";
+import type { AbsolutePath, NetworkName, ServiceName, VolumeName } from "../lib/types";
 import {
   type ContainerQuadlet,
   type GeneratedQuadlet,
@@ -222,10 +222,10 @@ export const getStackFilenames = (stack: Stack): string[] => [
  * Create a basic stack from a list of container configs.
  */
 export const createStack = (config: {
-  name: string;
+  name: ServiceName;
   description?: string;
-  network?: { name: string; internal?: boolean };
-  volumes?: Array<{ name: string }>;
+  network?: { name: NetworkName; internal?: boolean };
+  volumes?: Array<{ name: VolumeName }>;
   containers: StackContainer[];
 }): Stack => ({
   name: config.name,

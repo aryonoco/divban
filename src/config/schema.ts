@@ -29,6 +29,7 @@ import {
   type Username,
   UsernameSchema,
   decodeAbsolutePath,
+  decodeUsername,
   duration,
   parseErrorToGeneralError,
 } from "../lib/types";
@@ -462,14 +463,14 @@ export const getServiceUsername = (
         })
     ),
     Effect.filterOrFail(
-      (username): username is string => username.length <= 32,
-      (username) =>
+      (u): u is string => u.length <= 32,
+      (u) =>
         new GeneralError({
           code: ErrorCode.INVALID_ARGS as 2,
-          message: `Service name too long: ${serviceName}. Username would be ${username.length} chars (max 32)`,
+          message: `Service name too long: ${serviceName}. Username would be ${u.length} chars (max 32)`,
         })
     ),
-    Effect.map((username) => username as Username)
+    Effect.flatMap((u) => decodeUsername(u).pipe(Effect.mapError(parseErrorToGeneralError)))
   );
 
 /**

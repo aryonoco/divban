@@ -323,13 +323,13 @@ export const buildServicePathsFromHome = (
 export const resolvePrerequisites = (
   serviceName: ServiceName,
   dataDirOverride: string | null
-): Effect.Effect<Prerequisites, ServiceError | SystemError | GeneralError> =>
+): Effect.Effect<Prerequisites, ServiceError | SystemError | GeneralError | ConfigError> =>
   Effect.gen(function* () {
     const user = yield* resolveServiceUser(serviceName);
     const system = yield* detectSystemCapabilities();
     const baseDataDir = userDataDir(user.homeDir);
     const finalDataDir =
-      dataDirOverride !== null ? (dataDirOverride as AbsolutePathType) : baseDataDir;
+      dataDirOverride !== null ? yield* toAbsolutePathEffect(dataDirOverride) : baseDataDir;
     const paths = buildServicePathsFromHome(user.homeDir, finalDataDir);
     return { user, system, paths };
   });

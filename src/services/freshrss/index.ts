@@ -13,7 +13,7 @@
 import { Effect } from "effect";
 import { backupService, restoreService } from "../../lib/db-backup";
 import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
-import { type AbsolutePath, type ServiceName, duration, pathJoin } from "../../lib/types";
+import { type AbsolutePath, containerName, duration, pathJoin, serviceName } from "../../lib/types";
 import { createHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
@@ -45,8 +45,8 @@ import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } f
 import { FreshRssConfigTag } from "./config";
 import { type FreshRssConfig, freshRssConfigSchema, freshRssDefaults } from "./schema";
 
-const SERVICE_NAME = "freshrss" as ServiceName;
-const CONTAINER_NAME = "freshrss" as ServiceName;
+const SERVICE_NAME = serviceName("freshrss");
+const CONTAINER_NAME = containerName("freshrss");
 
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
@@ -62,7 +62,7 @@ const definition: ServiceDefinition = {
 };
 
 const ops = createSingleContainerOps({
-  serviceName: CONTAINER_NAME,
+  containerName: CONTAINER_NAME,
   displayName: "FreshRSS",
 });
 
@@ -191,7 +191,7 @@ const createDirsStep: SetupStep<
       const user = yield* ServiceUser;
 
       const dataDir = config.paths.dataDir;
-      const dirs = [dataDir, pathJoin(dataDir, "extensions")] as AbsolutePath[];
+      const dirs: readonly AbsolutePath[] = [dataDir, pathJoin(dataDir, "extensions")];
 
       const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
         uid: user.uid,

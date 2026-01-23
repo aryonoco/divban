@@ -84,7 +84,12 @@ export const nub = <A>(arr: readonly A[]): readonly A[] => [...new Set(arr)];
 export const concatUnique = <A>(...arrays: readonly (readonly A[])[]): readonly A[] =>
   nub(flatten(arrays));
 
-/** Workaround for Object.entries losing key type information in TypeScript. */
+/**
+ * Workaround for Object.entries losing key type information in TypeScript.
+ * TypeScript's Object.entries() returns [string, V][], losing the key type K.
+ * This cast restores the key type that TypeScript erases. Safe because
+ * the keys are exactly type K by construction.
+ */
 export const entries = <K extends string, V>(
   record: Readonly<Record<K, V>>
 ): readonly (readonly [K, V])[] =>

@@ -21,6 +21,18 @@ import type { AbsolutePath, ContainerName, ServiceName, UserId, Username } from 
 export type DatabaseName = string & Brand.Brand<"DatabaseName">;
 export type DatabaseUser = string & Brand.Brand<"DatabaseUser">;
 
+/**
+ * Create a DatabaseName from a string literal.
+ */
+export const databaseName = <const S extends string>(literal: S): DatabaseName =>
+  literal as string as DatabaseName;
+
+/**
+ * Create a DatabaseUser from a string literal.
+ */
+export const databaseUser = <const S extends string>(literal: S): DatabaseUser =>
+  literal as string as DatabaseUser;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Container Location - discriminated union for deployment models
 // ─────────────────────────────────────────────────────────────────────────────

@@ -263,8 +263,8 @@ export const ensureServiceDirectoriesTracked = (
     dirs.data,
     dirs.config,
     dirs.logs,
-    pathJoin(homeDir, ".config") as AbsolutePath,
-    pathJoin(homeDir, ".config", "containers") as AbsolutePath,
+    pathJoin(homeDir, ".config"),
+    pathJoin(homeDir, ".config", "containers"),
     dirs.quadlet,
   ];
 

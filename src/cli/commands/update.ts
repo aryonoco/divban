@@ -65,15 +65,11 @@ const resolveUpdateServiceUser = (
     return { username, uid: user.uid };
   });
 
-const buildAutoUpdateArgs = (
-  username: Username,
-  uid: UserId,
-  dryRun: boolean
-): readonly string[] => {
+const buildAutoUpdateArgs = (user: Username, uid: UserId, dryRun: boolean): readonly string[] => {
   const baseArgs = [
     "sudo",
     "-u",
-    username as unknown as string,
+    user as string,
     `XDG_RUNTIME_DIR=/run/user/${uid}`,
     "podman",
     "auto-update",

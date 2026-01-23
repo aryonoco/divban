@@ -18,9 +18,11 @@ import {
   ContainerLocationSchema,
   DatabaseNameSchema,
   DatabaseUserSchema,
+  databaseName,
+  databaseUser,
 } from "../../lib/db-backup";
 import { isValidIP, isValidUrl } from "../../lib/schema-utils";
-import type { AbsolutePath } from "../../lib/types";
+import { type AbsolutePath, type ContainerImage, ContainerImageSchema } from "../../lib/types";
 import {
   type DivbanConfigSchemaVersion,
   DivbanConfigSchemaVersionSchema,
@@ -134,12 +136,12 @@ export const databaseSchema: Schema.Schema<DatabaseConfig, DatabaseConfigInput> 
 });
 
 export interface ImmichContainersConfig {
-  readonly server?: { readonly image: string } | undefined;
+  readonly server?: { readonly image: ContainerImage } | undefined;
   readonly machineLearning?:
-    | { readonly image?: string | undefined; readonly enabled: boolean }
+    | { readonly image?: ContainerImage | undefined; readonly enabled: boolean }
     | undefined;
-  readonly redis?: { readonly image: string } | undefined;
-  readonly postgres?: { readonly image: string } | undefined;
+  readonly redis?: { readonly image: ContainerImage } | undefined;
+  readonly postgres?: { readonly image: ContainerImage } | undefined;
 }
 
 export interface ImmichContainersConfigInput {
@@ -157,23 +159,29 @@ export const immichContainersSchema: Schema.Schema<
 > = Schema.Struct({
   server: Schema.optional(
     Schema.Struct({
-      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.server }),
+      image: Schema.optionalWith(ContainerImageSchema, {
+        default: (): ContainerImage => DEFAULT_IMAGES.server,
+      }),
     })
   ),
   machineLearning: Schema.optional(
     Schema.Struct({
-      image: Schema.optional(Schema.String), // Derived from ML backend
+      image: Schema.optional(ContainerImageSchema), // Derived from ML backend
       enabled: Schema.optionalWith(Schema.Boolean, { default: (): boolean => true }),
     })
   ),
   redis: Schema.optional(
     Schema.Struct({
-      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.redis }),
+      image: Schema.optionalWith(ContainerImageSchema, {
+        default: (): ContainerImage => DEFAULT_IMAGES.redis,
+      }),
     })
   ),
   postgres: Schema.optional(
     Schema.Struct({
-      image: Schema.optionalWith(Schema.String, { default: (): string => DEFAULT_IMAGES.postgres }),
+      image: Schema.optionalWith(ContainerImageSchema, {
+        default: (): ContainerImage => DEFAULT_IMAGES.postgres,
+      }),
     })
   ),
 });
@@ -249,8 +257,8 @@ export interface ImmichConfigInput {
 const defaultBackupConfig = (): PostgresBackupConfig => ({
   type: "postgres",
   container: { kind: "separate", name: CONTAINERS.postgres },
-  database: "immich" as DatabaseName,
-  user: "immich" as DatabaseUser,
+  database: databaseName("immich"),
+  user: databaseUser("immich"),
 });
 
 export const immichBackupConfigSchema: Schema.Schema<
@@ -264,10 +272,10 @@ export const immichBackupConfigSchema: Schema.Schema<
     default: (): ContainerLocation => ({ kind: "separate", name: CONTAINERS.postgres }),
   }),
   database: Schema.optionalWith(DatabaseNameSchema, {
-    default: (): DatabaseName => "immich" as DatabaseName,
+    default: (): DatabaseName => databaseName("immich"),
   }),
   user: Schema.optionalWith(DatabaseUserSchema, {
-    default: (): DatabaseUser => "immich" as DatabaseUser,
+    default: (): DatabaseUser => databaseUser("immich"),
   }),
 });
 

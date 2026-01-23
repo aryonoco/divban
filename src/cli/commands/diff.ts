@@ -102,8 +102,8 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
             onLeft: (): PathInfoType => {
               logger.warn("Service user does not exist. Showing generated files only.");
               return {
-                quadletDir: TEMP_PATHS.nonexistent as AbsolutePath,
-                configDir: TEMP_PATHS.nonexistent as AbsolutePath,
+                quadletDir: TEMP_PATHS.nonexistent,
+                configDir: TEMP_PATHS.nonexistent,
                 userInfo: undefined,
               };
             },

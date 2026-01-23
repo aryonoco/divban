@@ -19,13 +19,14 @@ import {
   type ContainerName,
   ContainerNameSchema,
   containerImage,
+  containerName,
 } from "../../lib/types";
 import {
   type DivbanConfigSchemaVersion,
   DivbanConfigSchemaVersionSchema,
 } from "../../lib/versioning";
 
-const FRESHRSS_CONTAINER = "freshrss" as ContainerName;
+const FRESHRSS_CONTAINER = containerName("freshrss");
 
 /** Backup configuration input - optional since it has defaults */
 export interface FreshRssBackupConfigInput {

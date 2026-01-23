@@ -31,7 +31,7 @@ import {
 import { extractCauseProps } from "../match-helpers";
 import { heavyRetrySchedule, isTransientSystemError } from "../retry";
 import type { AbsolutePath, ContainerName, ServiceName, UserId, Username } from "../types";
-import { pathJoin } from "../types";
+import { pathJoin, serviceNameToContainerName } from "../types";
 import type {
   BackupStrategy,
   CollectedFiles,
@@ -65,9 +65,9 @@ const execWithRetry = (
     })
   );
 
-const resolveContainer = (serviceName: ServiceName, config: PostgresBackupConfig): ContainerName =>
+const resolveContainer = (svcName: ServiceName, config: PostgresBackupConfig): ContainerName =>
   Match.value(config.container).pipe(
-    Match.when({ kind: "service" }, (): ContainerName => serviceName as unknown as ContainerName),
+    Match.when({ kind: "service" }, (): ContainerName => serviceNameToContainerName(svcName)),
     Match.when({ kind: "separate" }, (loc): ContainerName => loc.name),
     Match.exhaustive
   );

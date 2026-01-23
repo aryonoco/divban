@@ -21,7 +21,7 @@ export interface ExecOptions {
   env?: Record<string, string>;
   cwd?: string;
   timeout?: number;
-  user?: string;
+  user?: Username;
   captureStdout?: boolean;
   captureStderr?: boolean;
   stdin?: string;

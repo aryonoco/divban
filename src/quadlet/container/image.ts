@@ -13,11 +13,12 @@
  */
 
 import { Option, pipe } from "effect";
+import type { ContainerImage } from "../../lib/types";
 import type { Entries } from "../entry";
 import { concat, fromMaybe, fromValue } from "../entry-combinators";
 
 export interface ImageConfig {
-  readonly image: string;
+  readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
   readonly autoUpdate?: "registry" | "local" | false | undefined;
 }

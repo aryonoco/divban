@@ -27,8 +27,7 @@ import {
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect, userConfigDir } from "../../lib/paths";
-import type { AbsolutePath, ServiceName } from "../../lib/types";
-import { pathJoin } from "../../lib/types";
+import { type AbsolutePath, type ServiceName, pathJoin, serviceName } from "../../lib/types";
 import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "../../lib/version";
 import type { ExistentialService } from "../../services/types";
 import { type ArchiveMetadata, createArchive } from "../../system/archive";
@@ -206,9 +205,9 @@ const findConfigDir = (): Effect.Effect<
   ServiceError | SystemError | GeneralError
 > => {
   const knownServices: ServiceName[] = [
-    "immich" as ServiceName,
-    "caddy" as ServiceName,
-    "actual" as ServiceName,
+    serviceName("immich"),
+    serviceName("caddy"),
+    serviceName("actual"),
   ];
 
   return pipe(

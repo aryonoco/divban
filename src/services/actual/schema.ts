@@ -18,6 +18,7 @@ import {
   type ContainerImage,
   type ContainerName,
   containerImage,
+  containerName,
 } from "../../lib/types";
 import { ContainerNameSchema } from "../../lib/types";
 import {
@@ -56,7 +57,7 @@ export interface ActualConfig {
   readonly backup: SqliteStopBackupConfig;
 }
 
-const ACTUAL_CONTAINER = "actual" as ContainerName;
+const ACTUAL_CONTAINER = containerName("actual");
 
 /** Backup configuration input - optional since it has defaults */
 export interface ActualBackupConfigInput {

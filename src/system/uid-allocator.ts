@@ -23,7 +23,7 @@ import {
 export type { SubidRange } from "../lib/file-parsers";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
-import type { SubordinateId, UserId } from "../lib/types";
+import type { SubordinateId, UserId, Username } from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
 import { withLock } from "./lock";
@@ -114,6 +114,7 @@ export const allocateUid = (
                 message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
               })
             ),
+          // uid is from findFirstAvailableUid which returns values in validated range [start, end]
           onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
         })
       );
@@ -143,6 +144,7 @@ export const allocateUidInternal = (
               message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
             })
           ),
+        // uid is from findFirstAvailableUid which returns values in validated range [start, end]
         onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
       })
     );
@@ -176,6 +178,7 @@ export const allocateSubuidRange = (
                 message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
               })
             ),
+          // start is from findGapForRange which returns values >= rangeStart (validated)
           onSome: (start): Effect.Effect<{ start: SubordinateId; size: number }, never> =>
             Effect.succeed({ start: start as SubordinateId, size: rangeSize }),
         })
@@ -187,7 +190,7 @@ export const allocateSubuidRange = (
  * Get UID for an existing user by name.
  */
 export const getUidByUsername = (
-  username: string
+  username: Username
 ): Effect.Effect<UserId, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(execOutput(["id", "-u", username]));
@@ -203,6 +206,7 @@ export const getUidByUsername = (
         ),
       onRight: (output): UidResult => {
         const uid = Number.parseInt(output.trim(), 10);
+        // uid is parsed from `id -u` output - validated to be a number
         return Number.isNaN(uid)
           ? Effect.fail(
               new GeneralError({
@@ -218,7 +222,7 @@ export const getUidByUsername = (
 /**
  * Check if a user exists.
  */
-export const userExists = (username: string): Effect.Effect<boolean, never> =>
+export const userExists = (username: Username): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(exec(["id", username]));
     return Either.match(result, {
@@ -231,7 +235,7 @@ export const userExists = (username: string): Effect.Effect<boolean, never> =>
  * Get existing subuid start for a user.
  */
 export const getExistingSubuidStart = (
-  username: string
+  username: Username
 ): Effect.Effect<SubordinateId, GeneralError> =>
   pipe(
     getUsedSubuidRanges(),
@@ -247,6 +251,7 @@ export const getExistingSubuidStart = (
                 message: `No subuid range found for ${username}`,
               })
             ),
+          // range.start is from parseSubidLine which validates the numeric format
           onSome: (range): Effect.Effect<SubordinateId, never> =>
             Effect.succeed(range.start as SubordinateId),
         })

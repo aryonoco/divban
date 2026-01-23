@@ -198,8 +198,8 @@ export const configureSubordinateIds = (
       const entry = `${username}:${start}:${range}\n`;
 
       // Re-read files after acquiring lock to ensure consistency
-      yield* appendSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username, entry);
-      yield* appendSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username, entry);
+      yield* appendSubidEntry(SYSTEM_PATHS.subuid, username, entry);
+      yield* appendSubidEntry(SYSTEM_PATHS.subgid, username, entry);
     })
   );
 
@@ -251,8 +251,8 @@ const removeSubordinateIds = (
   withLock(
     "subid-config",
     Effect.gen(function* () {
-      yield* removeSubidEntry(SYSTEM_PATHS.subuid as AbsolutePath, username);
-      yield* removeSubidEntry(SYSTEM_PATHS.subgid as AbsolutePath, username);
+      yield* removeSubidEntry(SYSTEM_PATHS.subuid, username);
+      yield* removeSubidEntry(SYSTEM_PATHS.subgid, username);
     })
   );
 

@@ -12,7 +12,7 @@
  * lifecycle management (dependencies, restart policies, logging).
  */
 
-import type { DurationString } from "../lib/types";
+import type { ContainerImage, ContainerName, DurationString } from "../lib/types";
 import type { ContainerCapabilitiesConfig } from "./container/capabilities";
 import type { ContainerEnvironmentConfig } from "./container/environment";
 import type { ImageConfig } from "./container/image";
@@ -115,11 +115,11 @@ export interface ContainerQuadlet
     Partial<Omit<ImageConfig, "image">> {
   // Required fields
   /** Container name (used for unit file name) */
-  readonly name: string;
+  readonly name: ContainerName;
   /** Human-readable description */
   readonly description: string;
   /** Container image reference */
-  readonly image: string;
+  readonly image: ContainerImage;
   /** Service configuration */
   readonly service: ServiceConfig;
 

@@ -13,7 +13,13 @@
 import { Effect, Option, ParseResult, pipe } from "effect";
 import type { ConfigError, GeneralError, SystemError } from "../../lib/errors";
 import { ErrorCode, ServiceError } from "../../lib/errors";
-import { type PrivateIP, type ServiceName, duration } from "../../lib/types";
+import {
+  type PrivateIP,
+  containerImage,
+  containerName,
+  duration,
+  serviceName,
+} from "../../lib/types";
 import { decodePrivateIP } from "../../lib/types";
 import {
   createHttpHealthCheck,
@@ -45,7 +51,8 @@ import { reloadCaddy } from "./commands/reload";
 import { CaddyConfigTag } from "./config";
 import { type CaddyConfig, caddyConfigSchema } from "./schema";
 
-const SERVICE_NAME = "caddy" as ServiceName;
+const SERVICE_NAME = serviceName("caddy");
+const CONTAINER_NAME = containerName("caddy");
 
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
@@ -61,7 +68,7 @@ const definition: ServiceDefinition = {
 };
 
 const ops = createSingleContainerOps({
-  serviceName: "caddy" as ServiceName,
+  containerName: CONTAINER_NAME,
   displayName: "Caddy",
 });
 
@@ -112,10 +119,10 @@ const generate = (): Effect.Effect<
     });
 
     const containerQuadlet = generateContainerQuadlet({
-      name: "caddy",
-      containerName: "caddy",
+      name: CONTAINER_NAME,
+      containerName: CONTAINER_NAME,
       description: "Caddy reverse proxy",
-      image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
+      image: config.container?.image ?? containerImage("docker.io/library/caddy:2-alpine"),
       networkMode: "pasta",
       mapHostLoopback: Option.getOrUndefined(mapHostLoopback),
       ports: config.container?.ports ?? [

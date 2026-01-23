@@ -25,6 +25,9 @@ export type {
   SqliteStopBackupConfig,
 } from "./types";
 
+// Literal constructors
+export { databaseName, databaseUser } from "./types";
+
 // Schemas
 export {
   BackupConfigSchema,

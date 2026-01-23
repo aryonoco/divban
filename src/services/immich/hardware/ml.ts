@@ -14,6 +14,7 @@
 
 import { Match, Option, pipe } from "effect";
 import { mapOr } from "../../../lib/option-helpers";
+import { type ContainerImage, containerImage } from "../../../lib/types";
 import type { MlConfig } from "../schema";
 
 export interface MlDevices {
@@ -88,9 +89,9 @@ const insertSuffix = (baseImage: string, suffix: string): string => {
     : `${baseImage.slice(0, colonIndex)}:${baseImage.slice(colonIndex + 1)}${suffix}`;
 };
 
-export const getMlImage = (baseImage: string, config: MlConfig): string =>
+export const getMlImage = (baseImage: ContainerImage, config: MlConfig): ContainerImage =>
   pipe(getMlDevices(config).imageSuffix, (suffix) =>
-    suffix ? insertSuffix(baseImage, suffix) : baseImage
+    suffix ? containerImage(insertSuffix(baseImage as string, suffix)) : baseImage
   );
 
 export const mlRequiresDevices = (config: MlConfig): boolean =>

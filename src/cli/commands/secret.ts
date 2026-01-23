@@ -22,7 +22,6 @@ import {
   type SystemError,
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import type { ServiceName } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { getServiceSecret, listServiceSecrets } from "../../system/secrets";
 import { getUserByName } from "../../system/user";
@@ -56,7 +55,7 @@ const executeSecretShow = (
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
-    const serviceName = service.definition.name as ServiceName;
+    const svcName = service.definition.name;
     const secretName = args.secretName;
 
     return yield* pipe(
@@ -71,7 +70,7 @@ const executeSecretShow = (
       ),
       Match.orElse((name) =>
         Effect.gen(function* () {
-          const username = yield* getServiceUsername(serviceName);
+          const username = yield* getServiceUsername(svcName);
           const userResult = yield* Effect.either(getUserByName(username));
 
           type ResultType = Effect.Effect<
@@ -83,13 +82,13 @@ const executeSecretShow = (
               Effect.fail(
                 new ContainerError({
                   code: ErrorCode.SECRET_NOT_FOUND as 46,
-                  message: `Service '${serviceName}' is not configured. Run setup first.`,
-                  container: serviceName,
+                  message: `Service '${svcName}' is not configured. Run setup first.`,
+                  container: svcName,
                 })
               ),
             onRight: ({ homeDir }): ResultType =>
               Effect.gen(function* () {
-                const secretValue = yield* getServiceSecret(serviceName, name, homeDir);
+                const secretValue = yield* getServiceSecret(svcName, name, homeDir);
                 // Output just the value (for scripting)
                 logger.raw(secretValue);
               }),
@@ -104,9 +103,9 @@ const executeSecretList = (
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
-    const serviceName = service.definition.name as ServiceName;
+    const svcName = service.definition.name;
 
-    const username = yield* getServiceUsername(serviceName);
+    const username = yield* getServiceUsername(svcName);
     const userResult = yield* Effect.either(getUserByName(username));
 
     type ResultType = Effect.Effect<
@@ -118,22 +117,22 @@ const executeSecretList = (
         Effect.fail(
           new ContainerError({
             code: ErrorCode.SECRET_NOT_FOUND as 46,
-            message: `Service '${serviceName}' is not configured. Run setup first.`,
-            container: serviceName,
+            message: `Service '${svcName}' is not configured. Run setup first.`,
+            container: svcName,
           })
         ),
       onRight: ({ homeDir }): ResultType =>
         Effect.gen(function* () {
-          const secrets = yield* listServiceSecrets(serviceName, homeDir);
+          const secrets = yield* listServiceSecrets(svcName, homeDir);
 
           yield* pipe(
             Match.value(args.format),
             Match.when("json", () =>
-              Effect.sync(() => logger.raw(JSON.stringify({ service: serviceName, secrets })))
+              Effect.sync(() => logger.raw(JSON.stringify({ service: svcName, secrets })))
             ),
             Match.when("pretty", () =>
               Effect.gen(function* () {
-                logger.info(`Secrets for ${serviceName}:`);
+                logger.info(`Secrets for ${svcName}:`);
                 yield* Effect.forEach(
                   secrets,
                   (name) => Effect.sync(() => logger.raw(`  - ${name}`)),

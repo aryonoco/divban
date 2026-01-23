@@ -321,6 +321,41 @@ export const containerName = <const S extends string>(literal: S): ContainerName
   literal as string as ContainerName;
 
 /**
+ * Create a ServiceName from a string literal.
+ * For dynamic/user input, use decodeServiceName() for runtime validation.
+ */
+export const serviceName = <const S extends string>(literal: S): ServiceName =>
+  literal as string as ServiceName;
+
+/**
+ * Convert ServiceName to ContainerName when container uses service name.
+ * ServiceName pattern [a-z][a-z0-9-]* is subset of ContainerName pattern.
+ */
+export const serviceNameToContainerName = (name: ServiceName): ContainerName =>
+  name as string as ContainerName;
+
+/**
+ * Create a Username from a string literal.
+ * For dynamic/user input, use decodeUsername() for runtime validation.
+ */
+export const username = <const S extends string>(literal: S): Username =>
+  literal as string as Username;
+
+/**
+ * Create a NetworkName from a string literal.
+ * For dynamic/user input, use decodeNetworkName() for runtime validation.
+ */
+export const networkName = <const S extends string>(literal: S): NetworkName =>
+  literal as string as NetworkName;
+
+/**
+ * Create a VolumeName from a string literal.
+ * For dynamic/user input, use decodeVolumeName() for runtime validation.
+ */
+export const volumeName = <const S extends string>(literal: S): VolumeName =>
+  literal as string as VolumeName;
+
+/**
  * Join path segments with type preservation.
  *
  * When the base is an AbsolutePath, the result is also an AbsolutePath.
