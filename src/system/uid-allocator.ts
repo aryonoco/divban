@@ -23,7 +23,14 @@ import {
 export type { SubidRange } from "../lib/file-parsers";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { SYSTEM_PATHS } from "../lib/paths";
-import type { SubordinateId, UserId, Username } from "../lib/types";
+import {
+  type SubordinateId,
+  type UserId,
+  type Username,
+  decodeSubordinateId,
+  decodeUserId,
+  parseErrorToGeneralError,
+} from "../lib/types";
 import { exec, execOutput } from "./exec";
 import { readFileOrEmpty } from "./fs";
 import { withLock } from "./lock";
@@ -114,8 +121,8 @@ export const allocateUid = (
                 message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
               })
             ),
-          // uid is from findFirstAvailableUid which returns values in validated range [start, end]
-          onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
+          onSome: (uid): Effect.Effect<UserId, GeneralError> =>
+            decodeUserId(uid).pipe(Effect.mapError(parseErrorToGeneralError)),
         })
       );
     })
@@ -127,7 +134,7 @@ export const allocateUid = (
  */
 export const allocateUidInternal = (
   settings?: UidAllocationSettings
-): Effect.Effect<UserId, SystemError> =>
+): Effect.Effect<UserId, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const start = settings?.uidRangeStart ?? DEFAULT_UID_RANGE.start;
     const end = settings?.uidRangeEnd ?? DEFAULT_UID_RANGE.end;
@@ -144,8 +151,8 @@ export const allocateUidInternal = (
               message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
             })
           ),
-        // uid is from findFirstAvailableUid which returns values in validated range [start, end]
-        onSome: (uid): Effect.Effect<UserId, never> => Effect.succeed(uid as UserId),
+        onSome: (uid): Effect.Effect<UserId, GeneralError> =>
+          decodeUserId(uid).pipe(Effect.mapError(parseErrorToGeneralError)),
       })
     );
   });
@@ -178,9 +185,14 @@ export const allocateSubuidRange = (
                 message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
               })
             ),
-          // start is from findGapForRange which returns values >= rangeStart (validated)
-          onSome: (start): Effect.Effect<{ start: SubordinateId; size: number }, never> =>
-            Effect.succeed({ start: start as SubordinateId, size: rangeSize }),
+          onSome: (start): Effect.Effect<{ start: SubordinateId; size: number }, GeneralError> =>
+            decodeSubordinateId(start).pipe(
+              Effect.map((validated): { start: SubordinateId; size: number } => ({
+                start: validated,
+                size: rangeSize,
+              })),
+              Effect.mapError(parseErrorToGeneralError)
+            ),
         })
       );
     })
@@ -204,18 +216,22 @@ export const getUidByUsername = (
             message: `User ${username} not found`,
           })
         ),
-      onRight: (output): UidResult => {
-        const uid = Number.parseInt(output.trim(), 10);
-        // uid is parsed from `id -u` output - validated to be a number
-        return Number.isNaN(uid)
-          ? Effect.fail(
-              new GeneralError({
-                code: ErrorCode.GENERAL_ERROR as 1,
-                message: `Invalid UID for user ${username}`,
-              })
-            )
-          : Effect.succeed(uid as UserId);
-      },
+      onRight: (output): UidResult =>
+        pipe(
+          Number.parseInt(output.trim(), 10),
+          Option.liftPredicate((n: number): n is number => !Number.isNaN(n)),
+          Option.match({
+            onNone: (): UidResult =>
+              Effect.fail(
+                new GeneralError({
+                  code: ErrorCode.GENERAL_ERROR as 1,
+                  message: `Invalid UID for user ${username}`,
+                })
+              ),
+            onSome: (uid): UidResult =>
+              decodeUserId(uid).pipe(Effect.mapError(parseErrorToGeneralError)),
+          })
+        ),
     });
   });
 
@@ -251,9 +267,8 @@ export const getExistingSubuidStart = (
                 message: `No subuid range found for ${username}`,
               })
             ),
-          // range.start is from parseSubidLine which validates the numeric format
-          onSome: (range): Effect.Effect<SubordinateId, never> =>
-            Effect.succeed(range.start as SubordinateId),
+          onSome: (range): Effect.Effect<SubordinateId, GeneralError> =>
+            decodeSubordinateId(range.start).pipe(Effect.mapError(parseErrorToGeneralError)),
         })
       )
     )

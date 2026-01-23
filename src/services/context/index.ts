@@ -13,7 +13,15 @@
 
 import { Context } from "effect";
 import type { Logger } from "../../lib/logger";
-import type { AbsolutePath, GroupId, UserId, Username } from "../../lib/types";
+import type {
+  AbsolutePath,
+  ContainerName,
+  GroupId,
+  NetworkName,
+  UserId,
+  Username,
+  VolumeName,
+} from "../../lib/types";
 
 export interface ServicePathsValue {
   readonly dataDir: AbsolutePath;
@@ -79,3 +87,21 @@ export interface AppLogger {
 export const AppLogger: Context.Tag<AppLogger, Logger> = Context.GenericTag<AppLogger, Logger>(
   "divban/AppLogger"
 );
+
+export interface RuntimeStateValue {
+  readonly containers: readonly ContainerName[];
+  readonly networks: readonly NetworkName[];
+  readonly volumes: readonly VolumeName[];
+  readonly dataDir: AbsolutePath;
+  readonly configDir: AbsolutePath;
+  readonly quadletDir: AbsolutePath;
+}
+
+export interface RuntimeState {
+  readonly _tag: "RuntimeState";
+}
+
+export const RuntimeState: Context.Tag<RuntimeState, RuntimeStateValue> = Context.GenericTag<
+  RuntimeState,
+  RuntimeStateValue
+>("divban/RuntimeState");

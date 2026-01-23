@@ -16,10 +16,11 @@ This document provides complete instructions for adding a new containerized serv
 8. [Step 6: Register the Service](#8-step-6-register-the-service)
 9. [Multi-Container Services](#9-multi-container-services)
 10. [Backup and Restore](#10-backup-and-restore)
-11. [Coding Standards](#11-coding-standards)
-12. [Verification](#12-verification)
-13. [Reference Tables](#13-reference-tables)
-14. [Quick Debugging](#14-quick-debugging)
+11. [Branded Types Reference](#11-branded-types-reference)
+12. [Coding Standards](#12-coding-standards)
+13. [Verification](#13-verification)
+14. [Reference Tables](#14-reference-tables)
+15. [Quick Debugging](#15-quick-debugging)
 
 ---
 
@@ -254,7 +255,15 @@ import { absolutePathSchema, containerImageSchema } from "../../config/schema";
 // import type { PostgresBackupConfig } from "../../lib/db-backup";
 // import type { FreshRssCliBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
-import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
+import {
+  type AbsolutePath,
+  type ContainerImage,
+  type ContainerName,
+  containerImage,
+  containerName,
+} from "../../lib/types";
+// For backup configs that need ContainerNameSchema:
+// import { ContainerNameSchema } from "../../lib/types";
 import {
   type DivbanConfigSchemaVersion,
   DivbanConfigSchemaVersionSchema,
@@ -324,6 +333,12 @@ export interface {ServiceName}ConfigInput {
 }
 
 // ============================================================================
+// Constants (use branded type constructors)
+// ============================================================================
+
+const {SERVICENAME}_CONTAINER = containerName("{servicename}");
+
+// ============================================================================
 // Backup Configuration (for services with hasBackup: true)
 // ============================================================================
 
@@ -338,7 +353,7 @@ export interface {ServiceName}ConfigInput {
 //
 // const defaultBackupConfig = (): SqliteStopBackupConfig => ({
 //   type: "sqlite-stop",
-//   container: "{servicename}" as ContainerName,
+//   container: {SERVICENAME}_CONTAINER,
 //   sqlitePath: "data/database.sqlite",
 //   includeFiles: [],
 //   exclude: [],
@@ -352,7 +367,7 @@ export interface {ServiceName}ConfigInput {
 //     default: (): "sqlite-stop" => "sqlite-stop",
 //   }),
 //   container: Schema.optionalWith(ContainerNameSchema, {
-//     default: (): ContainerName => "{servicename}" as ContainerName,
+//     default: (): ContainerName => {SERVICENAME}_CONTAINER,
 //   }),
 //   // ... strategy-specific fields with defaults
 // });
@@ -454,13 +469,20 @@ import { Effect } from "effect";
 // For services with backup support, import from db-backup:
 // import { backupService, restoreService } from "../../lib/db-backup";
 import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
-import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
+import {
+  type AbsolutePath,
+  containerImage,
+  containerName,
+  duration,
+  pathJoin,
+  serviceName,
+} from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
 import {
   type AppLogger,
-  ServiceOptions,  // Required for backup() - provides force flag
+  ServiceOptions,
   type ServicePaths,
   ServiceUser,
   SystemCapabilities,
@@ -479,7 +501,7 @@ import {
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
-  wrapBackupResult,  // Helper for backup result wrapping
+  wrapBackupResult,
   writeGeneratedFilesTracked,
 } from "../helpers";
 import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
@@ -487,7 +509,7 @@ import { {ServiceName}ConfigTag } from "./config";
 import { type {ServiceName}Config, {servicename}ConfigSchema } from "./schema";
 
 // ============================================================================
-// Constants
+// Constants (use branded type constructors)
 // ============================================================================
 
 const SERVICE_NAME = serviceName("{servicename}");
@@ -515,7 +537,7 @@ const definition: ServiceDefinition = {
 // ============================================================================
 
 const ops = createSingleContainerOps({
-  serviceName: CONTAINER_NAME,
+  containerName: CONTAINER_NAME,
   displayName: "{ServiceName}",
 });
 
@@ -545,7 +567,7 @@ const generate = (): Effect.Effect<
       name: CONTAINER_NAME,
       containerName: CONTAINER_NAME,
       description: "{ServiceName} Server",
-      image: config.container?.image ?? "docker.io/org/image:tag",
+      image: config.container?.image ?? containerImage("docker.io/org/image:tag"),
 
       // Network
       ports: [
@@ -646,7 +668,10 @@ const createDirsStep: SetupStep<
       const user = yield* ServiceUser;
 
       const dataDir = config.paths.dataDir;
-      const dirs: readonly AbsolutePath[] = [dataDir];  // Add subdirectories as needed
+      const dirs: readonly AbsolutePath[] = [
+        dataDir,
+        pathJoin(dataDir, "backups"),  // Add subdirectories as needed
+      ];
 
       const { createdPaths } = yield* ensureDirectoriesTracked(dirs, {
         uid: user.uid,
@@ -736,14 +761,15 @@ export const {servicename}Service: ServiceEffect<{ServiceName}Config, {ServiceNa
 
 ### Key Implementation Notes
 
-1. **`ServicePaths` import** - Use `type ServicePaths` in the import (it's a type-only import)
+1. **Branded type constructors** - Use `serviceName()`, `containerName()`, `containerImage()`, `duration()` from `../../lib/types`
 2. **`createSingleContainerOps`** - Takes `{ containerName, displayName }` object
-3. **`writeGeneratedFilesTracked`** - Takes `files` from accumulated state (`state.files`)
-4. **`relabelVolumes`** - Handles SELinux `:Z` relabeling based on system capabilities
-5. **`duration("30s")`** - Creates branded duration strings for health checks
-6. **`SetupStep.pure`** - For computations without cleanup
-7. **`SetupStep.resource`** - For operations requiring rollback on failure
-8. **Branded types** - Use `serviceName()` and `containerName()` constructors, not raw strings
+3. **`pathJoin`** - Preserves `AbsolutePath` brand when base is `AbsolutePath`
+4. **`writeGeneratedFilesTracked`** - Takes `files` from accumulated state (`state.files`)
+5. **`relabelVolumes`** - Handles SELinux `:Z` relabeling based on system capabilities
+6. **`duration("30s")`** - Creates branded `DurationString` for health checks
+7. **`SetupStep.pure`** - For computations without cleanup
+8. **`SetupStep.resource`** - For operations requiring rollback on failure
+9. **`ServicePaths` import** - Use `type ServicePaths` in the import (it's a type-only import)
 
 ---
 
@@ -792,18 +818,39 @@ src/services/{servicename}/
 
 /** Centralized constants for MyService service. */
 
-export const CONTAINERS = {
-  redis: "myservice-redis",
-  postgres: "myservice-postgres",
-  main: "myservice",
+import {
+  type ContainerImage,
+  type ContainerName,
+  type NetworkName,
+  containerImage,
+  containerName,
+  networkName,
+} from "../../lib/types";
+
+interface MyServiceContainers {
+  readonly redis: ContainerName;
+  readonly postgres: ContainerName;
+  readonly main: ContainerName;
+}
+
+export const CONTAINERS: MyServiceContainers = {
+  redis: containerName("myservice-redis"),
+  postgres: containerName("myservice-postgres"),
+  main: containerName("myservice"),
 } as const;
 
-export const NETWORK_NAME = "myservice-net";
+export const NETWORK_NAME: NetworkName = networkName("myservice-net");
 
-export const DEFAULT_IMAGES = {
-  redis: "docker.io/library/redis:7-alpine",
-  postgres: "docker.io/library/postgres:16",
-  main: "docker.io/org/myservice:latest",
+interface MyServiceImages {
+  readonly redis: ContainerImage;
+  readonly postgres: ContainerImage;
+  readonly main: ContainerImage;
+}
+
+export const DEFAULT_IMAGES: MyServiceImages = {
+  redis: containerImage("docker.io/library/redis:7-alpine"),
+  postgres: containerImage("docker.io/library/postgres:16"),
+  main: containerImage("docker.io/org/myservice:latest"),
 } as const;
 
 export const INTERNAL_URLS = {
@@ -837,7 +884,12 @@ export const MyServiceSecretNames = {
 ```typescript
 import { Array as Arr, Effect, pipe } from "effect";
 import { configFilePath } from "../../lib/paths";
-import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
+import {
+  type AbsolutePath,
+  containerImage,
+  duration,
+  serviceName,
+} from "../../lib/types";
 import {
   createEnvSecret,
   createHttpHealthCheck,
@@ -956,7 +1008,7 @@ const generate = (): Effect.Effect<
       quadlets: new Map(stackFiles.containers),
       networks: new Map(stackFiles.networks),
       volumes: new Map(stackFiles.volumes),
-      environment: new Map([["myservice.env", envContent]]),
+      environment: new Map([[`myservice.env`, envContent]]),
       other: new Map(),
     };
   });
@@ -1116,7 +1168,7 @@ If your service has `hasBackup: true` / `hasRestore: true`, use the unified `db-
 divban provides three backup strategies via `src/lib/db-backup/`:
 
 | Strategy | Config Type | Use Case | Hot Backup Safe |
-|----------|-------------|----------|-----------------|
+|----------|-------------|----------|--------------------|
 | `postgres` | `PostgresBackupConfig` | PostgreSQL via pg_dumpall | Yes |
 | `sqlite-stop` | `SqliteStopBackupConfig` | SQLite with container stop | No (requires `--force`) |
 | `freshrss-cli` | `FreshRssCliBackupConfig` | FreshRSS PHP CLI export | Yes |
@@ -1127,9 +1179,9 @@ Add backup config to your schema (see Section 6 for full pattern):
 
 ```typescript
 import type { SqliteStopBackupConfig } from "../../lib/db-backup";
-import { type ContainerName, ContainerNameSchema } from "../../lib/types";
+import { type ContainerName, ContainerNameSchema, containerName } from "../../lib/types";
 
-const CONTAINER_NAME = "{servicename}" as ContainerName;
+const {SERVICENAME}_CONTAINER = containerName("{servicename}");
 
 /** Backup configuration input - optional since it has defaults */
 export interface {ServiceName}BackupConfigInput {
@@ -1142,7 +1194,7 @@ export interface {ServiceName}BackupConfigInput {
 
 const defaultBackupConfig = (): SqliteStopBackupConfig => ({
   type: "sqlite-stop",
-  container: CONTAINER_NAME,
+  container: {SERVICENAME}_CONTAINER,
   sqlitePath: "data/database.sqlite",
   includeFiles: [],
   exclude: [],
@@ -1156,7 +1208,7 @@ export const {servicename}BackupConfigSchema: Schema.Schema<
     default: (): "sqlite-stop" => "sqlite-stop",
   }),
   container: Schema.optionalWith(ContainerNameSchema, {
-    default: (): ContainerName => CONTAINER_NAME,
+    default: (): ContainerName => {SERVICENAME}_CONTAINER,
   }),
   sqlitePath: Schema.optionalWith(Schema.String, {
     default: (): string => "data/database.sqlite",
@@ -1278,14 +1330,13 @@ const definition: ServiceDefinition = {
 
 ### 10.5 Archive Metadata
 
-All backups include `metadata.json` with versioning fields:
+All backups include `divban.backup.metadata.json` with versioning fields:
 
 ```json
 {
-  "version": "1.0",
   "schemaVersion": "1.0.0",
   "producer": "divban",
-  "producerVersion": "0.5.4",
+  "producerVersion": "0.5.5",
   "service": "actual",
   "timestamp": "2026-01-24T12:00:00.000Z",
   "files": ["database.sql"]
@@ -1295,15 +1346,101 @@ All backups include `metadata.json` with versioning fields:
 On restore, divban validates:
 - `producer` must be `"divban"`
 - `service` must match the restoring service
-- `schemaVersion` and `producerVersion` must be compatible
+- `schemaVersion` must be supported
+- `producerVersion` may warn if newer than current
 
 ---
 
-## 11. Coding Standards
+## 11. Branded Types Reference
+
+divban uses a comprehensive branded type system to prevent bugs at compile time. **Never use raw strings/numbers for domain values.**
+
+### 11.1 Available Branded Types
+
+| Type | Base | Validation | Constructor |
+|------|------|------------|-------------|
+| `UserId` | `number` | 0-65534, integer | `decodeUserId()` |
+| `GroupId` | `number` | 0-65534, integer | `decodeGroupId()` |
+| `SubordinateId` | `number` | 100000-4294967294 | `decodeSubordinateId()` |
+| `AbsolutePath` | `string` | Starts with `/` | `path()`, `decodeAbsolutePath()` |
+| `Username` | `string` | `[a-z_][a-z0-9_-]*`, max 32 | `username()`, `decodeUsername()` |
+| `ServiceName` | `string` | `[a-z][a-z0-9-]*` | `serviceName()`, `decodeServiceName()` |
+| `ContainerName` | `string` | `[a-zA-Z0-9][a-zA-Z0-9_.-]*` | `containerName()`, `decodeContainerName()` |
+| `NetworkName` | `string` | Same as ContainerName | `networkName()`, `decodeNetworkName()` |
+| `VolumeName` | `string` | Same as ContainerName | `volumeName()`, `decodeVolumeName()` |
+| `ContainerImage` | `string` | Valid image reference | `containerImage()`, `decodeContainerImage()` |
+| `DurationString` | `string` | `{number}{ms\|s\|m\|h\|d}` | `duration()`, `decodeDurationString()` |
+| `PrivateIP` | `string` | RFC 1918 IPv4 / RFC 4193 IPv6 | `decodePrivateIP()` |
+
+### 11.2 Literal Constructors vs Decoders
+
+**Literal constructors** (for compile-time known values):
+```typescript
+import { serviceName, containerName, containerImage, path, duration } from "../../lib/types";
+
+const SERVICE_NAME = serviceName("actual");           // ServiceName
+const CONTAINER_NAME = containerName("actual");       // ContainerName
+const IMAGE = containerImage("docker.io/org/img:v1"); // ContainerImage
+const DATA_DIR = path("/srv/divban-actual");          // AbsolutePath
+const INTERVAL = duration("30s");                     // DurationString
+```
+
+**Decoders** (for runtime/user input):
+```typescript
+import { decodeAbsolutePath, parseErrorToGeneralError } from "../../lib/types";
+
+// In Effect.gen:
+const dataDir = yield* decodeAbsolutePath(userInput).pipe(
+  Effect.mapError(parseErrorToGeneralError)
+);
+```
+
+### 11.3 Path Utilities
+
+```typescript
+import { path, pathJoin, pathWithSuffix } from "../../lib/types";
+
+// Compile-time validated literal
+const dataDir = path("/srv/data");
+
+// Type-preserving join (result is AbsolutePath)
+const configDir = pathJoin(dataDir, "config");
+const deepPath = pathJoin(dataDir, "a", "b", "c.txt");
+
+// Type-preserving suffix (result is AbsolutePath)
+const backup = pathWithSuffix(dataDir, ".bak");
+```
+
+### 11.4 Conversion Functions
+
+```typescript
+import { userIdToGroupId, serviceNameToContainerName } from "../../lib/types";
+
+const gid = userIdToGroupId(uid);                    // UserId → GroupId
+const container = serviceNameToContainerName(name);  // ServiceName → ContainerName
+```
+
+### 11.5 Schema Re-exports
+
+For service schemas, import from `../../config/schema`:
+
+```typescript
+import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+```
+
+For backup schemas that need `ContainerNameSchema`:
+
+```typescript
+import { ContainerNameSchema } from "../../lib/types";
+```
+
+---
+
+## 12. Coding Standards
 
 These are **non-negotiable** requirements from `CLAUDE.md`. Code that violates these will fail CI.
 
-### 11.1 No Loops
+### 12.1 No Loops
 
 Use functional alternatives:
 
@@ -1318,7 +1455,7 @@ const results = Arr.map(items, transform);
 yield* Effect.forEach(items, (item) => transformEffect(item), { concurrency: 1 });
 ```
 
-### 11.2 No Conditionals
+### 12.2 No Conditionals
 
 Use pattern matching:
 
@@ -1340,28 +1477,23 @@ return Option.match(maybeValue, {
 });
 ```
 
-### 11.3 No RegExp
+### 12.3 No RegExp
 
 Use character predicates from `src/lib/char.ts`:
 - `isLower`, `isUpper`, `isDigit`, `isAlphaNum`, etc.
 - Compose with `all`/`any` from `src/lib/str.ts`
 
-### 11.4 Branded Types Required
+### 12.4 Branded Types Required
 
-Never use raw strings/numbers for domain values:
-- `AbsolutePath` for file paths
-- `ServiceName` for service names
-- `ContainerImage` for image references
-- `UserId`, `GroupId` for numeric IDs
-- `Username` for user names
+Never use raw strings/numbers for domain values. See Section 11.
 
-### 11.5 Immutable Data
+### 12.5 Immutable Data
 
 All interfaces use `readonly`:
 - `readonly` on all interface properties
 - `ReadonlyMap`, `ReadonlyArray` for collections
 
-### 11.6 Effect Patterns
+### 12.6 Effect Patterns
 
 **Context access:**
 ```typescript
@@ -1394,9 +1526,9 @@ SetupStep.resource(
 
 ---
 
-## 12. Verification
+## 13. Verification
 
-### 12.1 Required Checks
+### 13.1 Required Checks
 
 ```bash
 # Full CI (MUST PASS)
@@ -1408,7 +1540,7 @@ just lint     # Run linter
 just test     # Run tests
 ```
 
-### 12.2 Spelling
+### 13.2 Spelling
 
 If cspell fails on technical terms, add them alphabetically to `project-words.txt`.
 
@@ -1417,7 +1549,7 @@ If cspell fails on technical terms, add them alphabetically to `project-words.tx
 - Disable rules
 - Loosen tsconfig settings
 
-### 12.3 Manual Testing
+### 13.3 Manual Testing
 
 ```bash
 # Validate config
@@ -1432,7 +1564,7 @@ just dev --help
 
 ---
 
-## 13. Reference Tables
+## 14. Reference Tables
 
 ### Docker-Compose to divban Mapping
 
@@ -1454,6 +1586,14 @@ just dev --help
 ### Health Check Patterns
 
 ```typescript
+import { duration } from "../../lib/types";
+import {
+  createHealthCheck,
+  createHttpHealthCheck,
+  createPostgresHealthCheck,
+  createRedisHealthCheck,
+} from "../../quadlet";
+
 // HTTP (most common)
 createHttpHealthCheck("http://localhost:8080/health", {
   interval: duration("30s"),
@@ -1478,11 +1618,13 @@ createHealthCheck("curl -sf http://localhost/", {
 ### Volume Patterns
 
 ```typescript
+import { relabelVolumes } from "../../quadlet";
+
 // Bind mount (most common - use dataDir)
 { source: config.paths.dataDir, target: "/data" }
 
-// Subdirectory bind mount
-{ source: `${config.paths.dataDir}/config`, target: "/config" }
+// Subdirectory bind mount (use pathJoin for AbsolutePath preservation)
+{ source: pathJoin(config.paths.dataDir, "config"), target: "/config" }
 
 // Read-only
 { source: "/etc/config", target: "/config", readOnly: true }
@@ -1507,6 +1649,12 @@ relabelVolumes([{ source: path, target: "/data" }], system.selinuxEnforcing)
 ### Secret Patterns
 
 ```typescript
+import {
+  createMountedSecret,
+  createEnvSecret,
+  getSecretMountPath,
+} from "../../quadlet";
+
 // As mounted file (preferred for *_FILE env vars)
 createMountedSecret("db-password")  // → /run/secrets/db-password
 
@@ -1527,7 +1675,7 @@ getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 
 ---
 
-## 14. Quick Debugging
+## 15. Quick Debugging
 
 **Type errors in setup steps:** Check that state types accumulate correctly (`EmptyState & GenerateOutput & CreateDirsOutput & ...`)
 
@@ -1541,9 +1689,13 @@ getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 
 **Backup not working:** Ensure `ServiceOptions` is in the R type parameter of `backup()` - it provides the `force` flag
 
-**"Invalid backup" on restore:** Check that `metadata.json` exists in backup archive and contains valid `producer`, `service`, `schemaVersion`, and `producerVersion` fields
+**"Invalid backup" on restore:** Check that `divban.backup.metadata.json` exists in backup archive and contains valid `producer`, `service`, `schemaVersion`, and `producerVersion` fields
 
 **Config validation fails on version:** Ensure `divbanConfigSchemaVersion = "1.0.0"` is placed immediately after the TOML header comment block
+
+**Branded type error:** Use literal constructors (`serviceName()`, `containerName()`, etc.) for hardcoded values, decoders (`decodeServiceName()`, etc.) for user input
+
+**pathJoin losing AbsolutePath:** Ensure base argument is `AbsolutePath` (not `string`) to preserve the brand
 
 ---
 
@@ -1565,8 +1717,9 @@ Before submitting, verify:
 - [ ] Service registered in `src/services/index.ts`
 - [ ] `just ci` passes with no errors or warnings
 - [ ] No loops, conditionals, or RegExp in code
-- [ ] All domain values use branded types
+- [ ] All domain values use branded types with proper constructors
 - [ ] All interfaces are `readonly`
 - [ ] Full registry prefixes on container images (`docker.io/`, `ghcr.io/`, etc.)
 - [ ] Included `logLevel` in schema (standard field for all services)
 - [ ] Used `as const` for constants objects (CONTAINERS, DEFAULT_IMAGES, etc.)
+- [ ] Used branded type constructors (`serviceName()`, `containerName()`, etc.) not raw strings

@@ -61,7 +61,6 @@ export type { IniSection } from "./format";
 export {
   buildUnitDependencies,
   buildUnitSection,
-  fromUnitName,
   getUnitSectionEntries,
   toUnitName,
 } from "./unit";

@@ -19,7 +19,7 @@ import { extractCauseProps } from "../lib/match-helpers";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
 import type { AbsolutePath, ServiceName } from "../lib/types";
-import type { DivbanConfigSchemaVersion } from "../lib/versioning";
+import { divbanConfigSchemaVersion } from "../lib/versioning";
 import { fileExists } from "../system/fs";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
 import { validateConfigCompatibility } from "./version-compat";
@@ -67,10 +67,18 @@ export const loadTomlFile = <A, I = A>(
     const decoded = yield* decodeToEffect(schema, parsed, filePath);
 
     // Validate config schema version if present (all divban configs have this field)
-    const version = (decoded as { divbanConfigSchemaVersion?: unknown }).divbanConfigSchemaVersion;
-    if (version !== undefined) {
-      yield* validateConfigCompatibility(version as DivbanConfigSchemaVersion, filePath);
-    }
+    yield* pipe(
+      Option.fromNullable(
+        (decoded as { divbanConfigSchemaVersion?: unknown }).divbanConfigSchemaVersion
+      ),
+      Option.filter((v): v is string => typeof v === "string"),
+      Option.flatMap(divbanConfigSchemaVersion),
+      Option.match({
+        onNone: (): Effect.Effect<void, never> => Effect.void,
+        onSome: (version): Effect.Effect<void, ConfigError> =>
+          validateConfigCompatibility(version, filePath),
+      })
+    );
 
     return decoded;
   });
