@@ -15,10 +15,18 @@ import { Array as Arr, Effect, Match, Option, pipe } from "effect";
 import type { AbsolutePath } from "../lib/types";
 
 export interface ArchiveMetadata {
-  version: string;
-  service: string;
-  timestamp: string;
-  files: string[];
+  /** Schema version for this metadata format */
+  readonly version: string;
+  /** Producer application name */
+  readonly producer: string;
+  /** Producer application version (semver) */
+  readonly producerVersion: string;
+  /** Service this backup is for */
+  readonly service: string;
+  /** ISO 8601 timestamp when backup was created */
+  readonly timestamp: string;
+  /** List of files in the archive */
+  readonly files: readonly string[];
 }
 
 /**

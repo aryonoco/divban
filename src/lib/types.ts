@@ -309,6 +309,18 @@ export const containerImage = <const S extends string>(literal: S): ContainerIma
   literal as string as ContainerImage;
 
 /**
+ * Create a ContainerName from a string literal.
+ *
+ * For default values and known container names, use this function.
+ * For dynamic/user input, use decodeContainerName() for runtime validation.
+ *
+ * @example
+ * const container = containerName("immich-postgres");
+ */
+export const containerName = <const S extends string>(literal: S): ContainerName =>
+  literal as string as ContainerName;
+
+/**
  * Join path segments with type preservation.
  *
  * When the base is an AbsolutePath, the result is also an AbsolutePath.

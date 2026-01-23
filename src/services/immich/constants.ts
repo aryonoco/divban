@@ -5,14 +5,23 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { type ContainerName, containerName } from "../../lib/types";
+
 /** Centralized constants for Immich service. */
 
-export const CONTAINERS = {
-  redis: "immich-redis",
-  postgres: "immich-postgres",
-  server: "immich-server",
-  ml: "immich-machine-learning",
-} as const;
+interface ImmichContainers {
+  readonly redis: ContainerName;
+  readonly postgres: ContainerName;
+  readonly server: ContainerName;
+  readonly ml: ContainerName;
+}
+
+export const CONTAINERS: ImmichContainers = {
+  redis: containerName("immich-redis"),
+  postgres: containerName("immich-postgres"),
+  server: containerName("immich-server"),
+  ml: containerName("immich-machine-learning"),
+};
 
 export const NETWORK_NAME = "immich-net";
 

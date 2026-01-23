@@ -11,8 +11,15 @@
 
 import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+import type { SqliteStopBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
-import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
+import {
+  type AbsolutePath,
+  type ContainerImage,
+  type ContainerName,
+  containerImage,
+} from "../../lib/types";
+import { ContainerNameSchema } from "../../lib/types";
 
 export interface ActualConfig {
   /** Path configuration */
@@ -40,7 +47,49 @@ export interface ActualConfig {
     | undefined;
   /** Logging level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  /** Backup configuration - SQLite with container stop (requires --force) */
+  readonly backup: SqliteStopBackupConfig;
 }
+
+const ACTUAL_CONTAINER = "actual" as ContainerName;
+
+/** Backup configuration input - optional since it has defaults */
+export interface ActualBackupConfigInput {
+  readonly type?: "sqlite-stop" | undefined;
+  readonly container?: string | undefined;
+  readonly sqlitePath?: string | undefined;
+  readonly includeFiles?: readonly string[] | undefined;
+  readonly exclude?: readonly string[] | undefined;
+}
+
+const defaultBackupConfig = (): SqliteStopBackupConfig => ({
+  type: "sqlite-stop",
+  container: ACTUAL_CONTAINER,
+  sqlitePath: "server-files/account.sqlite",
+  includeFiles: ["user-files/"],
+  exclude: [],
+});
+
+export const actualBackupConfigSchema: Schema.Schema<
+  SqliteStopBackupConfig,
+  ActualBackupConfigInput
+> = Schema.Struct({
+  type: Schema.optionalWith(Schema.Literal("sqlite-stop"), {
+    default: (): "sqlite-stop" => "sqlite-stop",
+  }),
+  container: Schema.optionalWith(ContainerNameSchema, {
+    default: (): ContainerName => ACTUAL_CONTAINER,
+  }),
+  sqlitePath: Schema.optionalWith(Schema.String, {
+    default: (): string => "server-files/account.sqlite",
+  }),
+  includeFiles: Schema.optionalWith(Schema.Array(Schema.String), {
+    default: (): readonly string[] => ["user-files/"],
+  }),
+  exclude: Schema.optionalWith(Schema.Array(Schema.String), {
+    default: (): readonly string[] => [],
+  }),
+});
 
 /** Fields with defaults are optional in input */
 export interface ActualConfigInput {
@@ -60,6 +109,7 @@ export interface ActualConfigInput {
       }
     | undefined;
   readonly logLevel?: "debug" | "info" | "warn" | "error" | undefined;
+  readonly backup?: ActualBackupConfigInput | undefined;
 }
 
 export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> = Schema.Struct({
@@ -91,6 +141,7 @@ export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> 
   logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
     default: (): "info" => "info",
   }),
+  backup: Schema.optionalWith(actualBackupConfigSchema, { default: defaultBackupConfig }),
 });
 
 interface ActualDefaults {

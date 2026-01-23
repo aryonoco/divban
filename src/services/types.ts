@@ -257,8 +257,8 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
    */
   backup?(): Effect.Effect<
     BackupResult,
-    BackupError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServicePaths | AppLogger
+    BackupError | ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServiceOptions | AppLogger
   >;
 
   /**
@@ -270,8 +270,8 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
     backupPath: AbsolutePath
   ): Effect.Effect<
     void,
-    BackupError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServicePaths | AppLogger
+    BackupError | ServiceError | SystemError | GeneralError,
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
   >;
 }
 

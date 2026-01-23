@@ -7,21 +7,14 @@
 
 /**
  * Common backup infrastructure shared across service implementations.
- * Handles archive creation, compression detection, and backup rotation.
- * Service-specific backup commands delegate here for consistency.
+ * Handles archive metadata, compression detection, and file collection.
  */
 
 import { Glob } from "bun";
-import { Array as Arr, Effect, Option, Order, pipe } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
-import { createArchive } from "../system/archive";
-import { directoryExists, ensureDirectory } from "../system/fs";
 import { collectAsyncOrDie } from "./collection-utils";
-import { BackupError, ErrorCode, type SystemError, errorMessage } from "./errors";
-import type { Logger } from "./logger";
-import { extractCauseProps } from "./match-helpers";
 import { mapCharsToString } from "./str-transform";
-import type { AbsolutePath } from "./types";
 
 /** Sanitize ISO timestamp for filenames: replace : and . with - */
 const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" : c));
@@ -29,87 +22,17 @@ const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" 
 export const createBackupTimestamp = (): string =>
   pipe(new Date().toISOString(), sanitizeTimestamp);
 
-export const ensureBackupDirectory = (backupDir: AbsolutePath): Effect.Effect<void, BackupError> =>
-  ensureDirectory(backupDir).pipe(
-    Effect.mapError(
-      (err) =>
-        new BackupError({
-          code: ErrorCode.BACKUP_FAILED as 50,
-          message: `Failed to create backup directory: ${err.message}`,
-          cause: err,
-        })
-    )
-  );
-
-export const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
+export const createBackupMetadata = (
+  service: string,
+  files: readonly string[]
+): ArchiveMetadata => ({
   version: "1.0",
+  producer: "divban",
+  producerVersion: "0.5.1",
   service,
   timestamp: new Date().toISOString(),
   files,
 });
-
-export const writeBackupArchive = (
-  backupPath: AbsolutePath,
-  files: Record<string, string | Uint8Array | Blob>,
-  options: { compress: "gzip" | "zstd"; metadata: ArchiveMetadata }
-): Effect.Effect<void, BackupError> =>
-  Effect.gen(function* () {
-    // createArchive returns Effect.Effect<Uint8Array, never>
-    const archiveData = yield* createArchive(files, {
-      compress: options.compress,
-      metadata: options.metadata,
-    });
-
-    yield* Effect.tryPromise({
-      try: (): Promise<number> => Bun.write(backupPath, archiveData),
-      catch: (e): BackupError =>
-        new BackupError({
-          code: ErrorCode.BACKUP_FAILED as 50,
-          message: `Failed to write backup file: ${errorMessage(e)}`,
-          ...extractCauseProps(e),
-        }),
-    });
-  });
-
-export const listBackupFiles = (
-  backupDir: AbsolutePath,
-  pattern = "*.tar.{gz,zst}"
-): Effect.Effect<string[], SystemError> =>
-  pipe(
-    directoryExists(backupDir),
-    Effect.flatMap((exists) =>
-      Effect.if(exists, {
-        onTrue: (): Effect.Effect<string[], SystemError> =>
-          Effect.gen(function* () {
-            const glob = new Glob(pattern);
-            const files = yield* collectAsyncOrDie(glob.scan({ cwd: backupDir, onlyFiles: true }));
-
-            const withStats = yield* Effect.forEach(
-              files,
-              (name) =>
-                Effect.promise(async () => ({
-                  name,
-                  mtime: (await Bun.file(`${backupDir}/${name}`).stat())?.mtimeMs ?? 0,
-                })),
-              { concurrency: 10 }
-            );
-
-            const byMtimeDesc: Order.Order<{ mtime: number }> = pipe(
-              Order.number,
-              Order.mapInput((f: { mtime: number }) => f.mtime),
-              Order.reverse
-            );
-
-            return pipe(
-              withStats,
-              Arr.sort(byMtimeDesc),
-              Arr.map((f) => f.name)
-            );
-          }),
-        onFalse: (): Effect.Effect<string[], SystemError> => Effect.succeed([]),
-      })
-    )
-  );
 
 /** Compression format detection thresholds */
 const COMPRESSION_EXTENSIONS: readonly {
@@ -127,50 +50,6 @@ export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "z
     Option.map((entry) => entry.format)
   );
 
-export const validateBackupExists = (backupPath: AbsolutePath): Effect.Effect<void, BackupError> =>
-  pipe(
-    Effect.promise(() => Bun.file(backupPath).exists()),
-    Effect.filterOrFail(
-      (exists): exists is true => exists === true,
-      () =>
-        new BackupError({
-          code: ErrorCode.BACKUP_NOT_FOUND as 51,
-          message: `Backup file not found: ${backupPath}`,
-        })
-    ),
-    Effect.asVoid
-  );
-
-export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<number> => {
-  const stat = await Bun.file(backupPath).stat();
-  return stat?.size ?? 0;
-};
-
-/**
- * Validate backup metadata matches expected service.
- * Returns Ok if metadata is missing or service matches.
- */
-export const validateBackupService = (
-  metadata: Option.Option<ArchiveMetadata>,
-  expectedService: string,
-  logger: Logger
-): Effect.Effect<void, BackupError> =>
-  Option.match(metadata, {
-    onNone: (): Effect.Effect<void, BackupError> => Effect.void, // No metadata = legacy backup, allow
-    onSome: ({ service, timestamp }): Effect.Effect<void, BackupError> =>
-      Effect.if(service === expectedService, {
-        onTrue: (): Effect.Effect<void, BackupError> =>
-          Effect.sync(() => logger.info(`Backup from: ${timestamp}, service: ${service}`)),
-        onFalse: (): Effect.Effect<void, BackupError> =>
-          Effect.fail(
-            new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 52,
-              message: `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`,
-            })
-          ),
-      }),
-  });
-
 const notExcluded =
   (exclude: readonly string[]) =>
   (path: string): boolean =>
@@ -185,35 +64,6 @@ export const scanDirectoryFiles = (
     const files = yield* collectAsyncOrDie(glob.scan({ cwd: dir, onlyFiles: true }));
 
     return files.filter(notExcluded(exclude));
-  });
-
-interface FileWithMtime {
-  readonly name: string;
-  readonly mtime: number;
-}
-
-const getFileMtime = (dir: string, name: string): Effect.Effect<FileWithMtime> =>
-  Effect.promise(async () => ({
-    name,
-    mtime: (await Bun.file(`${dir}/${name}`).stat())?.mtimeMs ?? 0,
-  }));
-
-const sortByMtimeDesc = (files: readonly FileWithMtime[]): readonly string[] =>
-  [...files].sort((a, b) => b.mtime - a.mtime).map((f) => f.name);
-
-export const listFilesByMtime = (
-  dir: string,
-  pattern: string
-): Effect.Effect<readonly string[], never> =>
-  Effect.gen(function* () {
-    const glob = new Glob(pattern);
-    const files = yield* collectAsyncOrDie(glob.scan({ cwd: dir, onlyFiles: true }));
-
-    const withStats = yield* Effect.forEach(files, (f) => getFileMtime(dir, f), {
-      concurrency: 10,
-    });
-
-    return sortByMtimeDesc(withStats);
   });
 
 interface FileWithContent {

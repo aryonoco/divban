@@ -11,12 +11,19 @@
  */
 
 import { Effect } from "effect";
+import { backupService, restoreService } from "../../lib/db-backup";
 import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
 import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
-import { AppLogger, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
+import {
+  type AppLogger,
+  ServiceOptions,
+  type ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -35,7 +42,6 @@ import {
   writeGeneratedFilesTracked,
 } from "../helpers";
 import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
-import { backupActual, restoreActual } from "./commands/backup";
 import { ActualConfigTag } from "./config";
 import { type ActualConfig, actualConfigSchema } from "./schema";
 
@@ -247,20 +253,21 @@ const setup = (): Effect.Effect<
 
 const backup = (): Effect.Effect<
   BackupResult,
-  BackupError | SystemError | GeneralError,
-  ActualConfigTag | ServiceUser | AppLogger
+  BackupError | ServiceError | SystemError | GeneralError,
+  ActualConfigTag | ServiceUser | ServiceOptions | AppLogger
 > =>
   Effect.gen(function* () {
     const config = yield* ActualConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
+    const options = yield* ServiceOptions;
 
     return yield* wrapBackupResult(
-      backupActual({
-        dataDir: config.paths.dataDir as AbsolutePath,
+      backupService(config.backup, {
+        serviceName: definition.name,
+        dataDir: config.paths.dataDir,
         user: user.name,
         uid: user.uid,
-        logger,
+        force: options.force,
       })
     );
   });
@@ -269,21 +276,19 @@ const restore = (
   backupPath: AbsolutePath
 ): Effect.Effect<
   void,
-  BackupError | SystemError | GeneralError,
+  BackupError | ServiceError | SystemError | GeneralError,
   ActualConfigTag | ServiceUser | AppLogger
 > =>
   Effect.gen(function* () {
     const config = yield* ActualConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
-    yield* restoreActual(
-      backupPath,
-      config.paths.dataDir as AbsolutePath,
-      user.name,
-      user.uid,
-      logger
-    );
+    yield* restoreService(backupPath, config.backup, {
+      serviceName: definition.name,
+      dataDir: config.paths.dataDir,
+      user: user.name,
+      uid: user.uid,
+    });
   });
 
 export const actualService: ServiceEffect<ActualConfig, ActualConfigTag, typeof ActualConfigTag> = {

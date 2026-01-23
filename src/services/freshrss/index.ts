@@ -11,12 +11,19 @@
  */
 
 import { Effect } from "effect";
-import type { GeneralError, ServiceError, SystemError } from "../../lib/errors";
+import { backupService, restoreService } from "../../lib/db-backup";
+import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
 import { type AbsolutePath, type ServiceName, duration, pathJoin } from "../../lib/types";
 import { createHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
-import { type AppLogger, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
+import {
+  type AppLogger,
+  ServiceOptions,
+  type ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -31,9 +38,10 @@ import {
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
+  wrapBackupResult,
   writeGeneratedFilesTracked,
 } from "../helpers";
-import type { GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
+import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
 import { FreshRssConfigTag } from "./config";
 import { type FreshRssConfig, freshRssConfigSchema, freshRssDefaults } from "./schema";
 
@@ -47,8 +55,8 @@ const definition: ServiceDefinition = {
   capabilities: {
     multiContainer: false,
     hasReload: false,
-    hasBackup: false,
-    hasRestore: false,
+    hasBackup: true,
+    hasRestore: true,
     hardwareAcceleration: false,
   },
 };
@@ -252,6 +260,46 @@ const setup = (): Effect.Effect<
     .andThen(enableServicesStep)
     .execute(emptyState);
 
+const backup = (): Effect.Effect<
+  BackupResult,
+  BackupError | ServiceError | SystemError | GeneralError,
+  FreshRssConfigTag | ServiceUser | ServiceOptions | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* FreshRssConfigTag;
+    const user = yield* ServiceUser;
+    const options = yield* ServiceOptions;
+
+    return yield* wrapBackupResult(
+      backupService(config.backup, {
+        serviceName: definition.name,
+        dataDir: config.paths.dataDir,
+        user: user.name,
+        uid: user.uid,
+        force: options.force,
+      })
+    );
+  });
+
+const restore = (
+  backupPath: AbsolutePath
+): Effect.Effect<
+  void,
+  BackupError | ServiceError | SystemError | GeneralError,
+  FreshRssConfigTag | ServiceUser | AppLogger
+> =>
+  Effect.gen(function* () {
+    const config = yield* FreshRssConfigTag;
+    const user = yield* ServiceUser;
+
+    yield* restoreService(backupPath, config.backup, {
+      serviceName: definition.name,
+      dataDir: config.paths.dataDir,
+      user: user.name,
+      uid: user.uid,
+    });
+  });
+
 export const freshRssService: ServiceEffect<
   FreshRssConfig,
   FreshRssConfigTag,
@@ -268,4 +316,6 @@ export const freshRssService: ServiceEffect<
   restart: ops.restart,
   status: ops.status,
   logs: ops.logs,
+  backup,
+  restore,
 };

@@ -78,9 +78,11 @@ export const pollingSchedule = (
  * These are substrings that appear in error messages for retryable conditions.
  */
 const TRANSIENT_ERROR_PATTERNS: readonly string[] = [
+  // Network/socket errors
   "connection refused",
   "connection reset",
   "connection timed out",
+  "connection unexpectedly closed",
   "temporarily unavailable",
   "resource temporarily unavailable",
   "device or resource busy",
@@ -97,6 +99,13 @@ const TRANSIENT_ERROR_PATTERNS: readonly string[] = [
   "failed to connect",
   "socket not found",
   "operation timed out",
+  // Database-specific transient errors
+  "database is locked",
+  "too many connections",
+  "server closed the connection",
+  "could not connect to server",
+  "the database system is starting up",
+  "the database system is shutting down",
 ];
 
 /**

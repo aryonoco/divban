@@ -6,6 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { Array as Arr, Effect, pipe } from "effect";
+import { backupService, restoreService } from "../../lib/db-backup";
 import type {
   BackupError,
   ContainerError,
@@ -35,7 +36,13 @@ import {
   getPodmanSecretName,
 } from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
-import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
+import {
+  AppLogger,
+  ServiceOptions,
+  ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -60,8 +67,6 @@ import type {
   ServiceEffect,
   ServiceStatus,
 } from "../types";
-import { backupDatabase } from "./commands/backup";
-import { restoreDatabase } from "./commands/restore";
 import { ImmichConfigTag } from "./config";
 import { CONTAINERS, DEFAULT_IMAGES, INTERNAL_URLS, NETWORK_NAME } from "./constants";
 import { getHardwareConfig, getMlImage, mergeDevices, mergeEnvironment } from "./hardware";
@@ -562,22 +567,21 @@ const logs = (
 
 const backup = (): Effect.Effect<
   BackupResult,
-  BackupError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | AppLogger
+  BackupError | ServiceError | SystemError | GeneralError,
+  ImmichConfigTag | ServiceUser | ServiceOptions | AppLogger
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
+    const options = yield* ServiceOptions;
 
     return yield* wrapBackupResult(
-      backupDatabase({
-        dataDir: config.paths.dataDir as AbsolutePath,
+      backupService(config.backup, {
+        serviceName: definition.name,
+        dataDir: config.paths.dataDir,
         user: user.name,
         uid: user.uid,
-        logger,
-        database: config.database.database,
-        dbUser: config.database.username,
+        force: options.force,
       })
     );
   });
@@ -586,21 +590,18 @@ const restore = (
   backupPath: AbsolutePath
 ): Effect.Effect<
   void,
-  BackupError | SystemError | GeneralError,
+  BackupError | ServiceError | SystemError | GeneralError,
   ImmichConfigTag | ServiceUser | AppLogger
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
-    yield* restoreDatabase({
-      backupPath,
+    yield* restoreService(backupPath, config.backup, {
+      serviceName: definition.name,
+      dataDir: config.paths.dataDir,
       user: user.name,
       uid: user.uid,
-      logger,
-      database: config.database.database,
-      dbUser: config.database.username,
     });
   });
 

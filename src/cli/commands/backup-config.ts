@@ -321,6 +321,8 @@ export const executeBackupConfig = (
                 // Step 6: Create archive with metadata
                 const metadata: ArchiveMetadata = {
                   version: "1.0",
+                  producer: "divban",
+                  producerVersion: "0.5.1",
                   service: serviceName,
                   timestamp: new Date().toISOString(),
                   files: fileNames,

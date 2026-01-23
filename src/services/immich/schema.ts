@@ -7,9 +7,21 @@
 
 import { Schema } from "effect";
 import { absolutePathSchema } from "../../config/schema";
+import type {
+  ContainerLocation,
+  ContainerLocationInput,
+  DatabaseName,
+  DatabaseUser,
+  PostgresBackupConfig,
+} from "../../lib/db-backup";
+import {
+  ContainerLocationSchema,
+  DatabaseNameSchema,
+  DatabaseUserSchema,
+} from "../../lib/db-backup";
 import { isValidIP, isValidUrl } from "../../lib/schema-utils";
 import type { AbsolutePath } from "../../lib/types";
-import { DEFAULT_IMAGES } from "./constants";
+import { CONTAINERS, DEFAULT_IMAGES } from "./constants";
 
 export type TranscodingConfig =
   | { readonly type: "nvenc"; readonly gpuIndex?: number | undefined }
@@ -198,6 +210,16 @@ export interface ImmichConfig {
   readonly network?: ImmichNetworkConfig | undefined;
   readonly publicUrl?: string | undefined;
   readonly logLevel: "verbose" | "debug" | "log" | "warn" | "error";
+  /** Backup configuration - PostgreSQL via container exec (hot backup safe) */
+  readonly backup: PostgresBackupConfig;
+}
+
+/** Backup configuration input - optional since it has defaults */
+export interface ImmichBackupConfigInput {
+  readonly type?: "postgres" | undefined;
+  readonly container?: ContainerLocationInput | undefined;
+  readonly database?: string | undefined;
+  readonly user?: string | undefined;
 }
 
 export interface ImmichConfigInput {
@@ -215,7 +237,33 @@ export interface ImmichConfigInput {
   readonly network?: ImmichNetworkConfigInput | undefined;
   readonly publicUrl?: string | undefined;
   readonly logLevel?: "verbose" | "debug" | "log" | "warn" | "error" | undefined;
+  readonly backup?: ImmichBackupConfigInput | undefined;
 }
+
+const defaultBackupConfig = (): PostgresBackupConfig => ({
+  type: "postgres",
+  container: { kind: "separate", name: CONTAINERS.postgres },
+  database: "immich" as DatabaseName,
+  user: "immich" as DatabaseUser,
+});
+
+export const immichBackupConfigSchema: Schema.Schema<
+  PostgresBackupConfig,
+  ImmichBackupConfigInput
+> = Schema.Struct({
+  type: Schema.optionalWith(Schema.Literal("postgres"), {
+    default: (): "postgres" => "postgres",
+  }),
+  container: Schema.optionalWith(ContainerLocationSchema, {
+    default: (): ContainerLocation => ({ kind: "separate", name: CONTAINERS.postgres }),
+  }),
+  database: Schema.optionalWith(DatabaseNameSchema, {
+    default: (): DatabaseName => "immich" as DatabaseName,
+  }),
+  user: Schema.optionalWith(DatabaseUserSchema, {
+    default: (): DatabaseUser => "immich" as DatabaseUser,
+  }),
+});
 
 export const immichConfigSchema: Schema.Schema<ImmichConfig, ImmichConfigInput> = Schema.Struct({
   paths: Schema.Struct({
@@ -236,4 +284,5 @@ export const immichConfigSchema: Schema.Schema<ImmichConfig, ImmichConfigInput> 
   logLevel: Schema.optionalWith(Schema.Literal("verbose", "debug", "log", "warn", "error"), {
     default: (): "log" => "log",
   }),
+  backup: Schema.optionalWith(immichBackupConfigSchema, { default: defaultBackupConfig }),
 });

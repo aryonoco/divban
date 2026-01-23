@@ -11,8 +11,45 @@
 
 import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+import type { FreshRssCliBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
-import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
+import {
+  type AbsolutePath,
+  type ContainerImage,
+  type ContainerName,
+  ContainerNameSchema,
+  containerImage,
+} from "../../lib/types";
+
+const FRESHRSS_CONTAINER = "freshrss" as ContainerName;
+
+/** Backup configuration input - optional since it has defaults */
+export interface FreshRssBackupConfigInput {
+  readonly type?: "freshrss-cli" | undefined;
+  readonly container?: string | undefined;
+  readonly exclude?: readonly string[] | undefined;
+}
+
+const defaultBackupConfig = (): FreshRssCliBackupConfig => ({
+  type: "freshrss-cli",
+  container: FRESHRSS_CONTAINER,
+  exclude: [],
+});
+
+export const freshRssBackupConfigSchema: Schema.Schema<
+  FreshRssCliBackupConfig,
+  FreshRssBackupConfigInput
+> = Schema.Struct({
+  type: Schema.optionalWith(Schema.Literal("freshrss-cli"), {
+    default: (): "freshrss-cli" => "freshrss-cli",
+  }),
+  container: Schema.optionalWith(ContainerNameSchema, {
+    default: (): ContainerName => FRESHRSS_CONTAINER,
+  }),
+  exclude: Schema.optionalWith(Schema.Array(Schema.String), {
+    default: (): readonly string[] => [],
+  }),
+});
 
 export interface FreshRssConfig {
   /** Path configuration */
@@ -46,6 +83,8 @@ export interface FreshRssConfig {
   readonly trustedProxy?: string | undefined;
   /** Logging level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  /** Backup configuration - FreshRSS CLI (hot backup safe via PHP) */
+  readonly backup: FreshRssCliBackupConfig;
 }
 
 /** Fields with defaults are optional in input */
@@ -69,6 +108,7 @@ export interface FreshRssConfigInput {
   readonly cronMinutes?: string | undefined;
   readonly trustedProxy?: string | undefined;
   readonly logLevel?: "debug" | "info" | "warn" | "error" | undefined;
+  readonly backup?: FreshRssBackupConfigInput | undefined;
 }
 
 export const freshRssConfigSchema: Schema.Schema<FreshRssConfig, FreshRssConfigInput> =
@@ -105,6 +145,7 @@ export const freshRssConfigSchema: Schema.Schema<FreshRssConfig, FreshRssConfigI
     logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
       default: (): "info" => "info",
     }),
+    backup: Schema.optionalWith(freshRssBackupConfigSchema, { default: defaultBackupConfig }),
   });
 
 interface FreshRssDefaults {
