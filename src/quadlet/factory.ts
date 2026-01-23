@@ -17,12 +17,7 @@ import type { IniSection } from "./format";
 import type { GeneratedQuadlet } from "./types";
 import { buildUnitSection } from "./unit";
 
-/**
- * Factory for simple quadlet generators (network, volume pattern).
- * Handles optional Unit section + main section composition.
- *
- * Note: Explicit return type required for isolatedDeclarations.
- */
+/** Explicit return type required for isolatedDeclarations. */
 export const makeSimpleQuadletGenerator =
   <C extends { readonly name: string; readonly description?: string | undefined }>(
     type: "network" | "volume",

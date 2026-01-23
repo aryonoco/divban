@@ -5,10 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Caddy service configuration schema.
- */
-
 import { Schema } from "effect";
 import {
   type HealthCheckConfig,
@@ -40,9 +36,6 @@ export interface Directive {
   readonly block?: readonly Directive[] | undefined;
 }
 
-/**
- * Directive schema - recursive for nested directives.
- */
 export const directiveSchema: Schema.Schema<Directive> = Schema.Struct({
   name: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
@@ -70,7 +63,6 @@ export interface NamedMatcher {
   readonly expression?: string | undefined;
 }
 
-// Extract matcher fields for reuse in 'not' (without name)
 const matcherFieldsWithoutName = {
   path: Schema.optional(Schema.Array(Schema.String)),
   pathRegexp: Schema.optional(Schema.String),
@@ -84,19 +76,12 @@ const matcherFieldsWithoutName = {
   expression: Schema.optional(Schema.String),
 };
 
-/**
- * Named matcher schema.
- */
 export const namedMatcherSchema: Schema.Schema<NamedMatcher> = Schema.Struct({
   name: Schema.String,
   ...matcherFieldsWithoutName,
   not: Schema.optional(Schema.Struct(matcherFieldsWithoutName)),
 }) as unknown as Schema.Schema<NamedMatcher>;
 
-/**
- * Snippet schema.
- */
-/** Caddyfile snippet */
 export interface Snippet {
   readonly name: string;
   readonly args?: readonly string[] | undefined;
@@ -109,9 +94,6 @@ export const snippetSchema: Schema.Schema<Snippet> = Schema.Struct({
   directives: Schema.Array(directiveSchema),
 });
 
-/**
- * Caddyfile route.
- */
 export interface Route {
   readonly name?: string | undefined;
   readonly match?: readonly string[] | undefined;
@@ -124,9 +106,6 @@ export const routeSchema: Schema.Schema<Route> = Schema.Struct({
   directives: Schema.Array(directiveSchema),
 });
 
-/**
- * Caddyfile site.
- */
 export interface Site {
   readonly addresses: readonly string[];
   readonly matchers?: readonly NamedMatcher[] | undefined;
@@ -141,9 +120,6 @@ export const siteSchema: Schema.Schema<Site> = Schema.Struct({
   directives: Schema.optional(Schema.Array(directiveSchema)),
 });
 
-/**
- * Caddy global options.
- */
 export interface GlobalOptions {
   readonly debug?: boolean | undefined;
   readonly email?: string | undefined;
@@ -211,9 +187,6 @@ export const globalOptionsSchema: Schema.Schema<GlobalOptions> = Schema.Struct({
   logLevel: Schema.optional(Schema.Literal("DEBUG", "INFO", "WARN", "ERROR")),
 });
 
-/**
- * Caddyfile configuration.
- */
 export interface CaddyfileConfig {
   readonly global?: GlobalOptions | undefined;
   readonly snippets?: readonly Snippet[] | undefined;
@@ -226,10 +199,6 @@ export const caddyfileSchema: Schema.Schema<CaddyfileConfig> = Schema.Struct({
   sites: Schema.Array(siteSchema),
 });
 
-/**
- * Caddy container configuration (output after decoding).
- * Similar to ContainerBaseConfig but with Caddy-specific defaults applied.
- */
 export interface CaddyContainerConfig {
   readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
@@ -253,9 +222,6 @@ export interface CaddyContainerConfig {
   readonly timeoutStopSec?: number | undefined;
 }
 
-/**
- * Caddy container configuration (input before decoding).
- */
 export interface CaddyContainerConfigInput {
   readonly image: string;
   readonly imageDigest?: string | undefined;
@@ -345,16 +311,10 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
     ),
   });
 
-/**
- * Network configuration schema.
- */
 const caddyNetworkSchema = Schema.Struct({
   mapHostLoopback: Schema.optional(Schema.String),
 });
 
-/**
- * Full Caddy service configuration (output after decoding).
- */
 export interface CaddyConfig {
   readonly paths: {
     readonly dataDir: AbsolutePath;
@@ -368,9 +328,6 @@ export interface CaddyConfig {
   readonly caddyfile: CaddyfileConfig;
 }
 
-/**
- * Full Caddy service configuration (input before decoding).
- */
 export interface CaddyConfigInput {
   readonly paths: {
     readonly dataDir: string;

@@ -5,12 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Core library exports for divban.
- * This module provides the foundation types and utilities used throughout the application.
- */
-
-// Types - Branded types for type-safe identifiers
 export {
   // Schemas (use .make() for trusted literals, Schema.decode() for untrusted input)
   AbsolutePathSchema,
@@ -66,7 +60,6 @@ export type {
   VolumeName as VolumeNameType,
 } from "./types";
 
-// Option - Re-exported from Effect with helpers
 export { Option } from "effect";
 export {
   expectOptionEffect,
@@ -78,7 +71,6 @@ export {
   xorOption,
 } from "./option-helpers";
 
-// Errors - Tagged error classes for Effect-based error handling
 export {
   BackupError,
   ConfigError,
@@ -93,7 +85,6 @@ export {
 } from "./errors";
 export type { DivbanEffectError, ErrorCodeValue } from "./errors";
 
-// Logger - Structured logging
 export {
   createLogger,
   getLogger,
@@ -104,7 +95,6 @@ export {
 } from "./logger";
 export type { Logger, LoggerOptions, LogLevel } from "./logger";
 
-// Assert - Runtime assertions and type guards
 export {
   assertEffect,
   assertNonEmptyEffect,
@@ -119,7 +109,6 @@ export {
 } from "./assert";
 export type { NonEmptyArray } from "./assert";
 
-// Utils - Bun standard library utilities
 export {
   base64Decode,
   base64DecodeBytes,
@@ -162,7 +151,6 @@ export {
 } from "./utils";
 export type { BufferBuilderOptions, StringWidthOptions } from "./utils";
 
-// Semver - Version comparison
 export {
   compare as semverCompare,
   eq as semverEq,
@@ -182,11 +170,9 @@ export {
   sortVersionsDesc,
 } from "./semver";
 
-// Timing - Effect-based timing utilities
 export { createStopwatchEffect } from "./timing";
 export type { EffectStopwatch } from "./timing";
 
-// Paths - Centralized path construction
 export {
   buildServicePaths,
   configFilePath,

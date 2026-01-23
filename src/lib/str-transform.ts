@@ -14,19 +14,12 @@
 
 import { chars } from "./str";
 
-/**
- * Process each character with an accumulator.
- * Base function for character-by-character transformations.
- */
 export const foldChars =
   <A>(initial: A, step: (acc: A, c: string) => A) =>
   (s: string): A =>
     chars(s).reduce(step, initial);
 
-/**
- * Map each character through a function.
- * mapChars(c => c === ":" ? "-" : c)("10:30") => "10-30"
- */
+// mapChars(c => c === ":" ? "-" : c)("10:30") => "10-30"
 export const mapChars = (f: (c: string) => string): ((s: string) => string[]) =>
   foldChars<string[]>([], (acc, c) => [...acc, f(c)]);
 
@@ -35,10 +28,7 @@ export const mapCharsToString =
   (s: string): string =>
     mapChars(f)(s).join("");
 
-/**
- * Filter characters by predicate.
- * filterChars(c => c !== "=")("a==b") => "ab"
- */
+// filterChars(c => c !== "=")("a==b") => "ab"
 export const filterChars = (pred: (c: string) => boolean): ((s: string) => string[]) =>
   foldChars<string[]>([], (acc, c) => (pred(c) ? [...acc, c] : acc));
 
@@ -47,11 +37,7 @@ export const filterCharsToString =
   (s: string): string =>
     filterChars(pred)(s).join("");
 
-/**
- * Collapse consecutive occurrences of a character.
- * State = { prev: string | null, result: readonly string[] }
- * collapseChar("/")("a//b///c") => "a/b/c"
- */
+// collapseChar("/")("a//b///c") => "a/b/c"
 type CollapseState = { readonly prev: string | null; readonly result: readonly string[] };
 
 const collapseStep =
@@ -66,31 +52,19 @@ export const collapseChar =
     return chars(s).reduce(collapseStep(char), initial).result.join("");
   };
 
-/**
- * Remove suffix if present.
- */
 export const stripSuffix =
   (suffix: string) =>
   (s: string): string =>
     s.endsWith(suffix) ? s.slice(0, -suffix.length) : s;
 
-/**
- * Remove prefix if present.
- */
 export const stripPrefix =
   (prefix: string) =>
   (s: string): string =>
     s.startsWith(prefix) ? s.slice(prefix.length) : s;
 
-/**
- * Replace characters using a lookup map (unknown chars pass through).
- */
 export const replaceChars = (mapping: ReadonlyMap<string, string>): ((s: string) => string) =>
   mapCharsToString((c) => mapping.get(c) ?? c);
 
-/**
- * Escape characters with a prefix using lookup.
- */
 export const escapeWith =
   (mapping: ReadonlyMap<string, string>) =>
   (s: string): string =>

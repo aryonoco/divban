@@ -20,18 +20,10 @@ import { chars } from "../../lib/str";
 import type { Entries } from "../entry";
 import { concat, fromValue } from "../entry-combinators";
 
-// ============================================================================
-// Parsed Result Type
-// ============================================================================
-
 interface ParsedMemory {
   readonly value: number;
   readonly unit: string;
 }
-
-// ============================================================================
-// Lexer State Machine
-// ============================================================================
 
 type LexState =
   | { readonly phase: "digits"; readonly digits: string; readonly hasDecimal: boolean }
@@ -41,10 +33,6 @@ type LexState =
 
 const initialState: LexState = { phase: "digits", digits: "", hasDecimal: false };
 
-/**
- * Step function for memory size lexer.
- * State transitions: digits -> unit -> done
- */
 const lexStep = (state: LexState, c: string): LexState => {
   // Terminal states
   if (state.phase === "error" || state.phase === "done") {
@@ -99,9 +87,6 @@ const lexStep = (state: LexState, c: string): LexState => {
   return { phase: "error" };
 };
 
-/**
- * Parse memory size string using lexer.
- */
 const parseMemorySizeString = (s: string): Option.Option<ParsedMemory> => {
   const trimmed = s.trim();
   if (trimmed.length === 0) {
@@ -125,10 +110,6 @@ const parseMemorySizeString = (s: string): Option.Option<ParsedMemory> => {
   // "unit" or "done" phase
   return Option.some({ value: finalState.value, unit: finalState.unit });
 };
-
-// ============================================================================
-// Configuration Types
-// ============================================================================
 
 export interface ContainerResourcesConfig {
   /** Shared memory size (e.g., "64m", "1g") */
@@ -167,11 +148,6 @@ export const getResourceEntries = (config: ContainerResourcesConfig): Entries =>
     fromValue("BlkioWeight", config.blkioWeight)
   );
 
-// ============================================================================
-// Public API
-// ============================================================================
-
-/** Multipliers for memory units */
 const UNIT_MULTIPLIERS: ReadonlyMap<string, number> = new Map([
   ["", 1],
   ["k", 1024],
@@ -180,10 +156,6 @@ const UNIT_MULTIPLIERS: ReadonlyMap<string, number> = new Map([
   ["t", 1024 ** 4],
 ]);
 
-/**
- * Parse memory size string to bytes.
- * Uses Option.match for exhaustive pattern matching.
- */
 export const parseMemorySize = (size: string): Effect.Effect<number, GeneralError> =>
   pipe(
     parseMemorySizeString(size),
@@ -200,16 +172,12 @@ export const parseMemorySize = (size: string): Effect.Effect<number, GeneralErro
     })
   );
 
-/** Memory size formatting thresholds (descending order) */
 const MEMORY_SIZE_THRESHOLDS: readonly { threshold: number; format: (b: number) => string }[] = [
   { threshold: 1024 ** 3, format: (b): string => `${Math.floor(b / 1024 ** 3)}g` },
   { threshold: 1024 ** 2, format: (b): string => `${Math.floor(b / 1024 ** 2)}m` },
   { threshold: 1024, format: (b): string => `${Math.floor(b / 1024)}k` },
 ];
 
-/**
- * Format bytes as a memory size string.
- */
 export const formatMemorySize = (bytes: number): string =>
   pipe(
     MEMORY_SIZE_THRESHOLDS,
@@ -220,9 +188,6 @@ export const formatMemorySize = (bytes: number): string =>
     })
   );
 
-/**
- * Common resource profiles.
- */
 export const ResourceProfiles: Record<string, ContainerResourcesConfig> = {
   /** Minimal resources for lightweight containers */
   MINIMAL: {

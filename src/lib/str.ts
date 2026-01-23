@@ -14,35 +14,30 @@
 
 import { Option } from "effect";
 
-/** Convert string to array of single characters (always total) */
+/** Unicode-aware via Array.from() instead of string indexing. */
 export const chars = (s: string): readonly string[] => Array.from(s);
 
-/** Safe head: first character or None (unicode-aware) */
 export const head = (s: string): Option.Option<string> => Option.fromNullable(chars(s)[0]);
 
-/** Safe uncons: split into (head, tail) or None (unicode-aware) */
+/** Haskell-style uncons: split into (head, tail) or None. */
 export const uncons = (s: string): Option.Option<readonly [string, string]> => {
   const arr = chars(s);
   const first = arr[0];
   return first !== undefined ? Option.some([first, arr.slice(1).join("")] as const) : Option.none();
 };
 
-/** Safe charAt with bounds checking (unicode-aware) */
 export const charAt =
   (i: number) =>
   (s: string): Option.Option<string> =>
     Option.fromNullable(chars(s)[i]);
 
-/** Safe last character (unicode-aware) */
 export const last = (s: string): Option.Option<string> => Option.fromNullable(chars(s).at(-1));
 
-/** Check if all characters satisfy predicate */
 export const all =
   (pred: (c: string) => boolean) =>
   (s: string): boolean =>
     chars(s).every(pred);
 
-/** Check if any character satisfies predicate */
 export const any =
   (pred: (c: string) => boolean) =>
   (s: string): boolean =>

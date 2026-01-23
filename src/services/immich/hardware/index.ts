@@ -25,17 +25,11 @@ import type { MlConfig, TranscodingConfig } from "../schema";
 import { type MlDevices, getMlDevices } from "./ml";
 import { type TranscodingDevices, getTranscodingDevices } from "./transcoding";
 
-/**
- * Combined hardware configuration.
- */
 export interface HardwareConfig {
   readonly transcoding: Option.Option<TranscodingDevices>;
   readonly ml: MlDevices;
 }
 
-/**
- * Get combined hardware configuration.
- */
 export const getHardwareConfig = (
   transcoding: TranscodingConfig,
   ml: MlConfig
@@ -44,21 +38,14 @@ export const getHardwareConfig = (
   ml: getMlDevices(ml),
 });
 
-// ============================================================================
-// Type-safe source handling
-// ============================================================================
-
 /**
- * Discriminated union for device sources.
+ * Unifies direct device configs with Option-wrapped configs so merge
+ * functions can accept both MlDevices and Option<TranscodingDevices>.
  */
 type DeviceSource =
   | { readonly kind: "direct"; readonly value: TranscodingDevices | MlDevices }
   | { readonly kind: "optional"; readonly value: Option.Option<TranscodingDevices> };
 
-/**
- * Factory functions for DeviceSource.
- * Prefer these over raw object literals.
- */
 const DeviceSource = {
   direct: (value: TranscodingDevices | MlDevices): DeviceSource => ({ kind: "direct", value }),
   optional: (value: Option.Option<TranscodingDevices>): DeviceSource => ({
@@ -67,10 +54,6 @@ const DeviceSource = {
   }),
 } as const;
 
-/**
- * Extract devices from a source using pattern matching.
- * Handles all DeviceSource cases.
- */
 const extractDevices = (source: DeviceSource): readonly string[] =>
   pipe(
     Match.value(source),
@@ -87,9 +70,6 @@ const extractDevices = (source: DeviceSource): readonly string[] =>
     Match.exhaustive
   );
 
-/**
- * Extract environment from a source using pattern matching.
- */
 const extractEnvironment = (source: DeviceSource): Readonly<Record<string, string>> =>
   pipe(
     Match.value(source),
@@ -108,24 +88,15 @@ const extractEnvironment = (source: DeviceSource): Readonly<Record<string, strin
     Match.exhaustive
   );
 
-/**
- * Wrap a raw source in DeviceSource.
- */
 const wrapSource = (
   source: TranscodingDevices | MlDevices | Option.Option<TranscodingDevices>
 ): DeviceSource =>
   Option.isOption(source) ? DeviceSource.optional(source) : DeviceSource.direct(source);
 
-/**
- * Merge devices from multiple sources.
- */
 export const mergeDevices = (
   ...sources: readonly (TranscodingDevices | MlDevices | Option.Option<TranscodingDevices>)[]
 ): readonly string[] => concatUnique(...sources.map(wrapSource).map(extractDevices));
 
-/**
- * Merge environment variables from multiple sources.
- */
 export const mergeEnvironment = (
   ...sources: readonly (TranscodingDevices | MlDevices | Option.Option<TranscodingDevices>)[]
 ): Readonly<Record<string, string>> =>

@@ -36,10 +36,7 @@ export interface UnitConfig {
   readonly startLimitBurst?: number | undefined;
 }
 
-/**
- * Helper: create optional field from Option.
- * Stays in Option until the final extraction.
- */
+/** Converts Option<V> to a partial record, deferring None-elimination to the call site. */
 const optionalField = <K extends string, V>(
   key: K,
   opt: Option.Option<V>
@@ -63,30 +60,19 @@ export const getUnitSectionEntries = (config: UnitConfig): Entries =>
     fromValue("StartLimitBurst", config.startLimitBurst)
   );
 
-/**
- * Build the [Unit] section for a quadlet file.
- */
 export const buildUnitSection: (config: UnitConfig) => IniSection = makeSection(
   "Unit",
   getUnitSectionEntries
 );
 
-/**
- * Convert container names to systemd unit names.
- * Quadlet containers become <name>.service units.
- */
+/** Quadlet generator names the resulting systemd unit `<container>.service`. */
 export const toUnitName = (containerName: string): string => {
   return `${containerName}.service`;
 };
 
-/**
- * Convert unit names back to container names.
- */
 export const fromUnitName = (unitName: string): string => pipe(unitName, stripSuffix(".service"));
 
-/**
- * Build unit dependencies from container names.
- */
+/** Transforms container names to unit names for Requires/Wants/After/Before directives. */
 export const buildUnitDependencies = (
   requires?: readonly string[],
   wants?: readonly string[],

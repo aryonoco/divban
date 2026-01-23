@@ -37,9 +37,6 @@ export const getHealthCheckEntries = (config: HealthCheck | undefined): Entries 
     Option.getOrElse((): Entries => empty)
   );
 
-/**
- * Create a basic health check configuration.
- */
 export const createHealthCheck = (
   cmd: string,
   options?: Partial<Omit<HealthCheck, "cmd">>
@@ -52,9 +49,6 @@ export const createHealthCheck = (
   onFailure: options?.onFailure ?? "none",
 });
 
-/**
- * Create a health check that uses curl to check an HTTP endpoint.
- */
 export const createHttpHealthCheck = (
   url: string,
   options?: Partial<Omit<HealthCheck, "cmd">>
@@ -64,9 +58,6 @@ export const createHttpHealthCheck = (
     startPeriod: options?.startPeriod ?? duration("10s"),
   });
 
-/**
- * Create a health check that uses wget to check an HTTP endpoint.
- */
 export const createWgetHealthCheck = (
   url: string,
   options?: Partial<Omit<HealthCheck, "cmd">>
@@ -76,9 +67,6 @@ export const createWgetHealthCheck = (
     startPeriod: options?.startPeriod ?? duration("10s"),
   });
 
-/**
- * Create a health check for PostgreSQL.
- */
 export const createPostgresHealthCheck = (
   user = "postgres",
   db = "postgres",
@@ -91,9 +79,6 @@ export const createPostgresHealthCheck = (
     ...options,
   });
 
-/**
- * Create a health check for Redis.
- */
 export const createRedisHealthCheck = (options?: Partial<Omit<HealthCheck, "cmd">>): HealthCheck =>
   createHealthCheck("redis-cli ping | grep -q PONG", {
     interval: duration("10s"),
@@ -111,16 +96,9 @@ export const createNoopHealthCheck = (): HealthCheck =>
     timeout: duration("5s"),
   });
 
-/**
- * Health check on failure actions.
- */
 export const HealthOnFailure: Record<string, string> = {
-  /** Do nothing */
   NONE: "none",
-  /** Kill the container */
   KILL: "kill",
-  /** Restart the container */
   RESTART: "restart",
-  /** Stop the container */
   STOP: "stop",
 } as const satisfies Record<string, string>;

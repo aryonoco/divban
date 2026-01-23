@@ -42,6 +42,7 @@ bunx
 Zod
 
 # Technical Terms
+dedup
 healthcheck
 healthchecks
 semver

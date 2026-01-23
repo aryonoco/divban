@@ -13,33 +13,18 @@
 
 import { Array as Arr, Match, Option, Order, pipe } from "effect";
 
-// ============================================================================
-// Line Parsing Helpers
-// ============================================================================
-
-/** Predicate: line is non-empty and not a comment */
 const isContentLine = (line: string): boolean => {
   const trimmed = line.trim();
   return trimmed.length > 0 && !trimmed.startsWith("#");
 };
 
-/** Filter out empty and comment lines */
 export const filterContentLines = (lines: readonly string[]): readonly string[] =>
   Arr.filter(lines, isContentLine);
 
-/** Split content into content lines */
 export const toContentLines = (content: string): readonly string[] =>
   filterContentLines(content.split("\n"));
 
-// ============================================================================
-// KEY=VALUE Parsing
-// ============================================================================
-
-/**
- * Parse KEY=VALUE format.
- * Total: returns empty record for invalid input.
- * Used by: age.ts
- */
+/** Used by: age.ts for parsing key files. */
 export const parseKeyValue = (content: string): Record<string, string> =>
   pipe(
     content.split("\n"),
@@ -54,16 +39,6 @@ export const parseKeyValue = (content: string): Record<string, string> =>
     Object.fromEntries
   );
 
-// ============================================================================
-// Colon-Delimited Parsing (passwd, subuid format)
-// ============================================================================
-
-/**
- * Parse colon-delimited lines.
- * Takes a parse function to transform each line's fields.
- * noUncheckedIndexedAccess-safe: parser receives readonly string[],
- * must use Arr.get for index access.
- */
 export const parseColonDelimited = <T>(
   content: string,
   parse: (fields: readonly string[]) => Option.Option<T>
@@ -74,10 +49,6 @@ export const parseColonDelimited = <T>(
     Arr.filterMap((line) => parse(line.split(":")))
   );
 
-/**
- * Extract UIDs from passwd-format content.
- * Uses Arr.get for noUncheckedIndexedAccess compliance.
- */
 export const parsePasswdUids = (content: string): readonly number[] =>
   parseColonDelimited(content, (fields) =>
     pipe(
@@ -87,27 +58,17 @@ export const parsePasswdUids = (content: string): readonly number[] =>
     )
   );
 
-// ============================================================================
-// Subuid/Subgid Range Type
-// ============================================================================
-
-/** Subuid/subgid range type */
 export interface SubidRange {
   readonly user: string;
   readonly start: number;
   readonly end: number;
 }
 
-/** Order instance for SubidRange by start position */
 export const SubidRangeOrd: Order.Order<SubidRange> = Order.mapInput(
   Order.number,
   (r: SubidRange) => r.start
 );
 
-/**
- * Parse subuid/subgid ranges.
- * Uses Arr.get for noUncheckedIndexedAccess compliance.
- */
 export const parseSubidRanges = (content: string): readonly SubidRange[] =>
   parseColonDelimited(content, (fields) =>
     pipe(
@@ -126,15 +87,6 @@ export const parseSubidRanges = (content: string): readonly SubidRange[] =>
     )
   );
 
-// ============================================================================
-// UID Allocation Pure Functions
-// ============================================================================
-
-/**
- * Find first available UID in range.
- * Pure function - no effects.
- * Uses Arr.findFirst which returns Option (total, not partial).
- */
 export const findFirstAvailableUid = (
   start: number,
   end: number,
@@ -145,16 +97,11 @@ export const findFirstAvailableUid = (
     Arr.findFirst((n) => !used.has(n))
   );
 
-/** Accumulator state for gap-finding fold */
 interface GapSearchState {
   readonly candidate: number;
   readonly found: Option.Option<number>;
 }
 
-/**
- * Find gap in sorted ranges for new allocation.
- * Process lines with accumulator.
- */
 export const findGapForRange = (
   ranges: readonly SubidRange[],
   rangeStart: number,

@@ -5,12 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Immich photo management service implementation.
- * Multi-container service with hardware acceleration support.
- * Uses Effect's context system - dependencies accessed via yield*.
- */
-
 import { Array as Arr, Effect, pipe } from "effect";
 import type {
   BackupError,
@@ -77,9 +71,6 @@ import { IMMICH_SECRETS, ImmichSecretNames } from "./secrets";
 
 const SERVICE_NAME = "immich" as ServiceName;
 
-/**
- * Immich service definition.
- */
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Self-hosted photo and video management",
@@ -93,15 +84,8 @@ const definition: ServiceDefinition = {
   },
 };
 
-/**
- * Validate Immich configuration file.
- */
 const validate = createConfigValidator(immichConfigSchema);
 
-/**
- * Generate all files for Immich service.
- * Dependencies accessed via Effect context.
- */
 const generate = (): Effect.Effect<
   GeneratedFiles,
   ServiceError | GeneralError,
@@ -112,17 +96,14 @@ const generate = (): Effect.Effect<
     const paths = yield* ServicePaths;
     const system = yield* SystemCapabilities;
 
-    // Get hardware configuration
     const hardware = getHardwareConfig(
       config.hardware?.transcoding ?? { type: "disabled" },
       config.hardware?.ml ?? { type: "disabled" }
     );
 
-    // Get external library mounts
     const libraryMounts = librariesToVolumeMounts(config.externalLibraries);
     const libraryEnv = getLibraryEnvironment(config.externalLibraries);
 
-    // Paths
     const dataDir = config.paths.dataDir;
     const uploadDir = config.paths.uploadDir ?? `${dataDir}/upload`;
     const profileDir = config.paths.profileDir ?? `${dataDir}/profile`;
@@ -172,14 +153,12 @@ const generate = (): Effect.Effect<
       ],
     });
 
-    // Build containers immutably using array literal with conditional spread
     const dbSecretName = getPodmanSecretName(SERVICE_NAME, ImmichSecretNames.DB_PASSWORD);
     const serverDevices = hardware.transcoding ? mergeDevices(hardware.transcoding) : [];
     const serverEnv = hardware.transcoding ? mergeEnvironment(hardware.transcoding) : {};
     const networkHost = config.network?.host ?? "127.0.0.1";
     const networkPort = config.network?.port ?? 2283;
 
-    // Redis container
     const redisContainer: StackContainer = {
       name: CONTAINERS.redis,
       description: "Immich Redis cache",
@@ -190,7 +169,6 @@ const generate = (): Effect.Effect<
       service: { restart: "always" },
     };
 
-    // PostgreSQL container
     const postgresContainer: StackContainer = {
       name: CONTAINERS.postgres,
       description: "Immich PostgreSQL database with pgvecto.rs",
@@ -209,7 +187,6 @@ const generate = (): Effect.Effect<
       service: { restart: "always" },
     };
 
-    // Main server container
     const serverContainer: StackContainer = {
       name: CONTAINERS.server,
       description: "Immich server",
@@ -237,7 +214,6 @@ const generate = (): Effect.Effect<
       service: { restart: "always" },
     };
 
-    // Machine Learning container (conditional)
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const mlContainer: StackContainer | undefined = mlEnabled
       ? (() => {
@@ -264,7 +240,6 @@ const generate = (): Effect.Effect<
         })()
       : undefined;
 
-    // Build containers array immutably
     const containers: readonly StackContainer[] = [
       redisContainer,
       postgresContainer,
@@ -272,7 +247,6 @@ const generate = (): Effect.Effect<
       ...(mlContainer ? [mlContainer] : []),
     ];
 
-    // Create stack and generate quadlets
     const stack = createStack({
       name: "immich",
       network: { name: NETWORK_NAME, internal: true },
@@ -285,7 +259,6 @@ const generate = (): Effect.Effect<
       selinuxEnforcing: system.selinuxEnforcing,
     });
 
-    // Return GeneratedFiles with pre-built Maps (no mutations)
     return {
       quadlets: new Map(stackFiles.containers),
       networks: new Map(stackFiles.networks),
@@ -295,40 +268,27 @@ const generate = (): Effect.Effect<
     };
   });
 
-// ============================================================================
-// Setup Step Output Types
-// ============================================================================
-
-/** Output from secrets step */
 interface SecretsOutput {
   readonly createdSecrets: readonly string[];
 }
 
-/** Output from generate step */
 interface GenerateOutput {
   readonly files: GeneratedFiles;
 }
 
-/** Output from create directories step */
 interface CreateDirsOutput {
   readonly createdDirs: readonly AbsolutePath[];
 }
 
-/** Output from write files step */
 interface WriteFilesOutput {
   readonly fileResults: FilesWriteResult;
 }
 
-/** Output from enable services step */
 interface EnableServicesOutput {
   readonly serviceResults: ServicesEnableResult;
 }
 
-// ============================================================================
-// Setup Steps
-// ============================================================================
-
-/** Step 1: Generate secrets (resource - has release) */
+/** Generates secrets and deletes them on rollback. */
 const secretsStep: SetupStep<
   EmptyState,
   SecretsOutput,
@@ -364,7 +324,6 @@ const secretsStep: SetupStep<
     })
 );
 
-/** Step 2: Generate (pure - no release) */
 const generateStep: SetupStep<
   EmptyState & SecretsOutput,
   GenerateOutput,
@@ -374,7 +333,7 @@ const generateStep: SetupStep<
   Effect.map(generate(), (files): GenerateOutput => ({ files }))
 );
 
-/** Step 3: Create directories (resource - has release) */
+/** Creates data directories and removes them on rollback. */
 const createDirsStep: SetupStep<
   EmptyState & SecretsOutput & GenerateOutput,
   CreateDirsOutput,
@@ -412,7 +371,7 @@ const createDirsStep: SetupStep<
     })
 );
 
-/** Step 4: Write files (resource - has release) */
+/** Writes config files with backup; restores from backup on rollback. */
 const writeFilesStep: SetupStep<
   EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput,
   WriteFilesOutput,
@@ -434,7 +393,7 @@ const writeFilesStep: SetupStep<
     })
 );
 
-/** Step 5: Enable services (resource - has release) */
+/** Enables systemd services; disables them on rollback. */
 const enableServicesStep: SetupStep<
   EmptyState & SecretsOutput & GenerateOutput & CreateDirsOutput & WriteFilesOutput,
   EnableServicesOutput,
@@ -458,10 +417,6 @@ const enableServicesStep: SetupStep<
     })
 );
 
-/**
- * Full setup for Immich service.
- * Dependencies accessed via Effect context.
- */
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | ContainerError | GeneralError,
@@ -475,10 +430,6 @@ const setup = (): Effect.Effect<
     .andThen(enableServicesStep)
     .execute(emptyState);
 
-/**
- * Start Immich service.
- * Dependencies accessed via Effect context.
- */
 const start = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
@@ -504,10 +455,6 @@ const start = (): Effect.Effect<
     yield* startStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
-/**
- * Stop Immich service.
- * Dependencies accessed via Effect context.
- */
 const stop = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
@@ -533,10 +480,6 @@ const stop = (): Effect.Effect<
     yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
   });
 
-/**
- * Restart Immich service.
- * Dependencies accessed via Effect context.
- */
 const restart = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
@@ -549,10 +492,6 @@ const restart = (): Effect.Effect<
     yield* start();
   });
 
-/**
- * Get Immich status.
- * Dependencies accessed via Effect context.
- */
 const status = (): Effect.Effect<
   ServiceStatus,
   ServiceError | SystemError | GeneralError,
@@ -603,10 +542,6 @@ const status = (): Effect.Effect<
     };
   });
 
-/**
- * View Immich logs.
- * Dependencies accessed via Effect context.
- */
 const logs = (
   options: LogOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError, ImmichConfigTag | ServiceUser> =>
@@ -625,10 +560,6 @@ const logs = (
     });
   });
 
-/**
- * Backup Immich database.
- * Dependencies accessed via Effect context.
- */
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | SystemError | GeneralError,
@@ -651,10 +582,6 @@ const backup = (): Effect.Effect<
     );
   });
 
-/**
- * Restore Immich database.
- * Dependencies accessed via Effect context.
- */
 const restore = (
   backupPath: AbsolutePath
 ): Effect.Effect<
@@ -677,9 +604,6 @@ const restore = (
     });
   });
 
-/**
- * Immich service implementation.
- */
 export const immichService: ServiceEffect<ImmichConfig, ImmichConfigTag, typeof ImmichConfigTag> = {
   definition,
   configTag: ImmichConfigTag,

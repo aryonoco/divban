@@ -15,10 +15,6 @@
 import { Array as Arr, Duration, type Duration as EffectDuration, Schedule, pipe } from "effect";
 import type { GeneralError, ServiceError, SystemError } from "./errors";
 
-// ============================================================================
-// Retry Schedules
-// ============================================================================
-
 /**
  * Quick operations: status checks, file reads, short commands.
  * - 100ms fixed interval
@@ -77,10 +73,6 @@ export const pollingSchedule = (
     Schedule.intersect(Schedule.recurs(Math.ceil(maxWaitMs / intervalMs) - 1))
   );
 
-// ============================================================================
-// Error Classification
-// ============================================================================
-
 /**
  * Transient error patterns in stderr/message that indicate retry is appropriate.
  * These are substrings that appear in error messages for retryable conditions.
@@ -129,7 +121,6 @@ const PERMANENT_ERROR_PATTERNS: readonly string[] = [
  */
 const SERVICE_TRANSIENT_PATTERNS: readonly string[] = ["exit code", "not active", "failed to"];
 
-/** Checks if message contains any pattern from the array */
 const containsAnyPattern = (msg: string, patterns: readonly string[]): boolean =>
   Arr.some(patterns, (pattern) => msg.includes(pattern));
 

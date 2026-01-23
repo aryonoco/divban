@@ -12,7 +12,7 @@
  * Safe to re-run: skips existing resources, updates changed files.
  */
 
-import { Effect, Either, Exit, Match, pipe } from "effect";
+import { Effect, Either, Exit, Match, Ref, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
@@ -158,21 +158,32 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
         // Load and validate config with typed schema
         const config = yield* loadServiceConfig(validConfigPath, s.configSchema);
 
-        let currentStep = 0;
+        // Use Effect.Ref for managed step counter state
+        const stepRef = yield* Ref.make(0);
+        const logStep = (message: string): Effect.Effect<void> =>
+          Effect.gen(function* () {
+            const step = yield* Ref.updateAndGet(stepRef, (n) => n + 1);
+            logger.step(step, totalSteps, message);
+          });
 
         // Main scoped setup with automatic rollback on failure
         yield* Effect.scoped(
           Effect.gen(function* () {
             // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
-            if (needsSysctl) {
-              currentStep++;
-              logger.step(currentStep, totalSteps, "Configuring privileged port binding...");
-              yield* ensureUnprivilegedPorts(70, service.definition.name);
-            }
+            yield* pipe(
+              Match.value(needsSysctl),
+              Match.when(true, () =>
+                Effect.gen(function* () {
+                  yield* logStep("Configuring privileged port binding...");
+                  yield* ensureUnprivilegedPorts(70, service.definition.name);
+                })
+              ),
+              Match.when(false, () => Effect.void),
+              Match.exhaustive
+            );
 
             // Step 2: User - scoped resource with conditional rollback
-            currentStep++;
-            logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
+            yield* logStep(`Creating service user: ${username}...`);
             const userAcq = yield* Effect.acquireRelease(
               acquireServiceUser(service.definition.name, uidSettings),
               (acq, exit): Effect.Effect<void> =>
@@ -191,8 +202,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const gid = userIdToGroupId(uid);
 
             // Step 3: Linger - scoped resource with conditional rollback
-            currentStep++;
-            logger.step(currentStep, totalSteps, "Enabling user linger...");
+            yield* logStep("Enabling user linger...");
             yield* Effect.acquireRelease(
               enableLingerTracked(username, uid),
               (acq, exit): Effect.Effect<void> =>
@@ -209,8 +219,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Step 4: Directories - scoped resource with tracked rollback
-            currentStep++;
-            logger.step(currentStep, totalSteps, "Creating service directories...");
+            yield* logStep("Creating service directories...");
             const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
             yield* Effect.acquireRelease(
               ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
@@ -223,8 +232,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Step 5: Config copy - scoped resource with backup/restore
-            currentStep++;
-            logger.step(currentStep, totalSteps, "Copying configuration file...");
+            yield* logStep("Copying configuration file...");
             const configDestPath = configFilePath(
               userConfigDir(homeDir),
               `${service.definition.name}.toml`
@@ -259,8 +267,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Step 6: Service-specific setup
-            currentStep++;
-            logger.step(currentStep, totalSteps, "Running service-specific setup...");
+            yield* logStep("Running service-specific setup...");
             yield* s.setup().pipe(Effect.provide(layer));
           })
         );

@@ -16,21 +16,12 @@ import { Match, Option, pipe } from "effect";
 import { mapOr } from "../../../lib/option-helpers";
 import type { TranscodingConfig } from "../schema";
 
-/**
- * Device mapping for hardware transcoding.
- */
 export interface TranscodingDevices {
-  /** Device paths to mount */
   devices: string[];
-  /** Environment variables to set */
   environment: Record<string, string>;
-  /** Additional volume mounts */
   volumes?: Array<{ source: string; target: string; options?: string }>;
 }
 
-/**
- * Get device mappings for NVIDIA NVENC transcoding.
- */
 const getNvencDevices = (gpuIndex?: number): TranscodingDevices => ({
   devices: mapOr(
     Option.fromNullable(gpuIndex),
@@ -43,42 +34,27 @@ const getNvencDevices = (gpuIndex?: number): TranscodingDevices => ({
   },
 });
 
-/**
- * Get device mappings for Intel Quick Sync Video.
- */
 const getQsvDevices = (renderDevice?: string): TranscodingDevices => ({
   devices: [renderDevice ?? "/dev/dri/renderD128"],
   environment: {},
 });
 
-/**
- * Get device mappings for VA-API (Intel/AMD).
- */
 const getVaapiDevices = (renderDevice?: string): TranscodingDevices => ({
   devices: [renderDevice ?? "/dev/dri/renderD128"],
   environment: {},
 });
 
-/**
- * Get device mappings for VA-API in WSL.
- */
 const getVaapiWslDevices = (): TranscodingDevices => ({
   devices: ["/dev/dri/card0", "/dev/dri/renderD128"],
   environment: {},
   volumes: [{ source: "/usr/lib/wsl", target: "/usr/lib/wsl", options: "ro" }],
 });
 
-/**
- * Get device mappings for Rockchip MPP.
- */
 const getRkmppDevices = (): TranscodingDevices => ({
   devices: ["/dev/dri", "/dev/dma_heap", "/dev/mali0", "/dev/rga", "/dev/mpp_service"],
   environment: {},
 });
 
-/**
- * Get device mappings for a transcoding configuration.
- */
 export const getTranscodingDevices = (
   config: TranscodingConfig
 ): Option.Option<TranscodingDevices> =>
@@ -93,7 +69,4 @@ export const getTranscodingDevices = (
     Match.exhaustive
   );
 
-/**
- * Check if a transcoding configuration requires special devices.
- */
 export const requiresDevices = (config: TranscodingConfig): boolean => config.type !== "disabled";

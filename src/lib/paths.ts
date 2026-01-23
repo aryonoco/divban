@@ -23,10 +23,6 @@ import {
   pathJoin,
 } from "./types";
 
-// ============================================================================
-// System Paths (compile-time known valid)
-// ============================================================================
-
 export const SYSTEM_PATHS: {
   readonly passwd: AbsolutePathType;
   readonly subuid: AbsolutePathType;
@@ -46,12 +42,6 @@ export const SYSTEM_PATHS: {
   nologinPaths: [path("/usr/sbin/nologin"), path("/sbin/nologin")],
   sysctlUnprivilegedPorts: path("/etc/sysctl.d/50-divban-unprivileged-ports.conf"),
 };
-
-// ============================================================================
-// User Directory Paths
-// ============================================================================
-
-const homeCache = new Map<string, AbsolutePathType>();
 
 export const lookupUserHomeFromPasswd = (
   passwdContent: string,
@@ -77,30 +67,39 @@ export const lookupUserHomeFromPasswd = (
   );
 
 /**
+ * Creates a memoized home directory lookup function.
+ * The cache is encapsulated in a closure, not a module-level mutable variable.
+ * Memoization is a controlled side effect pattern used in FP.
+ */
+const createMemoizedHomeDir = (): ((username: string) => AbsolutePathType) => {
+  const cache = new Map<string, AbsolutePathType>();
+  return (username: string): AbsolutePathType =>
+    pipe(
+      Option.fromNullable(cache.get(username)),
+      Option.getOrElse(() => {
+        const fallback = pathJoin(path("/home"), username);
+        const result = pipe(
+          Effect.try(() => readFileSync("/etc/passwd", "utf-8")),
+          Effect.map((content) =>
+            pipe(
+              lookupUserHomeFromPasswd(content, username),
+              Option.getOrElse(() => fallback)
+            )
+          ),
+          Effect.catchAll(() => Effect.succeed(fallback)),
+          Effect.runSync
+        );
+        cache.set(username, result);
+        return result;
+      })
+    );
+};
+
+/**
  * Get user's home directory from /etc/passwd.
  * Falls back to /home/<username> if user not found.
- *
  */
-export const userHomeDir = (username: string): AbsolutePathType =>
-  pipe(
-    Option.fromNullable(homeCache.get(username)),
-    Option.getOrElse(() => {
-      const fallback = pathJoin(path("/home"), username);
-      const result = pipe(
-        Effect.try(() => readFileSync("/etc/passwd", "utf-8")),
-        Effect.map((content) =>
-          pipe(
-            lookupUserHomeFromPasswd(content, username),
-            Option.getOrElse(() => fallback)
-          )
-        ),
-        Effect.catchAll(() => Effect.succeed(fallback)),
-        Effect.runSync
-      );
-      homeCache.set(username, result);
-      return result;
-    })
-  );
+export const userHomeDir: (username: string) => AbsolutePathType = createMemoizedHomeDir();
 
 export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>
   pathJoin(homeDir, ".config/containers/systemd");
@@ -114,18 +113,9 @@ export const userDataDir = (homeDir: AbsolutePathType): AbsolutePathType =>
 export const lingerFile = (username: string): AbsolutePathType =>
   pathJoin(SYSTEM_PATHS.lingerDir, username);
 
-// ============================================================================
-// Path Conversion Utilities
-// ============================================================================
-
-/**
- * Check if a path contains null bytes (injection attack prevention).
- */
+/** Rejects null bytes to prevent path injection attacks. */
 const hasNullByte = (p: string): boolean => p.includes("\x00");
 
-/**
- * Normalize and resolve a path to absolute.
- */
 const resolveToAbsolute = (p: string): AbsolutePathType => {
   const normalized = normalize(p);
   return (
@@ -133,11 +123,7 @@ const resolveToAbsolute = (p: string): AbsolutePathType => {
   ) as AbsolutePathType;
 };
 
-/**
- * Convert a path to absolute with security validation.
- * Rejects null bytes and normalizes path traversal sequences.
- * Use for all user-provided or config-file paths.
- */
+/** Use for all user-provided or config-file paths. */
 export const toAbsolutePathEffect = (p: string): Effect.Effect<AbsolutePathType, ConfigError> =>
   hasNullByte(p)
     ? Effect.fail(
@@ -148,15 +134,8 @@ export const toAbsolutePathEffect = (p: string): Effect.Effect<AbsolutePathType,
       )
     : Effect.succeed(resolveToAbsolute(p));
 
-/**
- * Convert a path to absolute without Result wrapper.
- * Use ONLY for trusted paths (hardcoded defaults, validated inputs).
- */
+/** Use ONLY for trusted paths (hardcoded defaults, validated inputs). */
 export const toAbsolutePathUnsafe = (p: string): AbsolutePathType => resolveToAbsolute(p);
-
-// ============================================================================
-// Service Paths
-// ============================================================================
 
 export interface ServicePaths {
   dataDir: AbsolutePathType;
@@ -175,19 +154,11 @@ export const buildServicePaths = (
   homeDir,
 });
 
-// ============================================================================
-// File Path Builders
-// ============================================================================
-
 export const quadletFilePath = (quadletDir: AbsolutePathType, filename: string): AbsolutePathType =>
   pathJoin(quadletDir, filename);
 
 export const configFilePath = (configDir: AbsolutePathType, filename: string): AbsolutePathType =>
   pathJoin(configDir, filename);
-
-// ============================================================================
-// Temporary/Mock Paths (for generate/diff commands)
-// ============================================================================
 
 export const TEMP_PATHS: {
   readonly generateDataDir: AbsolutePathType;

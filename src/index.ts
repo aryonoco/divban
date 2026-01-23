@@ -16,10 +16,6 @@
 import { Cause, Effect, Exit, Match, Option, pipe } from "effect";
 import { program } from "./cli/index";
 
-/**
- * Extract exit code from Effect Exit.
- * Handles both success and failure cases with proper error extraction.
- */
 const exitCodeFromExit = (exit: Exit.Exit<number, unknown>): number =>
   Exit.match(exit, {
     onSuccess: (code): number => code,
@@ -39,9 +35,6 @@ const exitCodeFromExit = (exit: Exit.Exit<number, unknown>): number =>
       }),
   });
 
-/**
- * Log error from Exit cause.
- */
 const logExitError = (exit: Exit.Exit<number, unknown>): void =>
   Exit.match(exit, {
     onSuccess: (): void => undefined,

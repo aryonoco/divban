@@ -16,9 +16,6 @@ import { Match, Option, pipe } from "effect";
 import { listServices } from "../services";
 import { COMMANDS, type Command } from "./parser";
 
-/**
- * Main help text.
- */
 export const getMainHelp = (version: string): string => {
   const services = listServices();
   const serviceList =
@@ -87,9 +84,6 @@ For service-specific help:
 `.trim();
 };
 
-/**
- * Get help for a specific service.
- */
 export const getServiceHelp = (serviceName: string): string => {
   const services = listServices();
   const serviceOpt = Option.fromNullable(services.find((s) => s.name === serviceName));
@@ -150,9 +144,6 @@ EXAMPLES:
   });
 };
 
-/**
- * Get help for a specific command.
- */
 export const getCommandHelp = (command: string): string =>
   pipe(
     Match.value(command),
@@ -316,7 +307,4 @@ EXAMPLES:
     Match.orElse(() => `No help available for command: ${command}`)
   );
 
-/**
- * Print version information.
- */
 export const getVersion = (version: string): string => `divban v${version}`;

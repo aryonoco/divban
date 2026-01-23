@@ -43,7 +43,6 @@ export const usernameSchema: Schema.BrandSchema<Username, string, never> = Usern
 export const containerImageSchema: Schema.BrandSchema<ContainerImage, string, never> =
   ContainerImageSchema;
 
-/** Port mapping configuration (output after decoding) */
 export interface PortConfig {
   readonly host: number;
   readonly container: number;
@@ -51,7 +50,6 @@ export interface PortConfig {
   readonly protocol: "tcp" | "udp";
 }
 
-/** Port mapping configuration (input before decoding) */
 export interface PortConfigInput {
   readonly host: number;
   readonly container: number;
@@ -72,14 +70,12 @@ export const portSchema: Schema.Schema<PortConfig, PortConfigInput> = Schema.Str
   protocol: Schema.optionalWith(Schema.Literal("tcp", "udp"), { default: (): "tcp" => "tcp" }),
 });
 
-/** Volume mount configuration (output after decoding) */
 export interface VolumeMountConfig {
   readonly source: string;
   readonly target: AbsolutePath;
   readonly options?: string | undefined;
 }
 
-/** Volume mount configuration (input before decoding) */
 export interface VolumeMountConfigInput {
   readonly source: string;
   readonly target: string;
@@ -93,7 +89,6 @@ export const volumeMountSchema: Schema.Schema<VolumeMountConfig, VolumeMountConf
     options: Schema.optional(Schema.String),
   });
 
-/** Health check configuration (output after decoding) */
 export interface HealthCheckConfig {
   readonly cmd: string;
   readonly interval: DurationString;
@@ -103,7 +98,6 @@ export interface HealthCheckConfig {
   readonly onFailure: "none" | "kill" | "restart" | "stop";
 }
 
-/** Health check configuration (input before decoding) */
 export interface HealthCheckConfigInput {
   readonly cmd: string;
   readonly interval?: string | undefined;
@@ -133,7 +127,6 @@ export const healthCheckSchema: Schema.Schema<HealthCheckConfig, HealthCheckConf
     }),
   });
 
-/** Service restart policy */
 export type ServiceRestartPolicy =
   | "no"
   | "on-success"
@@ -256,9 +249,6 @@ export const DEFAULT_TIMEOUTS = {
   restore: 1_800_000,
 } as const;
 
-/**
- * Global configuration for divban.toml (output after decoding)
- */
 export interface GlobalConfig {
   readonly defaults: {
     readonly networkMode: "pasta" | "slirp4netns";
@@ -440,9 +430,6 @@ export interface ServiceBaseConfig {
   };
 }
 
-/**
- * Service base configuration - common to all services (input before decoding).
- */
 export interface ServiceBaseConfigInput {
   paths: {
     dataDir: string;
@@ -456,15 +443,7 @@ export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig, ServiceBaseConf
     }),
   });
 
-// ============================================================================
-// Effect-based Helper Functions
-// ============================================================================
-
-/**
- * Generate username from service name (Effect version).
- * Pattern: divban-<service>
- * Examples: divban-caddy, divban-immich, divban-actual
- */
+/** Pattern: divban-<service> (e.g., divban-caddy, divban-immich) */
 export const getServiceUsername = (
   serviceName: ServiceName
 ): Effect.Effect<Username, GeneralError> =>
@@ -504,16 +483,12 @@ export const getServiceDataDir = (
     );
   });
 
-/**
- * Get quadlet directory for a service user (Effect version).
- */
+/** Quadlet files go in ~/.config/containers/systemd per Podman spec. */
 export const getQuadletDir = (homeDir: string): Effect.Effect<AbsolutePath, GeneralError> =>
   decodeAbsolutePath(`${homeDir}/.config/containers/systemd`).pipe(
     Effect.mapError(parseErrorToGeneralError)
   );
 
-/**
- * Get config directory for a service (Effect version).
- */
+/** Config files live in <dataDir>/config by convention. */
 export const getConfigDir = (dataDir: string): Effect.Effect<AbsolutePath, GeneralError> =>
   decodeAbsolutePath(`${dataDir}/config`).pipe(Effect.mapError(parseErrorToGeneralError));

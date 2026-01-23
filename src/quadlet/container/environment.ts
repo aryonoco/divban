@@ -33,12 +33,8 @@ export const getEnvironmentEntries = (config: ContainerEnvironmentConfig): Entri
     fromRecord("Environment", config.environment, (k, v) => `${k}=${escapeIniValue(v)}`)
   );
 
-/**
- * Format an environment file reference for quadlet.
- * Supports %h for home directory and other systemd specifiers.
- */
+/** Converts /home/username/... paths to %h/... for systemd specifier substitution. */
 export const formatEnvironmentFile = (path: string): string => {
-  // If path starts with home directory pattern, use %h
   if (path.startsWith("/home/")) {
     const parts = path.split("/");
     // /home/username/... -> %h/...
@@ -47,20 +43,13 @@ export const formatEnvironmentFile = (path: string): string => {
   return path;
 };
 
-/**
- * Common environment variables.
- */
 export const CommonEnvVars: Record<
   string,
   ((...args: never[]) => Record<string, string>) | Record<string, string>
 > = {
-  /** Timezone */
   TZ: (tz: string): Record<string, string> => ({ TZ: tz }),
-  /** User ID */
   PUID: (uid: UserId): Record<string, string> => ({ PUID: String(uid) }),
-  /** Group ID */
   PGID: (gid: GroupId): Record<string, string> => ({ PGID: String(gid) }),
-  /** Disable telemetry */
   NO_TELEMETRY: { DO_NOT_TRACK: "1" },
 } as const satisfies Record<
   string,
@@ -75,9 +64,6 @@ export const mergeEnvironments: (
   ...envs: (Record<string, string | number | boolean | undefined> | undefined)[]
 ) => Record<string, string> = mergeEnv;
 
-/**
- * Filter environment variables by prefix.
- */
 export const filterEnvByPrefix = (
   env: Record<string, string>,
   prefix: string

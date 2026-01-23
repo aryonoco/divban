@@ -17,17 +17,9 @@ import { identity } from "../../../lib/collection-utils";
 import { mapOr, nonEmpty } from "../../../lib/option-helpers";
 import { escapeWith } from "../../../lib/str-transform";
 
-// ============================================================================
-// Value Escaping
-// ============================================================================
-
-/** Escape double quotes with backslash */
 const QUOTE_ESCAPE_MAP: ReadonlyMap<string, string> = new Map([['"', '\\"']]);
 const escapeQuotes = escapeWith(QUOTE_ESCAPE_MAP);
 
-/**
- * Check if a value needs quoting in Caddyfile format.
- */
 const needsQuoting = (value: string): boolean =>
   value.includes(" ") ||
   value.includes('"') ||
@@ -35,57 +27,30 @@ const needsQuoting = (value: string): boolean =>
   value.includes("}") ||
   value.includes("#");
 
-/**
- * Escape a value for Caddyfile format.
- */
 export const escapeValue = (value: string): string =>
   needsQuoting(value) ? `"${escapeQuotes(value)}"` : value;
 
-/**
- * Create indentation string.
- */
 export const indent = (level: number): string => "\t".repeat(level);
 
-/**
- * Join arguments with proper escaping.
- */
 export const joinArgs = (args: readonly string[]): string => args.map(escapeValue).join(" ");
 
-/**
- * Format a block opening.
- */
 export const openBlock = (name: string, args?: readonly string[]): string => {
   const argsStr = mapOr(nonEmpty(args), "", (a) => ` ${joinArgs(a)}`);
   return `${name}${argsStr} {`;
 };
 
-/**
- * Format a simple line (name + args).
- */
 export const formatLine = (name: string, args?: readonly string[]): string =>
   args && args.length > 0 ? `${name} ${joinArgs(args)}` : name;
 
-// ============================================================================
-// Immutable State
-// ============================================================================
-
-/**
- * Caddyfile builder state.
- */
 interface CaddyfileState {
   readonly lines: Chunk.Chunk<string>;
   readonly indentLevel: number;
 }
 
-/** Initial empty state */
 const emptyState: CaddyfileState = {
   lines: Chunk.empty(),
   indentLevel: 0,
 };
-
-// ============================================================================
-// State Transformers
-// ============================================================================
 
 const appendLine =
   (content: string) =>
@@ -109,79 +74,42 @@ const decrementIndent = (state: CaddyfileState): CaddyfileState => ({
   indentLevel: Math.max(0, state.indentLevel - 1),
 });
 
-/** Render final output from state */
 const render = (state: CaddyfileState): string =>
   `${Chunk.toReadonlyArray(state.lines).join("\n")}\n`;
 
-// ============================================================================
-// CaddyOp: State Transformer
-// ============================================================================
-
-/**
- * CaddyOp transforms CaddyfileState. Composable via function composition.
- */
+/** State transformer that produces Caddyfile output. Composable via function composition. */
 export type CaddyOp = (state: CaddyfileState) => CaddyfileState;
 
-/**
- * Compose two CaddyOps left-to-right: compose(f, g) applies f first, then g.
- */
+/** Left-to-right composition: compose(f, g) applies f first, then g. */
 const compose =
   (f: CaddyOp, g: CaddyOp): CaddyOp =>
   (s): CaddyfileState =>
     g(f(s));
 
-/**
- * Combine multiple CaddyOps into one.
- */
 const combine = (ops: readonly CaddyOp[]): CaddyOp => ops.reduce(compose, identity);
 
-// ============================================================================
-// DSL Operations
-// ============================================================================
-
 export const Caddy = {
-  /** Identity operation - does nothing. */
   id: identity as CaddyOp,
-
-  /** Add a line at current indentation */
   line: (content: string): CaddyOp => appendLine(content),
-
-  /** Add an empty line */
   blank: appendBlank as CaddyOp,
-
-  /** Add a comment */
   comment: (text: string): CaddyOp => appendLine(`# ${text}`),
 
-  /** Open a block: add opening line and increase indent */
   open: (name: string, args?: readonly string[]): CaddyOp =>
     compose(appendLine(openBlock(name, args)), incrementIndent),
 
-  /** Close a block: decrease indent and add closing brace */
   close: compose(decrementIndent, (s): CaddyfileState => appendLine("}")(s)) as CaddyOp,
 
-  /** Add a directive (name + optional args) */
   directive: (name: string, args?: readonly string[]): CaddyOp =>
     appendLine(formatLine(name, args)),
 
-  /** Add raw content (splits on newlines, each line indented) */
   raw: (content: string): CaddyOp => combine(content.split("\n").map(appendLine)),
 
-  /**
-   * Conditional operation (LAZY).
-   * Only evaluates `op` thunk if condition is true.
-   * Use when the operation is expensive to construct.
-   */
+  /** Lazy conditional - only evaluates thunk if condition is true. Use for expensive operations. */
   whenLazy: (condition: boolean, op: () => CaddyOp): CaddyOp => (condition ? op() : identity),
 
-  /**
-   * Conditional operation (eager).
-   * The `op` is already evaluated - use for simple operations.
-   */
+  /** Eager conditional - op is already evaluated. Use for simple operations. */
   when: (condition: boolean, op: CaddyOp): CaddyOp => (condition ? op : identity),
 
-  /**
-   * Conditional directive: add only if value is defined.
-   */
   maybeDirective: (name: string, value: string | undefined): CaddyOp =>
     pipe(
       Option.fromNullable(value),
@@ -191,7 +119,6 @@ export const Caddy = {
       })
     ),
 
-  /** Conditional directive with number conversion */
   maybeDirectiveNum: (name: string, value: number | undefined): CaddyOp =>
     pipe(
       Option.fromNullable(value),
@@ -201,38 +128,15 @@ export const Caddy = {
       })
     ),
 
-  /**
-   * Sequence operations (variadic).
-   * seq(a, b, c) applies a, then b, then c.
-   */
   seq: (...ops: readonly CaddyOp[]): CaddyOp => combine(ops),
-
-  /**
-   * Sequence operations from array.
-   * Useful for dynamic operation lists.
-   */
   all: (ops: readonly CaddyOp[]): CaddyOp => combine(ops),
-
-  /**
-   * Apply function to each item and combine results.
-   */
   forEach: <A>(items: readonly A[], f: (item: A) => CaddyOp): CaddyOp => combine(items.map(f)),
-
-  /**
-   * FlatMap over array and sequence results.
-   * Each item can produce multiple operations.
-   */
   flatForEach: <A>(items: readonly A[], f: (item: A) => readonly CaddyOp[]): CaddyOp =>
     combine(items.flatMap(f)),
 } as const;
 
-// ============================================================================
-// Builder Function (main entry point)
-// ============================================================================
-
 /**
  * Build a Caddyfile from a sequence of operations.
- * Execute the composed operations to produce output.
  *
  * @example
  * const content = caddyfile(

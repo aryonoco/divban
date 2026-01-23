@@ -25,17 +25,6 @@ import {
 import { ConfigError, ErrorCode } from "./errors";
 import { all, uncons } from "./str";
 
-// ============================================================================
-// Error Formatting
-// ============================================================================
-
-/**
- * Format Effect Schema parse error to a ConfigError.
- * Output format:
- *   Configuration validation failed for /path/to/file.toml:
- *     - field.path: error message
- *     - other.field: another error
- */
 export const formatSchemaError = (error: ParseResult.ParseError, context: string): ConfigError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
   return new ConfigError({
@@ -45,21 +34,10 @@ export const formatSchemaError = (error: ParseResult.ParseError, context: string
   });
 };
 
-// ============================================================================
-// Decode Utilities
-// ============================================================================
-
-/**
- * Decode unknown data synchronously, throwing on error.
- * Use only when input is known valid (e.g., empty object with defaults).
- */
+/** Use only when input is known valid (e.g., empty object with defaults). */
 export const decodeUnsafe = <A, I = A>(schema: Schema.Schema<A, I, never>, data: unknown): A =>
   Schema.decodeUnknownSync(schema)(data);
 
-/**
- * Decode unknown data with a schema, returning Effect.
- * Effect version for use in Effect pipelines.
- */
 export const decodeToEffect = <A, I = A>(
   schema: Schema.Schema<A, I, never>,
   data: unknown,
@@ -81,14 +59,7 @@ export const decodeToEffect = <A, I = A>(
   });
 };
 
-// ============================================================================
-// Parsing Primitives
-// ============================================================================
-
-/**
- * Parse a natural number (non-negative integer) from string.
- * Returns None for empty, non-digit, or leading zeros (except "0").
- */
+/** Returns None for empty, non-digit, or leading zeros (except "0"). */
 export const parseNat = (s: string): Option.Option<number> =>
   pipe(
     Option.some(s),
@@ -99,26 +70,14 @@ export const parseNat = (s: string): Option.Option<number> =>
     Option.filter((n) => !Number.isNaN(n))
   );
 
-/**
- * Parse an octet (0-255).
- */
 export const parseOctet = (s: string): Option.Option<number> =>
   pipe(
     parseNat(s),
     Option.filter((n) => n <= 255)
   );
 
-// ============================================================================
-// IPv4 Parsing
-// ============================================================================
-
-/** Branded type for parsed IPv4 */
 export type IPv4Octets = readonly [number, number, number, number];
 
-/**
- * Parse IPv4 into structured octets.
- * "192.168.1.1" -> Some([192, 168, 1, 1])
- */
 export const parseIPv4 = (s: string): Option.Option<IPv4Octets> =>
   pipe(
     Option.some(s.split(".")),
@@ -136,20 +95,12 @@ export const parseIPv4 = (s: string): Option.Option<IPv4Octets> =>
     )
   );
 
-/** Validator derived from parser */
 export const isValidIPv4 = (s: string): boolean => Option.isSome(parseIPv4(s));
 
-// ============================================================================
-// IPv6 Parsing
-// ============================================================================
-
-/** Check if string is valid hex group (1-4 hex digits) */
 const isHexGroup = (s: string): boolean => s.length > 0 && s.length <= 4 && all(isHexDigit)(s);
 
-/** State for substring counting */
 type CountState = { readonly pos: number; readonly count: number };
 
-/** Step function: find next match and advance state */
 const countStep =
   (sub: string, s: string) =>
   (state: CountState): CountState => {
@@ -159,31 +110,23 @@ const countStep =
       : countStep(sub, s)({ pos: idx + sub.length, count: state.count + 1 });
   };
 
-/** Count non-overlapping occurrences of substring */
 const countSubstring =
   (sub: string) =>
   (s: string): number =>
     sub.length === 0 ? 0 : countStep(sub, s)({ pos: 0, count: 0 }).count;
 
-/** State for IPv6 parsing */
 interface IPv6ParseState {
   readonly groups: readonly string[];
   readonly hasDoubleColon: boolean;
 }
 
-/** Build IPv6 parse state from input string */
 const buildIPv6State = (s: string): IPv6ParseState => ({
   groups: s.split("::").flatMap((g) => (g === "" ? [] : g.split(":"))),
   hasDoubleColon: s.includes("::"),
 });
 
-/** Maximum allowed groups based on compression */
 const maxGroupsFor = (state: IPv6ParseState): number => (state.hasDoubleColon ? 7 : 8);
 
-/**
- * Validate IPv6 address (allows :: compression).
- * Parser returns Option<readonly string[]> of normalized groups.
- */
 export const parseIPv6Groups = (s: string): Option.Option<readonly string[]> =>
   pipe(
     Option.some(s),
@@ -198,26 +141,18 @@ export const parseIPv6Groups = (s: string): Option.Option<readonly string[]> =>
 export const isValidIPv6 = (s: string): boolean => Option.isSome(parseIPv6Groups(s));
 export const isValidIP = (s: string): boolean => isValidIPv4(s) || isValidIPv6(s);
 
-// ============================================================================
-// Email Parsing
-// ============================================================================
-
-/** Parsed email structure */
 export interface ParsedEmail {
   readonly local: string;
   readonly domain: string;
 }
 
-/** Valid email character (non-whitespace, non-@) */
 const isEmailChar = (c: string): boolean => !isWhitespace(c) && c !== "@";
 
-/** State for email parsing */
 interface EmailParseState {
   readonly local: string;
   readonly domain: string;
 }
 
-/** Build email parse state from input string */
 const buildEmailState = (s: string): EmailParseState => {
   const atIdx = s.indexOf("@");
   return {
@@ -226,15 +161,11 @@ const buildEmailState = (s: string): EmailParseState => {
   };
 };
 
-/** Check if domain has a dot in a valid position (not first or last) */
 const hasDotInMiddle = (domain: string): boolean => {
   const dotIdx = domain.indexOf(".");
   return dotIdx > 0 && dotIdx < domain.length - 1;
 };
 
-/**
- * Parse email into local@domain structure.
- */
 export const parseEmail = (s: string): Option.Option<ParsedEmail> =>
   pipe(
     Option.some(s),
@@ -249,19 +180,10 @@ export const parseEmail = (s: string): Option.Option<ParsedEmail> =>
 
 export const isValidEmail = (s: string): boolean => Option.isSome(parseEmail(s));
 
-// ============================================================================
-// Name Parsers
-// ============================================================================
-
-/** Valid first char for POSIX username: [a-z_] */
 const isPosixFirst = (c: string): boolean => isLower(c) || c === "_";
 
-/** Valid rest char for POSIX username: [a-z0-9_-] */
 const isPosixRest = (c: string): boolean => isLower(c) || isDigit(c) || c === "_" || c === "-";
 
-/**
- * Parse POSIX username using uncons for safe head access.
- */
 export const parsePosixUsername = (s: string): Option.Option<string> =>
   pipe(
     uncons(s),
@@ -272,10 +194,8 @@ export const parsePosixUsername = (s: string): Option.Option<string> =>
 
 export const isValidPosixUsername = (s: string): boolean => Option.isSome(parsePosixUsername(s));
 
-/** Valid first char for service name: [a-z] */
 const isServiceFirst = isLower;
 
-/** Valid rest char for service name: [a-z0-9-] */
 const isServiceRest = (c: string): boolean => isLower(c) || isDigit(c) || c === "-";
 
 export const parseServiceName = (s: string): Option.Option<string> =>
@@ -288,10 +208,8 @@ export const parseServiceName = (s: string): Option.Option<string> =>
 
 export const isValidServiceName = (s: string): boolean => Option.isSome(parseServiceName(s));
 
-/** Valid first char for container/network/volume name: [a-zA-Z0-9] */
 const isContainerFirst = isAlphaNum;
 
-/** Valid rest char: [a-zA-Z0-9_.-] */
 const isContainerRest = (c: string): boolean => isAlphaNum(c) || isOneOf("_.-")(c);
 
 export const parseContainerName = (s: string): Option.Option<string> =>
@@ -304,38 +222,28 @@ export const parseContainerName = (s: string): Option.Option<string> =>
 
 export const isValidContainerName = (s: string): boolean => Option.isSome(parseContainerName(s));
 
-// ============================================================================
-// Container Image Parser
-// ============================================================================
-
-/** Parsed container image structure */
 export interface ParsedContainerImage {
   readonly name: string;
   readonly tag: Option.Option<string>;
   readonly digest: Option.Option<string>;
 }
 
-/** Valid image name char: [a-zA-Z0-9_./-] */
 const isImageNameChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_./-")(c);
 
-/** Valid tag char: [a-zA-Z0-9_.-] */
 const isTagChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_.-")(c);
 
-/** State for container image parsing */
 interface ImageParserState {
   readonly remaining: string;
   readonly digest: Option.Option<string>;
   readonly tag: Option.Option<string>;
 }
 
-/** Initial state from input string */
 const initialImageState = (s: string): ImageParserState => ({
   remaining: s,
   digest: Option.none(),
   tag: Option.none(),
 });
 
-/** Extract @sha256:digest if present */
 const extractDigest = (state: ImageParserState): Option.Option<ImageParserState> => {
   const digestIdx = state.remaining.indexOf("@sha256:");
   return digestIdx === -1
@@ -351,7 +259,6 @@ const extractDigest = (state: ImageParserState): Option.Option<ImageParserState>
       );
 };
 
-/** Extract :tag if present */
 const extractTag = (state: ImageParserState): Option.Option<ImageParserState> => {
   const colonIdx = state.remaining.indexOf(":");
   return colonIdx === -1
@@ -367,7 +274,6 @@ const extractTag = (state: ImageParserState): Option.Option<ImageParserState> =>
       );
 };
 
-/** Finalize image by validating name */
 const finalizeImage = (state: ImageParserState): Option.Option<ParsedContainerImage> =>
   pipe(
     Option.some(state),
@@ -379,9 +285,6 @@ const finalizeImage = (state: ImageParserState): Option.Option<ParsedContainerIm
     }))
   );
 
-/**
- * Parse container image: name[:tag][@sha256:digest]
- */
 export const parseContainerImage = (s: string): Option.Option<ParsedContainerImage> =>
   pipe(
     initialImageState(s),
@@ -393,14 +296,6 @@ export const parseContainerImage = (s: string): Option.Option<ParsedContainerIma
 
 export const isValidContainerImage = (s: string): boolean => Option.isSome(parseContainerImage(s));
 
-// ============================================================================
-// URL Validation
-// ============================================================================
-
-/**
- * Validate URL format.
- * Uses URL constructor for validation.
- */
 export const isValidUrl = (s: string): boolean => {
   try {
     new URL(s);

@@ -12,9 +12,7 @@
 import { Effect, Option } from "effect";
 import { ErrorCode, GeneralError, type GeneralErrorCode } from "./errors";
 
-/**
- * Returns Effect that fails if condition is false.
- */
+/** Use when assertion failure should be a recoverable error, not a crash. */
 export const assertEffect = (
   condition: boolean,
   message: string,
@@ -22,9 +20,6 @@ export const assertEffect = (
 ): Effect.Effect<void, GeneralError> =>
   condition ? Effect.void : Effect.fail(new GeneralError({ code, message }));
 
-/**
- * Type guard for checking if a value is an object with specific keys.
- */
 export const hasKeys = <K extends string>(
   value: unknown,
   keys: K[]
@@ -35,40 +30,23 @@ export const hasKeys = <K extends string>(
   return keys.every((key) => key in value);
 };
 
-/**
- * Type guard for checking if a value is a non-empty string.
- */
 export const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
-/**
- * Type guard for checking if a value is a positive integer.
- */
 export const isPositiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
-/**
- * Type guard for checking if a value is a non-negative integer.
- */
 export const isNonNegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0;
 
-/**
- * Check if a value is one of the allowed values.
- */
 export const isOneOf = <T extends string>(value: unknown, allowed: readonly T[]): value is T =>
   typeof value === "string" && allowed.includes(value as T);
 
-/**
- * Narrow an array type to non-empty.
- */
 export type NonEmptyArray<T> = readonly [T, ...T[]];
 
 export const isNonEmptyArray = <T>(arr: readonly T[]): arr is NonEmptyArray<T> => arr.length > 0;
 
-/**
- * Total: returns Effect<NonEmptyArray<T>, GeneralError>.
- */
+/** Total function: never throws, always returns an Effect. */
 export const assertNonEmptyEffect = <T>(
   arr: readonly T[],
   message: string
@@ -77,10 +55,6 @@ export const assertNonEmptyEffect = <T>(
     ? Effect.succeed(arr)
     : Effect.fail(new GeneralError({ code: ErrorCode.GENERAL_ERROR as 1, message }));
 
-/**
- * Returns None if array is empty.
- * Returns Some(arr) if non-empty, None otherwise.
- */
 export const toNonEmpty = <T>(arr: readonly T[]): Option.Option<NonEmptyArray<T>> =>
   isNonEmptyArray(arr) ? Option.some(arr) : Option.none();
 

@@ -50,9 +50,6 @@ import type { ParsedArgs } from "../parser";
 // Service Options
 // ============================================================================
 
-/**
- * Extract context options from parsed args.
- */
 export const getContextOptions = (
   args: ParsedArgs
 ): { dryRun: boolean; verbose: boolean; force: boolean } => ({
@@ -75,9 +72,6 @@ const getConfigPaths = (serviceName: ServiceName, homeDir: AbsolutePathType): st
   `./divban-${serviceName}.toml`,
 ];
 
-/**
- * Try to load config from a single path with typed schema.
- */
 const tryLoadConfigFromPath = <C>(
   path: string,
   // biome-ignore lint/suspicious/noExplicitAny: Schema input varies per service - validated at runtime
@@ -147,9 +141,6 @@ const DURATION_THRESHOLDS: readonly ThresholdEntry<number>[] = [
   { threshold: 1000, format: (ms): string => `${(ms / 1000).toFixed(1)}s` },
 ];
 
-/**
- * Format duration for display.
- */
 export const formatDuration = (ms: number): string =>
   pipe(
     DURATION_THRESHOLDS,
@@ -167,9 +158,6 @@ const BYTE_THRESHOLDS: readonly ThresholdEntry<number>[] = [
   { threshold: 1024, format: (b): string => `${(b / 1024).toFixed(2)} KB` },
 ];
 
-/**
- * Format bytes for display.
- */
 export const formatBytes = (bytes: number): string =>
   pipe(
     BYTE_THRESHOLDS,
@@ -180,16 +168,10 @@ export const formatBytes = (bytes: number): string =>
     })
   );
 
-/**
- * Interface for configs that may have a paths.dataDir property.
- */
 interface ConfigWithPaths {
   paths?: { dataDir?: string };
 }
 
-/**
- * Type guard to check if config has paths.dataDir property.
- */
 const hasPathsWithDataDir = (config: object): config is ConfigWithPaths =>
   "paths" in config &&
   config.paths !== null &&
@@ -221,10 +203,9 @@ export const padToWidth = (text: string, width: number): string => {
   return text + " ".repeat(Math.max(0, width - currentWidth));
 };
 
-/** State for width-bounded truncation */
 type TruncState = { readonly width: number; readonly chars: readonly string[] };
 
-/** Step function: accumulate chars while under width limit */
+/** Required for Arr.reduce - returns unchanged state once width limit reached */
 const truncStep =
   (maxWidth: number) =>
   (state: TruncState, c: string): TruncState => {
@@ -264,9 +245,6 @@ export const detectSystemCapabilities = (): Effect.Effect<
 // Service User Resolution
 // ============================================================================
 
-/**
- * Resolved service user information.
- */
 export interface ResolvedServiceUser {
   name: Username;
   uid: UserId;
@@ -274,10 +252,6 @@ export interface ResolvedServiceUser {
   homeDir: AbsolutePathType;
 }
 
-/**
- * Resolve service user from system.
- * Returns error if user doesn't exist.
- */
 export const resolveServiceUser = (
   serviceName: ServiceName
 ): Effect.Effect<ResolvedServiceUser, ServiceError | SystemError | GeneralError> =>
@@ -324,9 +298,6 @@ export interface Prerequisites {
   };
 }
 
-/**
- * Build service paths from home directory and optional data dir override.
- */
 export const buildServicePathsFromHome = (
   homeDir: AbsolutePathType,
   dataDirOverride?: AbsolutePathType
@@ -363,9 +334,6 @@ export const resolvePrerequisites = (
     return { user, system, paths };
   });
 
-/**
- * Create a Layer from resolved prerequisites and a service config tag.
- */
 export const createServiceLayer = <C, I, ConfigTag extends Context.Tag<I, C>>(
   config: C,
   configTag: ConfigTag,

@@ -16,23 +16,13 @@ import { Match, Option, pipe } from "effect";
 import { mapOr } from "../../../lib/option-helpers";
 import type { MlConfig } from "../schema";
 
-/**
- * ML hardware configuration.
- */
 export interface MlDevices {
-  /** Device paths to mount */
   devices: string[];
-  /** Environment variables to set */
   environment: Record<string, string>;
-  /** Additional volume mounts */
   volumes?: Array<{ source: string; target: string; options?: string }>;
-  /** Image suffix for the ML container */
   imageSuffix: string;
 }
 
-/**
- * Get configuration for NVIDIA CUDA ML acceleration.
- */
 const getCudaConfig = (gpuIndex?: number): MlDevices => ({
   devices: mapOr(
     Option.fromNullable(gpuIndex),
@@ -46,36 +36,24 @@ const getCudaConfig = (gpuIndex?: number): MlDevices => ({
   imageSuffix: "-cuda",
 });
 
-/**
- * Get configuration for Intel OpenVINO ML acceleration.
- */
 const getOpenVinoConfig = (device?: "CPU" | "GPU" | "AUTO"): MlDevices => ({
   devices: device === "GPU" ? ["/dev/dri/renderD128"] : [],
   environment: device ? { OPENVINO_DEVICE: device } : {},
   imageSuffix: "-openvino",
 });
 
-/**
- * Get configuration for ARM NN ML acceleration.
- */
 const getArmnnConfig = (): MlDevices => ({
   devices: [],
   environment: {},
   imageSuffix: "-armnn",
 });
 
-/**
- * Get configuration for Rockchip NPU ML acceleration.
- */
 const getRknnConfig = (): MlDevices => ({
   devices: ["/dev/dri", "/dev/mali0"],
   environment: {},
   imageSuffix: "-rknn",
 });
 
-/**
- * Get configuration for AMD ROCm ML acceleration.
- */
 const getRocmConfig = (gfxVersion?: string): MlDevices => ({
   devices: ["/dev/kfd", "/dev/dri/renderD128"],
   environment: {
@@ -84,18 +62,12 @@ const getRocmConfig = (gfxVersion?: string): MlDevices => ({
   imageSuffix: "-rocm",
 });
 
-/**
- * Get configuration for CPU-only ML (no acceleration).
- */
 const getCpuConfig = (): MlDevices => ({
   devices: [],
   environment: {},
   imageSuffix: "",
 });
 
-/**
- * Get ML device configuration for a config.
- */
 export const getMlDevices = (config: MlConfig): MlDevices =>
   pipe(
     Match.value(config),
@@ -108,11 +80,7 @@ export const getMlDevices = (config: MlConfig): MlDevices =>
     Match.exhaustive
   );
 
-/**
- * Insert suffix before tag in an image reference.
- * e.g., ghcr.io/immich-app/immich-machine-learning:release
- * becomes ghcr.io/immich-app/immich-machine-learning:release-cuda
- */
+/** Inserts suffix before tag: `image:release` → `image:release-cuda` */
 const insertSuffix = (baseImage: string, suffix: string): string => {
   const colonIndex = baseImage.lastIndexOf(":");
   return colonIndex === -1
@@ -120,16 +88,10 @@ const insertSuffix = (baseImage: string, suffix: string): string => {
     : `${baseImage.slice(0, colonIndex)}:${baseImage.slice(colonIndex + 1)}${suffix}`;
 };
 
-/**
- * Get the full ML container image with suffix.
- */
 export const getMlImage = (baseImage: string, config: MlConfig): string =>
   pipe(getMlDevices(config).imageSuffix, (suffix) =>
     suffix ? insertSuffix(baseImage, suffix) : baseImage
   );
 
-/**
- * Check if ML config requires special devices.
- */
 export const mlRequiresDevices = (config: MlConfig): boolean =>
   config.type !== "disabled" && getMlDevices(config).devices.length > 0;

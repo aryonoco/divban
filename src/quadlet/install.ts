@@ -25,20 +25,14 @@ export interface InstallConfig {
 export const getInstallSectionEntries = (config: InstallConfig): Entries =>
   fromValue("WantedBy", config.wantedBy ?? "default.target");
 
-/**
- * Build the [Install] section for a quadlet file.
- */
 export const buildInstallSection = (config: InstallConfig = {}): IniSection =>
   makeSection("Install", getInstallSectionEntries)(config);
 
-/**
- * Common install targets.
- */
 export const InstallTargets: Record<string, string> = {
-  /** Default user target (most common) */
+  /** User session start - use for rootless services */
   DEFAULT: "default.target",
-  /** Multi-user system target */
+  /** Boot time - use for system-level services */
   MULTI_USER: "multi-user.target",
-  /** Graphical target */
+  /** Desktop session - use when GUI is required */
   GRAPHICAL: "graphical.target",
 } as const satisfies Record<string, string>;

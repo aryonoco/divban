@@ -16,33 +16,24 @@
 import { isPlainObject } from "../lib/assert";
 import type { ContainerBaseConfig, GlobalConfig } from "./schema";
 
-/**
- * Deep merge two objects, with source values taking precedence.
- */
 export const deepMerge = <T extends Record<string, unknown>>(
   target: T,
   source: Partial<NoInfer<T>>
 ): T => {
-  // Build overrides object from source entries (single pass)
   const overrides = Object.fromEntries(
     Object.entries(source)
       .filter(([, v]) => v !== undefined && v !== null)
       .map(([key, sourceValue]) => {
         const targetValue: unknown = target[key as keyof T];
-        // Recursive case: both are plain objects
         if (isPlainObject(sourceValue) && isPlainObject(targetValue)) {
           return [key, deepMerge(targetValue, sourceValue)];
         }
-        // Base case: use source value directly
         return [key, sourceValue];
       })
   );
   return { ...target, ...overrides } as T;
 };
 
-/**
- * Merge global config defaults into container configuration.
- */
 export const mergeContainerDefaults = (
   global: GlobalConfig,
   container: Partial<ContainerBaseConfig>
@@ -56,9 +47,6 @@ export const mergeContainerDefaults = (
   };
 };
 
-/**
- * Get effective user allocation settings from global config.
- */
 export const getUserAllocationSettings = (
   global: GlobalConfig
 ): {
@@ -76,9 +64,6 @@ export const getUserAllocationSettings = (
   };
 };
 
-/**
- * Get effective logging settings from global config.
- */
 export const getLoggingSettings = (
   global: GlobalConfig
 ): {
@@ -92,9 +77,6 @@ export const getLoggingSettings = (
   };
 };
 
-/**
- * Get effective paths from global config.
- */
 export const getPathSettings = (
   global: GlobalConfig
 ): {
@@ -106,9 +88,6 @@ export const getPathSettings = (
   };
 };
 
-/**
- * Merge environment variables, with service-specific taking precedence.
- */
 export const mergeEnvironment = (
   base: Record<string, string>,
   override: Record<string, string>
@@ -116,9 +95,6 @@ export const mergeEnvironment = (
   return { ...base, ...override };
 };
 
-/**
- * Add timezone to environment if not already set.
- */
 export const addTimezoneToEnv = (
   env: Record<string, string>,
   timezone: string

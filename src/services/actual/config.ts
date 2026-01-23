@@ -13,9 +13,6 @@
 import { Context } from "effect";
 import type { ActualConfig } from "./schema";
 
-/**
- * ActualConfigTag identifier type.
- */
 export interface ActualConfigTag {
   readonly _tag: "ActualConfig";
 }

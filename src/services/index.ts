@@ -5,9 +5,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Service registry and exports - Effect-based.
- */
+/** Uses existential types to store heterogeneous services in a single Map. */
 
 import type { Context } from "effect";
 import { Effect, Option, pipe } from "effect";
@@ -19,21 +17,14 @@ import {
   mkExistentialService,
 } from "./types";
 
-// Service registry
 const services = new Map<string, ExistentialService>();
 
-/**
- * Register a service in the registry.
- */
 export const registerService = <C, I, Tag extends Context.Tag<I, C>>(
   service: ServiceEffect<C, I, Tag>
 ): void => {
   services.set(service.definition.name, mkExistentialService(service));
 };
 
-/**
- * Get a service by name.
- */
 export const getService = (name: string): Effect.Effect<ExistentialService, ServiceError> =>
   pipe(
     Option.fromNullable(services.get(name)),
@@ -51,28 +42,18 @@ export const getService = (name: string): Effect.Effect<ExistentialService, Serv
     })
   );
 
-/**
- * List all registered services.
- */
 export const listServices = (): ServiceDefinition[] => {
   return [...services.values()].map((s) => s.definition);
 };
 
-/**
- * Check if a service is registered.
- */
 export const hasService = (name: string): boolean => {
   return services.has(name);
 };
 
-/**
- * Get all service names.
- */
 export const getServiceNames = (): string[] => {
   return [...services.keys()];
 };
 
-// Re-export types from Effect version
 export type {
   ExistentialService,
   BackupResult,
@@ -85,7 +66,6 @@ export type {
 
 export { mkExistentialService } from "./types";
 
-// Re-export context tags for CLI usage
 export {
   AppLogger,
   ServiceOptions,
@@ -96,9 +76,6 @@ export {
 
 export { createGeneratedFiles, getFileCount, mergeGeneratedFiles } from "./types";
 
-/**
- * Initialize all built-in services.
- */
 export const initializeServices = async (): Promise<void> => {
   const { caddyService } = await import("./caddy");
   const { immichService } = await import("./immich");

@@ -14,9 +14,6 @@ import { absolutePathSchema, containerImageSchema } from "../../config/schema";
 import { isValidIP } from "../../lib/schema-utils";
 import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
 
-/**
- * Actual Budget configuration (output after decoding).
- */
 export interface ActualConfig {
   /** Path configuration */
   readonly paths: {
@@ -45,10 +42,7 @@ export interface ActualConfig {
   readonly logLevel: "debug" | "info" | "warn" | "error";
 }
 
-/**
- * Actual Budget configuration (input before decoding).
- * Fields with defaults are optional in input.
- */
+/** Fields with defaults are optional in input */
 export interface ActualConfigInput {
   readonly paths: {
     readonly dataDir: string;
@@ -99,9 +93,6 @@ export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> 
   }),
 });
 
-/**
- * Default configuration values.
- */
 interface ActualDefaults {
   readonly container: { readonly image: ContainerImage };
   readonly network: { readonly port: number; readonly host: string };

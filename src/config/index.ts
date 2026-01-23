@@ -5,11 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Configuration module exports.
- */
-
-// Schema exports
 export {
   absolutePathSchema,
   containerBaseSchema,
@@ -34,7 +29,6 @@ export type {
   VolumeMountConfigInput,
 } from "./schema";
 
-// Loader exports
 export {
   findServiceConfig,
   loadGlobalConfig,
@@ -42,7 +36,6 @@ export {
   loadTomlFile,
 } from "./loader";
 
-// Merge exports
 export {
   addTimezoneToEnv,
   deepMerge,
@@ -53,7 +46,6 @@ export {
   mergeEnvironment,
 } from "./merge";
 
-// Environment config exports (functional core)
 export {
   BaseDataDirConfig,
   createTestConfigProvider,

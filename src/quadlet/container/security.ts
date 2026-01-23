@@ -42,39 +42,22 @@ export const getSecurityEntries = (config: ContainerSecurityConfig): Entries =>
     fromValue("Group", config.group)
   );
 
-/**
- * Create a hardened security configuration.
- */
 export const createHardenedSecurity = (): ContainerSecurityConfig => ({
   readOnlyRootfs: true,
   noNewPrivileges: true,
 });
 
-/**
- * Create a minimal security configuration (no special restrictions).
- */
 export const createMinimalSecurity = (): ContainerSecurityConfig => ({
   noNewPrivileges: true,
 });
 
-/**
- * Security profiles for common use cases.
- */
 export const SecurityProfiles: Record<string, ContainerSecurityConfig> = {
-  /** Maximum security - read-only rootfs, no privilege escalation */
   HARDENED: createHardenedSecurity(),
-  /** Minimal restrictions */
   MINIMAL: createMinimalSecurity(),
-  /** No restrictions (use sparingly) */
   NONE: {} as ContainerSecurityConfig,
 } as const satisfies Record<string, ContainerSecurityConfig>;
 
-/**
- * Common seccomp profile locations.
- */
 export const SeccompProfiles: Record<string, string> = {
-  /** Default Podman seccomp profile */
   DEFAULT: "default",
-  /** Chrome/Chromium seccomp profile */
   CHROME: "/usr/share/containers/seccomp/chrome.json",
 } as const satisfies Record<string, string>;

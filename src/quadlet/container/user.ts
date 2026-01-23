@@ -19,9 +19,6 @@ import type { Entries, Entry } from "../entry";
 import { empty } from "../entry";
 import type { UserNamespace } from "../types";
 
-/**
- * Format keep-id mode with optional uid/gid.
- */
 const formatKeepId = (config: Extract<UserNamespace, { mode: "keep-id" }>): string =>
   pipe(
     [
@@ -39,9 +36,6 @@ const formatKeepId = (config: Extract<UserNamespace, { mode: "keep-id" }>): stri
     (parts) => (parts.length > 0 ? `keep-id:${parts.join(",")}` : "keep-id")
   );
 
-/**
- * Convert user namespace config to INI entries.
- */
 export const getUserNsEntries = (config: UserNamespace | undefined): Entries =>
   pipe(
     Option.fromNullable(config),
@@ -70,27 +64,17 @@ export const getUserNsEntries = (config: UserNamespace | undefined): Entries =>
     })
   );
 
-/**
- * Create a keep-id user namespace configuration.
- * This maps the container root to the host user.
- */
 export const createKeepIdNs = (uid?: number, gid?: number): UserNamespace => ({
   mode: "keep-id",
   uid,
   gid,
 });
 
-/**
- * Create an auto user namespace configuration.
- */
 export const createAutoNs = (): UserNamespace => ({
   mode: "auto",
 });
 
-/**
- * Create a host user namespace configuration.
- * Warning: This disables user namespace isolation.
- */
+/** Warning: Disables user namespace isolation. */
 export const createHostNs = (): UserNamespace => ({
   mode: "host",
 });
@@ -113,9 +97,6 @@ export const createRootMappedNs = (): UserNamespace => ({
   gid: 0,
 });
 
-/**
- * Check if a user namespace uses UID/GID mapping that differs from the default.
- */
 export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean =>
   pipe(
     Match.value(ns),
@@ -134,9 +115,6 @@ export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean =>
     Match.orElse(() => false)
   );
 
-/**
- * User namespace modes.
- */
 export const UserNsModes: Record<string, string> = {
   /**
    * keep-id: Map container UID 0 to host user's UID.
@@ -155,9 +133,6 @@ export const UserNsModes: Record<string, string> = {
   HOST: "host",
 } as const satisfies Record<string, string>;
 
-/**
- * Determine the best user namespace mode for a use case.
- */
 export const recommendUserNs = (options: {
   needsHostFiles: boolean;
   needsPrivilegedPorts: boolean;

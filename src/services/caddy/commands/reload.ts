@@ -35,22 +35,17 @@ export interface ReloadOptions {
   containerName?: string;
 }
 
-/**
- * Reload Caddy configuration using the admin API.
- * Uses podman exec to run caddy commands inside the container.
- * This is preferred over systemctl restart as it's graceful.
- */
+// Uses admin API for zero-downtime reload: existing connections are preserved
+// while new config takes effect. Contrast with restart which drops all connections.
 export const reloadCaddy = (
   options: ReloadOptions
 ): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const { logger, user, uid, containerName = "caddy" } = options;
-    // Caddyfile path inside the container
     const containerCaddyfile = "/etc/caddy/Caddyfile";
 
     logger.info("Validating Caddyfile...");
 
-    // First, validate the Caddyfile using podman exec
     const validateResult = yield* execAsUser(
       user,
       uid,
@@ -81,7 +76,6 @@ export const reloadCaddy = (
 
     logger.info("Caddyfile is valid, reloading...");
 
-    // Reload via admin API using podman exec
     const reloadResult = yield* execAsUser(
       user,
       uid,
@@ -113,10 +107,7 @@ export const reloadCaddy = (
     logger.success("Caddy configuration reloaded successfully");
   });
 
-/**
- * Validate a Caddyfile without reloading.
- * Uses podman exec to run caddy validate inside the container.
- */
+// Dry-run validation for CI pipelines or pre-reload checks
 export const validateCaddyfile = (
   user: Username,
   uid: UserId,
@@ -153,10 +144,6 @@ export const validateCaddyfile = (
     );
   });
 
-/**
- * Format a Caddyfile using caddy fmt.
- * Uses podman exec to run caddy fmt inside the container.
- */
 export const formatCaddyfile = (
   content: string,
   user: Username,

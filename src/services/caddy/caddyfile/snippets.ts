@@ -18,13 +18,6 @@ import type { Snippet } from "../schema";
 import { directivesOps } from "./directives";
 import { Caddy, type CaddyOp, caddyfile } from "./format";
 
-// ============================================================================
-// CaddyOp Functions
-// ============================================================================
-
-/**
- * Format snippet name with optional args.
- */
 const snippetName = (snippet: Snippet): string =>
   pipe(
     nonEmpty(snippet.args),
@@ -34,37 +27,17 @@ const snippetName = (snippet: Snippet): string =>
     })
   );
 
-/**
- * Generate operations for a single snippet.
- */
 export const snippetOps = (snippet: Snippet): CaddyOp =>
   Caddy.seq(Caddy.open(snippetName(snippet)), directivesOps(snippet.directives, 1), Caddy.close);
 
-/**
- * Generate operations for multiple snippets.
- * Uses forEach for iteration.
- */
 export const snippetsOps = (snippets: readonly Snippet[]): CaddyOp =>
   snippets.length === 0 ? Caddy.id : Caddy.forEach(snippets, snippetOps);
 
-// ============================================================================
-// String-returning functions
-// ============================================================================
-
-/**
- * Generate a snippet definition as string.
- */
 export const generateSnippet = (snippet: Snippet): string => caddyfile(snippetOps(snippet));
 
-/**
- * Generate all snippets as string.
- */
 export const generateSnippets = (snippets: readonly Snippet[]): string =>
   snippets.length === 0 ? "" : snippets.map(generateSnippet).join("\n");
 
-/**
- * Returns import directive string.
- */
 export const importSnippet = (name: string, args?: readonly string[]): string =>
   pipe(
     nonEmpty(args),

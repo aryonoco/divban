@@ -16,23 +16,9 @@ import { Array as Arr, Match, Option, pipe } from "effect";
 import type { Entries, Entry } from "./entry";
 import { empty } from "./entry";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Core Primitive
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Convert Option<Entries> to Entries, returning empty for None.
- */
 const optionToEntries = (opt: Option.Option<Entries>): Entries =>
   Option.getOrElse(opt, (): Entries => empty);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Primitives
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Format primitive values to strings.
- */
 const formatPrimitive = (value: string | number | boolean): string =>
   Match.value(value).pipe(
     Match.when(Match.boolean, (b) => (b ? "true" : "false")),
@@ -40,10 +26,7 @@ const formatPrimitive = (value: string | number | boolean): string =>
     Match.orElse((s) => s)
   );
 
-/**
- * Create an entry with custom formatting, only if value is defined.
- * Base function that fromValue uses internally.
- */
+/** Base function that fromValue uses internally for custom formatting. */
 export const fromMaybe = <A>(key: string, value: A | undefined, f: (a: A) => string): Entries =>
   pipe(
     Option.fromNullable(value),
@@ -51,20 +34,9 @@ export const fromMaybe = <A>(key: string, value: A | undefined, f: (a: A) => str
     optionToEntries
   );
 
-/**
- * Lift a value into an Entry if defined, otherwise return empty.
- * Delegates to fromMaybe with formatPrimitive.
- */
 export const fromValue = (key: string, value: string | number | boolean | undefined): Entries =>
   fromMaybe(key, value, formatPrimitive);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Array Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Map an array of strings to entries with the same key.
- */
 export const fromArray = (key: string, values: readonly string[] | undefined): Entries =>
   pipe(
     Option.fromNullable(values),
@@ -72,9 +44,6 @@ export const fromArray = (key: string, values: readonly string[] | undefined): E
     optionToEntries
   );
 
-/**
- * Map an array with a custom formatter.
- */
 export const fromArrayWith = <A>(
   key: string,
   items: readonly A[] | undefined,
@@ -86,14 +55,7 @@ export const fromArrayWith = <A>(
     optionToEntries
   );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Record Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Transform a Record into entries.
- * Default formatter: "key=value"
- */
+/** Default formatter: "key=value" */
 export const fromRecord = <V extends string | number | boolean>(
   key: string,
   record: Record<string, V> | undefined,
@@ -110,21 +72,7 @@ export const fromRecord = <V extends string | number | boolean>(
     optionToEntries
   );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Combining entries
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Concatenate multiple entry arrays into one.
- */
 export const concat = (...arrays: readonly Entries[]): Entries => Arr.flatten(arrays);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Conditional Entry
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Conditionally include an entry based on a predicate.
- */
 export const when = (predicate: boolean, key: string, value: string): Entries =>
   predicate ? [{ key, value }] : empty;

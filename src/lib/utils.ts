@@ -5,62 +5,23 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Utility functions using Bun standard library.
- */
-
 import { peek } from "bun";
 import { pipe } from "effect";
 import { filterCharsToString, mapCharsToString } from "./str-transform";
 
-// ============================================================================
-// UUID Generation
-// ============================================================================
-
-/**
- * Generate a sortable UUID v7.
- * UUIDv7 is time-sortable, making it ideal.
- */
+/** UUIDv7 is time-sortable, useful for database primary keys and log correlation. */
 export const generateId = (): string => Bun.randomUUIDv7();
-
-/**
- * Generate a UUID v7 as a Buffer.
- */
 export const generateIdBuffer = (): Buffer => Bun.randomUUIDv7("buffer");
-
-/**
- * Generate a UUID v7 with base64url encoding (shorter string).
- */
 export const generateIdBase64 = (): string => Bun.randomUUIDv7("base64url");
-
-/**
- * Generate a random UUID v4 (standard random UUID).
- */
 export const generateUUID = (): string => Bun.randomUUIDv7();
 
-// ============================================================================
-// Timing
-// ============================================================================
-
-/**
- * Sleep for the specified number of milliseconds.
- */
 export const sleep = (ms: number): Promise<void> => Bun.sleep(ms);
-
-/**
- * Blocking sleep (use sparingly, blocks event loop).
- */
+/** Blocks the event loop - use only for CLI initialization or tests. */
 export const sleepSync = (ms: number): void => Bun.sleepSync(ms);
 
-// ============================================================================
-// Terminal String Width
-// ============================================================================
-
 export interface StringWidthOptions {
-  /** Count ANSI escape codes as part of width (default: false) */
-  countAnsiEscapeCodes?: boolean;
-  /** Treat ambiguous-width characters as narrow (default: true) */
-  ambiguousIsNarrow?: boolean;
+  readonly countAnsiEscapeCodes?: boolean;
+  readonly ambiguousIsNarrow?: boolean;
 }
 
 /**
@@ -90,18 +51,12 @@ export const padEnd = (text: string, width: number): string => {
   return text + " ".repeat(padding);
 };
 
-/**
- * Pad a string to a specific display width (left-pad with spaces).
- */
 export const padStart = (text: string, width: number): string => {
   const currentWidth = Bun.stringWidth(text);
   const padding = Math.max(0, width - currentWidth);
   return " ".repeat(padding) + text;
 };
 
-/**
- * Center a string within a specific display width.
- */
 export const center = (text: string, width: number): string => {
   const currentWidth = Bun.stringWidth(text);
   const totalPadding = Math.max(0, width - currentWidth);
@@ -137,10 +92,6 @@ const buildTruncated = (chars: readonly string[], targetWidth: number, ellipsis:
     } as TruncateState)
     .chars.join("") + ellipsis;
 
-/**
- * Truncate a string to fit within a specific display width.
- * Adds ellipsis if truncated.
- */
 export const truncate = (text: string, maxWidth: number, ellipsis = "..."): string =>
   pipe(Bun.stringWidth(text), (textWidth) =>
     textWidth <= maxWidth
@@ -151,10 +102,6 @@ export const truncate = (text: string, maxWidth: number, ellipsis = "..."): stri
             : buildTruncated(Array.from(text), targetWidth, ellipsis)
         )
   );
-
-// ============================================================================
-// Promise Inspection (Debug Utilities)
-// ============================================================================
 
 /**
  * Peek at a promise's value without awaiting (if already resolved).
@@ -180,30 +127,13 @@ export const promiseStatus = (promise: Promise<unknown>): "pending" | "fulfilled
   return peek.status(promise);
 };
 
-/**
- * Check if a promise is pending.
- */
-export const isPending = (promise: Promise<unknown>): boolean => {
-  return peek.status(promise) === "pending";
-};
+export const isPending = (promise: Promise<unknown>): boolean => peek.status(promise) === "pending";
 
-/**
- * Check if a promise is fulfilled.
- */
-export const isFulfilled = (promise: Promise<unknown>): boolean => {
-  return peek.status(promise) === "fulfilled";
-};
+export const isFulfilled = (promise: Promise<unknown>): boolean =>
+  peek.status(promise) === "fulfilled";
 
-/**
- * Check if a promise is rejected.
- */
-export const isRejected = (promise: Promise<unknown>): boolean => {
-  return peek.status(promise) === "rejected";
-};
-
-// ============================================================================
-// HTML Escaping
-// ============================================================================
+export const isRejected = (promise: Promise<unknown>): boolean =>
+  peek.status(promise) === "rejected";
 
 /**
  * Escape HTML special characters in a string.
@@ -217,10 +147,6 @@ export const isRejected = (promise: Promise<unknown>): boolean => {
 export const escapeHTML = (text: string): string => {
   return Bun.escapeHTML(text);
 };
-
-// ============================================================================
-// Path Utilities
-// ============================================================================
 
 /**
  * Convert a file:// URL to an absolute path.
@@ -244,33 +170,10 @@ export const pathToFileURL = (path: string): URL => {
   return Bun.pathToFileURL(path);
 };
 
-// ============================================================================
-// Environment & Runtime Info
-// ============================================================================
-
-/**
- * Get the Bun version string.
- */
 export const bunVersion = (): string => Bun.version;
-
-/**
- * Get the git revision of the Bun build.
- */
 export const bunRevision = (): string => Bun.revision;
-
-/**
- * Check if this script is the main entry point.
- */
 export const isMain = (): boolean => import.meta.main;
-
-/**
- * Get the absolute path of the main entry point.
- */
 export const mainPath = (): string => Bun.main;
-
-// ============================================================================
-// Module Resolution
-// ============================================================================
 
 /**
  * Resolve a module specifier to its absolute path.
@@ -283,125 +186,48 @@ export const resolveModule = (specifier: string, from: string): string => {
   return Bun.resolveSync(specifier, from);
 };
 
-// ============================================================================
-// Stream Utilities
-// ============================================================================
+export const streamToText = (stream: ReadableStream<Uint8Array>): Promise<string> =>
+  Bun.readableStreamToText(stream);
 
-/**
- * Convert a ReadableStream to text.
- */
-export const streamToText = (stream: ReadableStream<Uint8Array>): Promise<string> => {
-  return Bun.readableStreamToText(stream);
-};
+export const streamToBytes = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> =>
+  await Bun.readableStreamToBytes(stream);
 
-/**
- * Convert a ReadableStream to a Uint8Array.
- */
-export const streamToBytes = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
-  return await Bun.readableStreamToBytes(stream);
-};
+export const streamToJSON = <T>(stream: ReadableStream<Uint8Array>): Promise<T> =>
+  Bun.readableStreamToJSON(stream) as Promise<T>;
 
-/**
- * Convert a ReadableStream to JSON.
- */
-export const streamToJSON = <T>(stream: ReadableStream<Uint8Array>): Promise<T> => {
-  return Bun.readableStreamToJSON(stream) as Promise<T>;
-};
+export const streamToArray = async <T>(stream: ReadableStream<T>): Promise<T[]> =>
+  await Bun.readableStreamToArray(stream);
 
-/**
- * Convert a ReadableStream to an array of chunks.
- */
-export const streamToArray = async <T>(stream: ReadableStream<T>): Promise<T[]> => {
-  return await Bun.readableStreamToArray(stream);
-};
+export const streamToBlob = (stream: ReadableStream<Uint8Array>): Promise<Blob> =>
+  Bun.readableStreamToBlob(stream);
 
-/**
- * Convert a ReadableStream to a Blob.
- */
-export const streamToBlob = (stream: ReadableStream<Uint8Array>): Promise<Blob> => {
-  return Bun.readableStreamToBlob(stream);
-};
-
-// ============================================================================
-// Base64 Encoding/Decoding (using Web APIs available in Bun)
-// ============================================================================
-
-/**
- * Encode a string to base64.
- */
 export const base64Encode = (data: string): string => btoa(data);
-
-/**
- * Decode a base64 string.
- */
 export const base64Decode = (encoded: string): string => atob(encoded);
+export const base64EncodeBytes = (data: Uint8Array): string => Buffer.from(data).toString("base64");
+export const base64DecodeBytes = (encoded: string): Uint8Array => Buffer.from(encoded, "base64");
 
-/**
- * Encode binary data to base64.
- */
-export const base64EncodeBytes = (data: Uint8Array): string => {
-  return Buffer.from(data).toString("base64");
-};
-
-/**
- * Decode base64 to Uint8Array.
- */
-export const base64DecodeBytes = (encoded: string): Uint8Array => {
-  return Buffer.from(encoded, "base64");
-};
-
-/** Remove padding chars */
 const stripPadding = filterCharsToString((c) => c !== "=");
-
-/** URL-safe character mapping */
 const URL_SAFE_MAP: Readonly<Record<string, string>> = { "+": "-", "/": "_" };
-
-/** Convert +/ to URL-safe -_ */
 const toUrlSafe = mapCharsToString((c) => URL_SAFE_MAP[c] ?? c);
 
-/**
- * URL-safe base64 encoding.
- * Uses composed transformations: strip padding, then convert to URL-safe chars.
- */
+/** Strip padding then convert to URL-safe chars. */
 export const base64UrlEncode = (data: string): string => pipe(btoa(data), stripPadding, toUrlSafe);
 
-// ============================================================================
-// ANSI Color Utilities
-// ============================================================================
-
-/**
- * Get ANSI escape code for a color with automatic terminal detection.
- */
 export const getAnsiColor = (
   color: string,
   format: "ansi" | "ansi-16m" | "ansi-256" | "ansi-16" = "ansi"
 ): string => Bun.color(color, format) ?? "";
 
-/**
- * Check if the terminal supports colors.
- */
 export const supportsColor = (): boolean => Bun.color("white", "ansi") !== null;
 
-/**
- * Wrap text in ANSI color codes with automatic reset.
- */
 export const colorize = (text: string, color: string): string => {
   const ansi = Bun.color(color, "ansi");
   return ansi ? `${ansi}${text}\x1b[0m` : text;
 };
 
-// ============================================================================
-// Buffer Building
-// ============================================================================
-
-/**
- * Options for creating a buffer builder.
- */
 export interface BufferBuilderOptions {
-  /** Initial capacity in bytes (default: 16KB) */
-  initialCapacity?: number;
-  /** Whether to return buffer in stream mode for chunked reading */
-  stream?: boolean;
+  readonly initialCapacity?: number;
+  readonly stream?: boolean;
 }
 
 /**

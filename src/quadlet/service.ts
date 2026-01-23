@@ -28,17 +28,11 @@ export const getServiceSectionEntries = (config: ServiceConfig): Entries =>
     fromValue("TimeoutStopSec", config.timeoutStopSec)
   );
 
-/**
- * Build the [Service] section for a quadlet file.
- */
 export const buildServiceSection: (config: ServiceConfig) => IniSection = makeSection(
   "Service",
   getServiceSectionEntries
 );
 
-/**
- * Create a default service configuration.
- */
 export const defaultServiceConfig = (): ServiceConfig => ({
   restart: "on-failure",
   restartSec: 10,
@@ -46,10 +40,7 @@ export const defaultServiceConfig = (): ServiceConfig => ({
   timeoutStopSec: 70,
 });
 
-/**
- * Merge service configurations with defaults.
- * Always falls back to system defaults for undefined values.
- */
+/** Three-tier precedence: container-specific → stack-level → system defaults. */
 export const mergeServiceConfig = (
   config: Partial<ServiceConfig>,
   stackDefaults: Partial<ServiceConfig> = {}

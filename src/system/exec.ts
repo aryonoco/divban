@@ -101,17 +101,10 @@ export const exec = (
           stdout: options.captureStdout !== false ? "pipe" : "inherit",
           stderr: options.captureStderr !== false ? "pipe" : "inherit",
           stdin: options.stdin ? new Response(options.stdin).body : undefined,
+          ...(options.cwd !== undefined && { cwd: options.cwd }),
+          ...(options.timeout !== undefined && { timeout: options.timeout }),
+          ...(options.signal !== undefined && { signal: options.signal }),
         };
-
-        if (options.cwd) {
-          spawnOptions.cwd = options.cwd;
-        }
-        if (options.timeout) {
-          spawnOptions.timeout = options.timeout;
-        }
-        if (options.signal) {
-          spawnOptions.signal = options.signal;
-        }
 
         const proc = Bun.spawn([...finalCommand], spawnOptions);
         const exitCode = await proc.exited;

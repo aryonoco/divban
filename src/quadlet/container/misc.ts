@@ -47,9 +47,6 @@ export interface ContainerMiscConfig {
   readonly sysctl?: Readonly<Record<string, string | number>> | undefined;
 }
 
-/**
- * Convert config to INI entries.
- */
 export const getMiscEntries = (config: ContainerMiscConfig): Entries =>
   concat(
     fromValue("Init", config.init),
@@ -68,25 +65,14 @@ export const getMiscEntries = (config: ContainerMiscConfig): Entries =>
     fromRecord("Sysctl", config.sysctl)
   );
 
-/**
- * Common log drivers.
- */
 export const LogDrivers: Record<string, string> = {
-  /** Journald (default for systemd) */
   JOURNALD: "journald",
-  /** JSON file logging */
   JSON_FILE: "json-file",
-  /** No logging */
   NONE: "none",
-  /** Passthrough to conmon */
   PASSTHROUGH: "passthrough",
-  /** syslog */
   SYSLOG: "syslog",
 } as const satisfies Record<string, string>;
 
-/**
- * Common stop signals.
- */
 export const StopSignals: Record<string, string> = {
   TERM: "SIGTERM",
   INT: "SIGINT",
@@ -97,23 +83,13 @@ export const StopSignals: Record<string, string> = {
   USR2: "SIGUSR2",
 } as const satisfies Record<string, string>;
 
-/**
- * Pull policies.
- */
 export const PullPolicies: Record<string, string> = {
-  /** Always pull the image */
   ALWAYS: "always",
-  /** Pull only if not present locally */
   MISSING: "missing",
-  /** Never pull (use local only) */
   NEVER: "never",
-  /** Pull if remote is newer */
   NEWER: "newer",
 } as const satisfies Record<string, string>;
 
-/**
- * Common device mappings.
- */
 export const CommonDevices: Record<string, string> = {
   /** GPU devices for NVIDIA */
   NVIDIA_GPU: "/dev/nvidia0",

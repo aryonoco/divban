@@ -10,7 +10,7 @@
  * Uses Effect's context system - dependencies accessed via yield*.
  */
 
-import { Effect, ParseResult } from "effect";
+import { Effect, Option, ParseResult, pipe } from "effect";
 import type { ConfigError, GeneralError, SystemError } from "../../lib/errors";
 import { ErrorCode, ServiceError } from "../../lib/errors";
 import { type PrivateIP, type ServiceName, duration } from "../../lib/types";
@@ -47,9 +47,6 @@ import { type CaddyConfig, caddyConfigSchema } from "./schema";
 
 const SERVICE_NAME = "caddy" as ServiceName;
 
-/**
- * Caddy service definition.
- */
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Caddy reverse proxy server with automatic HTTPS",
@@ -63,24 +60,16 @@ const definition: ServiceDefinition = {
   },
 };
 
-/**
- * Single-container operations for Caddy.
- * Uses Effect context - no ctx parameter needed.
- */
 const ops = createSingleContainerOps({
   serviceName: "caddy" as ServiceName,
   displayName: "Caddy",
 });
 
-/**
- * Validate Caddy configuration file.
- */
 const validate = createConfigValidator(caddyConfigSchema);
 
-/**
- * Generate all files for Caddy service.
- * Dependencies accessed via Effect context.
- */
+// Generates two volumes: caddy-data for certificates (must persist across restarts)
+// and caddy-config for Caddy's internal state. Uses pasta network mode to allow
+// the rootless container to bind privileged ports 80/443.
 const generate = (): Effect.Effect<
   GeneratedFiles,
   ServiceError | GeneralError,
@@ -91,43 +80,44 @@ const generate = (): Effect.Effect<
     const paths = yield* ServicePaths;
     const system = yield* SystemCapabilities;
 
-    // Validate mapHostLoopback if provided
-    let mapHostLoopback: PrivateIP | undefined;
-    if (config.network?.mapHostLoopback) {
-      mapHostLoopback = yield* decodePrivateIP(config.network.mapHostLoopback).pipe(
-        Effect.mapError(
-          (e) =>
-            new ServiceError({
-              code: ErrorCode.SERVICE_NOT_FOUND as 30,
-              message: `Invalid mapHostLoopback IP: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
-            })
-        )
-      );
-    }
+    type MapHostLoopbackEffect = Effect.Effect<Option.Option<PrivateIP>, ServiceError>;
+    const mapHostLoopback: Option.Option<PrivateIP> = yield* pipe(
+      Option.fromNullable(config.network?.mapHostLoopback),
+      Option.match({
+        onNone: (): MapHostLoopbackEffect => Effect.succeed(Option.none<PrivateIP>()),
+        onSome: (ip): MapHostLoopbackEffect =>
+          decodePrivateIP(ip).pipe(
+            Effect.map(Option.some),
+            Effect.mapError(
+              (e) =>
+                new ServiceError({
+                  code: ErrorCode.SERVICE_NOT_FOUND as 30,
+                  message: `Invalid mapHostLoopback IP: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
+                })
+            )
+          ),
+      })
+    );
 
-    // Generate Caddyfile
     const caddyfileContent = generateCaddyfile(config.caddyfile);
 
-    // Generate volume quadlet for caddy data
     const dataVolume = generateVolumeQuadlet({
       name: "caddy-data",
       description: "Caddy data volume (certificates, etc.)",
     });
 
-    // Generate volume quadlet for caddy config
     const configVolume = generateVolumeQuadlet({
       name: "caddy-config",
       description: "Caddy configuration volume",
     });
 
-    // Generate container quadlet
     const containerQuadlet = generateContainerQuadlet({
       name: "caddy",
       containerName: "caddy",
       description: "Caddy reverse proxy",
       image: config.container?.image ?? "docker.io/library/caddy:2-alpine",
       networkMode: "pasta",
-      mapHostLoopback,
+      mapHostLoopback: Option.getOrUndefined(mapHostLoopback),
       ports: config.container?.ports ?? [
         { hostIp: "0.0.0.0", host: 80, container: 80, protocol: "tcp" },
         { hostIp: "0.0.0.0", host: 443, container: 443, protocol: "tcp" },
@@ -169,7 +159,6 @@ const generate = (): Effect.Effect<
       },
     });
 
-    // Return GeneratedFiles with pre-built Maps (no mutations)
     return {
       quadlets: new Map([[containerQuadlet.filename, containerQuadlet.content]]),
       networks: new Map(),
@@ -182,30 +171,19 @@ const generate = (): Effect.Effect<
     };
   });
 
-// ============================================================================
-// Setup Step Output Types
-// ============================================================================
-
-/** Output from generate step */
 interface GenerateOutput {
   readonly files: GeneratedFiles;
 }
 
-/** Output from write files step */
 interface WriteFilesOutput {
   readonly fileResults: FilesWriteResult;
 }
 
-/** Output from enable services step */
 interface EnableServicesOutput {
   readonly serviceResults: ServicesEnableResult;
 }
 
-// ============================================================================
-// Setup Steps
-// ============================================================================
-
-/** Step 1: Generate (pure - no release) */
+// Pure step - no resources to release on failure
 const generateStep: SetupStep<
   EmptyState,
   GenerateOutput,
@@ -215,7 +193,7 @@ const generateStep: SetupStep<
   Effect.map(generate(), (files): GenerateOutput => ({ files }))
 );
 
-/** Step 2: Write files (resource - has release) */
+// Writes config files; on failure restores from .bak backups
 const writeFilesStep: SetupStep<
   EmptyState & GenerateOutput,
   WriteFilesOutput,
@@ -237,7 +215,7 @@ const writeFilesStep: SetupStep<
     })
 );
 
-/** Step 3: Enable services (resource - has release) */
+// Enables and starts systemd units; on failure stops/disables what was enabled
 const enableServicesStep: SetupStep<
   EmptyState & GenerateOutput & WriteFilesOutput,
   EnableServicesOutput,
@@ -258,10 +236,6 @@ const enableServicesStep: SetupStep<
     })
 );
 
-/**
- * Full setup for Caddy service.
- * Dependencies accessed via Effect context.
- */
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
@@ -273,10 +247,6 @@ const setup = (): Effect.Effect<
     .andThen(enableServicesStep)
     .execute(emptyState);
 
-/**
- * Reload Caddy configuration.
- * Dependencies accessed via Effect context.
- */
 const reload = (): Effect.Effect<
   void,
   ConfigError | ServiceError | SystemError | GeneralError,
@@ -294,9 +264,6 @@ const reload = (): Effect.Effect<
     });
   });
 
-/**
- * Caddy service implementation.
- */
 export const caddyService: ServiceEffect<CaddyConfig, CaddyConfigTag, typeof CaddyConfigTag> = {
   definition,
   configTag: CaddyConfigTag,

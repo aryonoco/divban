@@ -28,9 +28,6 @@ export interface ContainerVolumeConfig {
   readonly readOnlyMounts?: readonly string[] | undefined;
 }
 
-/**
- * Format a volume mount for quadlet.
- */
 export const formatVolumeMount = (mount: VolumeMount): string => {
   const options = mount.options ? `:${mount.options}` : "";
   return `${mount.source}:${mount.target}${options}`;
@@ -43,27 +40,18 @@ export const getVolumeEntries = (config: ContainerVolumeConfig): Entries =>
     fromArrayWith("Volume", config.readOnlyMounts, (mount) => `${mount}:ro`)
   );
 
-/**
- * Create a bind mount
- */
 export const createBindMount = (source: string, target: string, options?: string): VolumeMount => ({
   source,
   target,
   ...(options !== undefined && { options }),
 });
 
-/**
- * Create a read-only bind mount.
- */
 export const createReadOnlyMount = (source: string, target: string): VolumeMount => ({
   source,
   target,
   options: "ro",
 });
 
-/**
- * Create a named volume mount
- */
 export const createNamedVolumeMount = (
   volumeName: string,
   target: string,
@@ -74,9 +62,6 @@ export const createNamedVolumeMount = (
   ...(options !== undefined && { options }),
 });
 
-/**
- * Create a mount with SELinux relabeling.
- */
 export const createRelabeledMount = (
   source: string,
   target: string,
@@ -87,33 +72,19 @@ export const createRelabeledMount = (
   options: shared ? "z" : "Z",
 });
 
-/**
- * Common mount paths.
- */
 export const CommonMounts: Record<string, VolumeMount> = {
-  /** /etc/localtime for timezone */
   LOCALTIME: createReadOnlyMount("/etc/localtime", "/etc/localtime"),
-  /** /etc/timezone for timezone (Debian-based) */
   TIMEZONE: createReadOnlyMount("/etc/timezone", "/etc/timezone"),
 } as const satisfies Record<string, VolumeMount>;
 
-/**
- * Check if a source is a named volume (ends with .volume).
- */
 export const isNamedVolume = (source: string): boolean => {
   return source.endsWith(".volume");
 };
 
-/**
- * Check if a source is an absolute path (bind mount).
- */
 export const isBindMount = (source: string): boolean => {
   return source.startsWith("/");
 };
 
-/**
- * Check if volume options already include SELinux relabeling (:z or :Z).
- */
 const hasRelabelOption = (options: string | undefined): boolean =>
   pipe(
     Option.fromNullable(options),
@@ -121,9 +92,6 @@ const hasRelabelOption = (options: string | undefined): boolean =>
     Option.getOrElse(() => false)
   );
 
-/**
- * Check if volume options already include ownership flag (:U).
- */
 const hasOwnershipFlag = (options: string | undefined): boolean =>
   pipe(
     Option.fromNullable(options),
@@ -131,30 +99,18 @@ const hasOwnershipFlag = (options: string | undefined): boolean =>
     Option.getOrElse(() => false)
   );
 
-/**
- * Check if SELinux relabeling should be applied to this mount.
- * Conditions: SELinux enforcing, is bind mount, doesn't already have relabel.
- */
+/** Only bind mounts need relabeling; named volumes are managed by Podman. */
 const shouldApplyRelabel = (mount: VolumeMount, selinuxEnforcing: boolean): boolean =>
   selinuxEnforcing && isBindMount(mount.source) && !hasRelabelOption(mount.options);
 
-/**
- * Add SELinux relabel option to a single volume mount if needed.
- * Only applies to bind mounts (absolute paths), not named volumes.
- * Skips if already has :z or :Z option.
- */
 export const withSELinuxRelabel = (mount: VolumeMount, selinuxEnforcing: boolean): VolumeMount =>
   shouldApplyRelabel(mount, selinuxEnforcing)
     ? { ...mount, options: mount.options ? `${mount.options},Z` : "Z" }
     : mount;
 
 /**
- * Add ownership flag (:U) to a bind mount.
  * The :U flag tells Podman to chown the source to the container's UID.
- *
- * Only applies to bind mounts (absolute paths), not named volumes.
- * Named volumes don't need :U because Podman manages their ownership.
- * Skips if already has :U option.
+ * Only applies to bind mounts - named volumes don't need :U.
  */
 export const withOwnershipFlag = (mount: VolumeMount): VolumeMount =>
   // Only apply to bind mounts that don't already have ownership flag
@@ -165,10 +121,6 @@ export const withOwnershipFlag = (mount: VolumeMount): VolumeMount =>
         options: mount.options ? `${mount.options},U` : "U",
       };
 
-/**
- * Apply SELinux relabeling to all volumes in an array.
- * Returns undefined if input is undefined (preserves optionality).
- */
 export const relabelVolumes = (
   volumes: readonly VolumeMount[] | undefined,
   selinuxEnforcing: boolean
@@ -179,9 +131,6 @@ export const relabelVolumes = (
     Option.getOrUndefined
   );
 
-/**
- * Options for processing volumes.
- */
 export interface VolumeProcessingOptions {
   /** Whether SELinux is in enforcing mode */
   selinuxEnforcing: boolean;
@@ -189,9 +138,6 @@ export interface VolumeProcessingOptions {
   applyOwnership: boolean;
 }
 
-/**
- * Process volumes
- */
 export const processVolumes = (
   volumes: readonly VolumeMount[] | undefined,
   options: VolumeProcessingOptions

@@ -22,15 +22,11 @@ import type { AbsolutePath, ServiceName } from "../lib/types";
 import { fileExists } from "../system/fs";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
 
-/**
- * Load and parse a TOML file.
- */
 export const loadTomlFile = <A, I = A>(
   filePath: AbsolutePath,
   schema: Schema.Schema<A, I, never>
 ): Effect.Effect<A, ConfigError | SystemError> =>
   Effect.gen(function* () {
-    // Check if file exists
     const file = Bun.file(filePath);
     yield* pipe(
       Effect.promise(() => file.exists()),
@@ -45,7 +41,6 @@ export const loadTomlFile = <A, I = A>(
       )
     );
 
-    // Read file content
     const content = yield* Effect.tryPromise({
       try: (): Promise<string> => file.text(),
       catch: (e): SystemError =>
@@ -56,7 +51,6 @@ export const loadTomlFile = <A, I = A>(
         }),
     });
 
-    // Parse TOML using Bun's native parser
     const parsed = yield* Effect.try({
       try: (): unknown => Bun.TOML.parse(content),
       catch: (e): ConfigError =>
@@ -68,13 +62,9 @@ export const loadTomlFile = <A, I = A>(
         }),
     });
 
-    // Validate with Effect Schema
     return yield* decodeToEffect(schema, parsed, filePath);
   });
 
-/**
- * Load global configuration with explicit HOME directory.
- */
 export const loadGlobalConfigWithHome = (
   configPath: AbsolutePath | undefined,
   home: string
@@ -124,38 +114,25 @@ export const loadGlobalConfigWithHome = (
   );
 };
 
-/**
- * Load global configuration from divban.toml.
- * Returns default values if file doesn't exist.
- */
+/** Returns default values if no config file is found. */
 export const loadGlobalConfig = (
   configPath?: AbsolutePath
 ): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
   Effect.gen(function* () {
-    // Yield the HomeConfig to get the HOME directory
     // Config.withDefault ensures this never fails, so orDie is safe
     const home = yield* Config.string("HOME").pipe(Config.withDefault("/root"), Effect.orDie);
     return yield* loadGlobalConfigWithHome(configPath, home);
   });
 
-/**
- * Load service configuration.
- */
 export const loadServiceConfig = <A, I = A>(
   filePath: AbsolutePath,
   schema: Schema.Schema<A, I, never>
 ): Effect.Effect<A, ConfigError | SystemError> => loadTomlFile(filePath, schema);
 
-/**
- * Find service config file using common patterns.
- * Search paths are plain strings (may be relative).
- * Returns AbsolutePath once found.
- */
 export const findServiceConfig = (
   serviceName: ServiceName,
   searchPaths?: readonly string[]
 ): Effect.Effect<AbsolutePath, ConfigError> => {
-  // Default paths array is always non-empty (3 paths)
   const paths: readonly string[] = searchPaths ?? [
     `./divban-${serviceName}.toml`,
     `./${serviceName}/divban-${serviceName}.toml`,
@@ -185,9 +162,6 @@ export const findServiceConfig = (
       )
     );
 
-  // paths is non-empty (either caller-provided or 3 defaults)
-  // Edge case: caller passes empty array
-  // This is intentional: empty searchPaths is a programmer error
   return pipe(
     Effect.firstSuccessOf(paths.map(tryPath)),
     // Transform final error to include all searched paths

@@ -5,10 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Immich database restore command.
- */
-
 import { Effect, Match, Option, pipe } from "effect";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
@@ -19,9 +15,6 @@ import { execAsUser } from "../../../system/exec";
 import { fileExists, readBytes } from "../../../system/fs";
 import { CONTAINERS } from "../constants";
 
-/**
- * Detect compression format from file extension.
- */
 const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> =>
   pipe(
     path,
@@ -38,26 +31,15 @@ const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> =
   );
 
 export interface RestoreOptions {
-  /** Path to backup file */
   backupPath: AbsolutePath;
-  /** Service user */
   user: Username;
-  /** Service user UID */
   uid: UserId;
-  /** Logger instance */
   logger: Logger;
-  /** Database container name */
   containerName?: string;
-  /** Database name */
   database?: string;
-  /** Database user */
   dbUser?: string;
 }
 
-/**
- * Restore a PostgreSQL database from backup.
- * Uses Bun.Archive for extraction - no subprocess gunzip needed.
- */
 export const restoreDatabase = (
   options: RestoreOptions
 ): Effect.Effect<void, BackupError | SystemError | GeneralError> =>
@@ -72,7 +54,6 @@ export const restoreDatabase = (
       dbUser = "immich",
     } = options;
 
-    // Check backup file exists
     yield* pipe(
       fileExists(backupPath),
       Effect.filterOrFail(
@@ -103,10 +84,8 @@ export const restoreDatabase = (
       onSome: (c): CompressionResult => Effect.succeed(c),
     });
 
-    // Read the backup file
     const compressedData = yield* readBytes(backupPath);
 
-    // Read and validate metadata
     const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: compression });
     yield* Option.match(metadataOpt, {
       onNone: (): Effect.Effect<void, BackupError> => Effect.void,
@@ -124,7 +103,6 @@ export const restoreDatabase = (
             ),
     });
 
-    // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: compression });
     const sqlBytes = yield* pipe(
       Effect.succeed(files.get("database.sql")),
@@ -141,7 +119,6 @@ export const restoreDatabase = (
 
     const sqlData = new TextDecoder().decode(sqlBytes);
 
-    // Restore using psql
     const restoreResult = yield* execAsUser(
       user,
       uid,
@@ -178,10 +155,6 @@ export const restoreDatabase = (
     logger.success("Database restored successfully");
   });
 
-/**
- * Validate a backup file.
- * Uses Bun's native decompression to validate.
- */
 export const validateBackup = (
   backupPath: AbsolutePath
 ): Effect.Effect<void, BackupError | SystemError> =>
@@ -214,13 +187,10 @@ export const validateBackup = (
       onSome: (c): CompressionResult => Effect.succeed(c),
     });
 
-    // Read and decompress the archive
     const compressedData = yield* readBytes(backupPath);
 
-    // Attempt to extract - this validates both compression and tar format
     const files = yield* extractArchive(compressedData, { decompress: compression });
 
-    // Check for database.sql
     yield* pipe(
       Effect.succeed(files.has("database.sql")),
       Effect.filterOrFail(

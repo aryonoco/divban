@@ -33,7 +33,6 @@ import { getService, initializeServices, listServices } from "../services";
 import type { ExistentialService, ServiceDefinition } from "../services/types";
 import { type Command, type ParsedArgs, parseArgs, validateArgs } from "./parser";
 
-// Import Effect-based command handlers
 import { executeBackup } from "./commands/backup";
 import { executeBackupConfig } from "./commands/backup-config";
 import { executeDiff } from "./commands/diff";
@@ -59,35 +58,25 @@ export type DivbanEffectError =
   | ContainerError
   | BackupError;
 
-/**
- * CLI program as pure Effect.
- * Initialization and execution happen in the Effect context.
- * Error type is unknown since we handle various error types (our custom errors + Effect's ConfigError)
- * dynamically at runtime in the entry point.
- */
+/** Error type is unknown: we handle our custom errors + Effect's ConfigError dynamically at runtime */
 export const program = (argv: readonly string[]): Effect.Effect<number, unknown> =>
   Effect.gen(function* () {
-    // Initialize services registry inside Effect
     yield* Effect.promise(() => initializeServices());
-
-    // Parse arguments
     const args = yield* parseArgs(argv);
 
-    // Handle version flag early
     if (args.version) {
       const pkg = yield* Effect.promise(() => import("../../package.json"));
       console.info(`divban ${pkg.version}`);
       return 0;
     }
 
-    // Validate global config path if provided
     type ValidatedPathResult = Effect.Effect<AbsolutePath | undefined, ConfigError>;
     const validatedPath = yield* Option.match(Option.fromNullable(args.globalConfigPath), {
       onNone: (): ValidatedPathResult => Effect.succeed(undefined),
       onSome: (path): ValidatedPathResult => toAbsolutePathEffect(path),
     });
 
-    // Load global configuration (always loads, returns defaults if no file)
+    // loadGlobalConfig always succeeds - returns defaults if no file exists
     const globalConfig = yield* loadGlobalConfig(validatedPath);
 
     // Load environment config - this is where Config effects are run
@@ -104,13 +93,11 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
     );
     const effectiveFormat = resolveLogFormat(args.format, envConfig, loggingSettings.format);
 
-    // Create logger with effective settings
     const logger = createLogger({
       level: effectiveLogLevel,
       format: effectiveFormat,
     });
 
-    // Handle help
     if (args.help || args.command === "help") {
       const [{ getMainHelp }, pkg] = yield* Effect.all([
         Effect.promise(() => import("./help")),
@@ -120,18 +107,12 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
       return 0;
     }
 
-    // Handle "all" service (run command on all services)
     if (args.service === "all") {
       return yield* runAllServices(args, logger, globalConfig);
     }
 
-    // Get the service
     const service = yield* getService(args.service);
-
-    // Validate arguments for specific command
     yield* validateArgs(args);
-
-    // Execute command
     const result = yield* Effect.either(executeCommand(service, args, logger, globalConfig));
 
     return Either.match(result, {
@@ -223,9 +204,6 @@ const runServiceCommand = (
     });
   });
 
-/**
- * Allowed commands for "all" target.
- */
 const ALLOWED_ALL_COMMANDS = [
   "status",
   "start",
@@ -241,9 +219,6 @@ type AllowedAllCommand = (typeof ALLOWED_ALL_COMMANDS)[number];
 const isAllowedAllCommand = (cmd: Command): cmd is AllowedAllCommand =>
   (ALLOWED_ALL_COMMANDS as readonly string[]).includes(cmd);
 
-/**
- * Validate command is allowed for "all" target.
- */
 const validateAllServicesCommand = (command: Command): Effect.Effect<void, GeneralError> =>
   isAllowedAllCommand(command)
     ? Effect.void
@@ -254,9 +229,6 @@ const validateAllServicesCommand = (command: Command): Effect.Effect<void, Gener
         })
       );
 
-/**
- * Run command on each service, collecting first error if any.
- */
 const runAllServices = (
   args: ParsedArgs,
   logger: Logger,

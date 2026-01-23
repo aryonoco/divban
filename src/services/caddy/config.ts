@@ -13,9 +13,6 @@
 import { Context } from "effect";
 import type { CaddyConfig } from "./schema";
 
-/**
- * CaddyConfigTag identifier type.
- */
 export interface CaddyConfigTag {
   readonly _tag: "CaddyConfig";
 }

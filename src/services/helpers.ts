@@ -44,33 +44,20 @@ import type { GeneratedFiles, LogOptions, ServiceStatus } from "./types";
 // Core Tracking Types
 // ============================================================================
 
-/**
- * Result of an acquisition that tracks whether we created the resource.
- * Pure data - no effects.
- */
 export interface Acquired<A> {
   readonly value: A;
   readonly wasCreated: boolean;
 }
 
-/**
- * Constructor for Acquired - pure function.
- */
 export const acquired = <A>(value: A, wasCreated: boolean): Acquired<A> => ({
   value,
   wasCreated,
 });
 
-/**
- * Result tracking for file operations.
- */
 export type FileWriteResult =
   | { readonly kind: "Created"; readonly path: AbsolutePath }
   | { readonly kind: "Modified"; readonly path: AbsolutePath; readonly backup: AbsolutePath };
 
-/**
- * Constructors for FileWriteResult - pure functions.
- */
 export const FileWriteResult = {
   created: (path: AbsolutePath): FileWriteResult => ({ kind: "Created", path }),
   modified: (path: AbsolutePath, backup: AbsolutePath): FileWriteResult => ({
@@ -80,16 +67,10 @@ export const FileWriteResult = {
   }),
 } as const;
 
-/**
- * Result of writing multiple files.
- */
 export interface FilesWriteResult {
   readonly results: readonly FileWriteResult[];
 }
 
-/**
- * Result of enabling services.
- */
 export interface ServicesEnableResult {
   readonly newlyEnabled: readonly string[];
   readonly newlyStarted: readonly string[];
@@ -99,17 +80,11 @@ export interface ServicesEnableResult {
 // Derivation Functions
 // ============================================================================
 
-/**
- * Derive paths that were created (not modified) from file write results.
- */
 export const createdPaths = (results: readonly FileWriteResult[]): readonly AbsolutePath[] =>
   results
     .filter((r): r is Extract<FileWriteResult, { kind: "Created" }> => r.kind === "Created")
     .map((r) => r.path);
 
-/**
- * Derive paths that were modified (have backups) from file write results.
- */
 export const modifiedPaths = (
   results: readonly FileWriteResult[]
 ): readonly { path: AbsolutePath; backup: AbsolutePath }[] =>
@@ -117,18 +92,12 @@ export const modifiedPaths = (
     .filter((r): r is Extract<FileWriteResult, { kind: "Modified" }> => r.kind === "Modified")
     .map((r) => ({ path: r.path, backup: r.backup }));
 
-/**
- * Backup path naming convention - pure function.
- */
 export const backupPath = (path: AbsolutePath): AbsolutePath => pathWithSuffix(path, ".bak");
 
 // ============================================================================
 // File Writing Helpers
 // ============================================================================
 
-/**
- * Write a file and set ownership.
- */
 const writeAndOwn = (
   path: AbsolutePath,
   content: string,
@@ -139,10 +108,6 @@ const writeAndOwn = (
     yield* chown(path, owner);
   });
 
-/**
- * Write all generated files to their destinations.
- * Dependencies accessed via Effect context.
- */
 export const writeGeneratedFiles = (
   files: GeneratedFiles
 ): Effect.Effect<void, SystemError | GeneralError, ServicePaths | ServiceUser> =>
@@ -170,7 +135,6 @@ export const writeGeneratedFiles = (
       writeAndOwn(configFilePath(configDir, filename), content, owner)
     );
 
-    // Execute all sequentially
     const allOps = [...quadletOps, ...networkOps, ...volumeOps, ...envOps, ...otherOps];
     yield* Effect.all(allOps, { concurrency: 1 });
   });
@@ -179,9 +143,6 @@ export const writeGeneratedFiles = (
 // Effectful Resource Operations
 // ============================================================================
 
-/**
- * Write a single file with tracking.
- */
 const writeFileTracked = (
   destPath: AbsolutePath,
   content: string,
@@ -207,10 +168,6 @@ const writeFileTracked = (
     )
   );
 
-/**
- * Write generated files with tracking using Effect.forEach.
- * Dependencies accessed via Effect context.
- */
 export const writeGeneratedFilesTracked = (
   files: GeneratedFiles
 ): Effect.Effect<FilesWriteResult, SystemError | GeneralError, ServicePaths | ServiceUser> =>
@@ -221,7 +178,6 @@ export const writeGeneratedFilesTracked = (
     const { quadletDir, configDir } = paths;
     const owner = { uid: user.uid, gid: user.gid };
 
-    // Collect all file entries with their destinations
     const allFiles: readonly { dest: AbsolutePath; content: string }[] = [
       ...[...files.quadlets].map(([f, c]) => ({
         dest: quadletFilePath(quadletDir, f),
@@ -242,7 +198,6 @@ export const writeGeneratedFilesTracked = (
       ...[...files.other].map(([f, c]) => ({ dest: configFilePath(configDir, f), content: c })),
     ];
 
-    // Sequential write with tracking
     const results = yield* Effect.forEach(
       allFiles,
       ({ dest, content }) => writeFileTracked(dest, content, owner),
@@ -252,10 +207,6 @@ export const writeGeneratedFilesTracked = (
     return { results };
   });
 
-/**
- * Rollback file writes - delete created, restore modified.
- * Derives rollback actions from pure FileWriteResult data.
- */
 export const rollbackFileWrites = (
   results: readonly FileWriteResult[]
 ): Effect.Effect<void, never> =>
@@ -272,9 +223,6 @@ export const rollbackFileWrites = (
     ),
   ]).pipe(Effect.asVoid);
 
-/**
- * Cleanup backups on success.
- */
 export const cleanupFileBackups = (
   results: readonly FileWriteResult[]
 ): Effect.Effect<void, never> =>
@@ -282,11 +230,6 @@ export const cleanupFileBackups = (
     concurrency: "unbounded",
   }).pipe(Effect.asVoid);
 
-/**
- * Enable services with tracking.
- * Returns only the services we actually changed.
- * Dependencies accessed via Effect context.
- */
 export const reloadAndEnableServicesTracked = (
   services: readonly string[],
   startAfterEnable = true
@@ -295,7 +238,6 @@ export const reloadAndEnableServicesTracked = (
     const user = yield* ServiceUser;
     const opts = { user: user.name, uid: user.uid };
 
-    // Check and enable each service, collecting what we changed
     const enableIfNeeded = (
       svc: string
     ): Effect.Effect<Option.Option<string>, SystemError | GeneralError> =>
@@ -348,10 +290,6 @@ export const reloadAndEnableServicesTracked = (
     };
   });
 
-/**
- * Rollback service changes.
- * Dependencies accessed via Effect context.
- */
 export const rollbackServiceChanges = (
   result: ServicesEnableResult
 ): Effect.Effect<void, never, ServiceUser> =>
@@ -377,17 +315,11 @@ export const rollbackServiceChanges = (
 // Config Copy Operations
 // ============================================================================
 
-/**
- * Result of copying a config file.
- */
 export interface ConfigCopyResult {
   readonly wasNewFile: boolean;
   readonly backupPath: Option.Option<AbsolutePath>;
 }
 
-/**
- * Copy config file with tracking and backup.
- */
 export const copyConfigTracked = (
   source: AbsolutePath,
   dest: AbsolutePath,
@@ -424,9 +356,6 @@ export const copyConfigTracked = (
     )
   );
 
-/**
- * Rollback config copy based on result.
- */
 export const rollbackConfigCopy = (
   dest: AbsolutePath,
   result: ConfigCopyResult
@@ -439,9 +368,6 @@ export const rollbackConfigCopy = (
           renameFile(backup, dest).pipe(Effect.ignore),
       });
 
-/**
- * Cleanup config backup on success.
- */
 export const cleanupConfigBackup = (result: ConfigCopyResult): Effect.Effect<void, never> =>
   Option.match(result.backupPath, {
     onNone: (): Effect.Effect<void, never> => Effect.void,
@@ -457,10 +383,6 @@ export interface SingleContainerConfig {
   displayName: string;
 }
 
-/**
- * Operations returned by createSingleContainerOps.
- * No ctx parameter - dependencies in R type, resolved via yield*.
- */
 export interface SingleContainerOps {
   start: () => Effect.Effect<
     void,
@@ -487,10 +409,6 @@ export interface SingleContainerOps {
   ) => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
 }
 
-/**
- * Create standard start/stop/restart/status/logs for single-container services.
- * Returns operations that access dependencies via Effect context.
- */
 export const createSingleContainerOps = (config: SingleContainerConfig): SingleContainerOps => {
   const unit = `${config.serviceName}.service`;
 
@@ -577,10 +495,6 @@ export const createSingleContainerOps = (config: SingleContainerConfig): SingleC
 // Backup Helper
 // ============================================================================
 
-/**
- * Wrap a backup function to return BackupResult with file stats.
- * Uses stat() for accurate file size instead of lazy .size property.
- */
 export const wrapBackupResult = <E>(
   backupFn: Effect.Effect<AbsolutePath, E>
 ): Effect.Effect<{ path: AbsolutePath; size: number; timestamp: Date }, E> =>
@@ -668,9 +582,6 @@ export interface SetupStep<StateIn, Output, E, R> {
   readonly release: Option.Option<Release<StateIn & Output, R>>;
 }
 
-/**
- * Constructors - explicit distinction between pure and resource steps.
- */
 export const SetupStep = {
   /** Pure computation - no cleanup needed */
   pure: <StateIn, Output, E, R>(
@@ -759,9 +670,6 @@ interface StoredStep {
   >;
 }
 
-/**
- * Indexed step for execution - pairs step with its 1-based index.
- */
 interface IndexedStep {
   readonly step: StoredStep;
   readonly index: number;
@@ -817,7 +725,6 @@ const executePipeline = (
   Effect.gen(function* () {
     const totalSteps = steps.length;
 
-    // Create indexed steps using Arr.map (pure, no loop)
     const indexedSteps: readonly IndexedStep[] = pipe(
       steps,
       Arr.map(
@@ -828,9 +735,6 @@ const executePipeline = (
       )
     );
 
-    // Chain steps into sequential Effect using Arr.reduce
-    // Initial accumulator is Effect.succeed(initialState)
-    // Each step transforms: Effect<State> -> Effect<NewState>
     const chainedEffect = pipe(
       indexedSteps,
       Arr.reduce(
@@ -842,10 +746,8 @@ const executePipeline = (
       )
     );
 
-    // Execute the chain, discarding final state (we only care about side effects)
     yield* chainedEffect;
 
-    // Log success
     const logger = yield* AppLogger;
     logger.success("Setup completed successfully");
   });
@@ -902,10 +804,6 @@ export const pipeline = <S>(): PipelineBuilder<S, S, never, never> =>
 // Config Validator Factory
 // ============================================================================
 
-/**
- * Create a config validator function for a service.
- * Reduces boilerplate for the identical validate function in each service.
- */
 export const createConfigValidator =
   <A, I = A>(
     schema: Schema.Schema<A, I, never>
@@ -917,9 +815,6 @@ export const createConfigValidator =
 // Preview File Writing
 // ============================================================================
 
-/**
- * Write generated files without ownership changes (for preview/generate commands).
- */
 export const writeGeneratedFilesPreview = (
   files: GeneratedFiles,
   quadletDir: AbsolutePath,

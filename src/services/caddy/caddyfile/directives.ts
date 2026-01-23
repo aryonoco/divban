@@ -16,13 +16,6 @@ import { Match, pipe } from "effect";
 import type { Directive } from "../schema";
 import { Caddy, type CaddyOp, escapeValue, indent } from "./format";
 
-// ============================================================================
-// String Rendering
-// ============================================================================
-
-/**
- * Render a single directive.
- */
 export const renderDirective = (directive: Directive, level = 0): string => {
   const prefix = indent(level);
   const args = directive.args?.map(escapeValue).join(" ") ?? "";
@@ -34,19 +27,9 @@ export const renderDirective = (directive: Directive, level = 0): string => {
     : `${prefix}${directive.name}${argsStr} {\n${directive.block.map((child) => renderDirective(child, level + 1)).join("\n")}\n${prefix}}`;
 };
 
-/**
- * Render multiple directives.
- */
 export const renderDirectives = (directives: readonly Directive[], level = 0): string =>
   directives.map((d) => renderDirective(d, level)).join("\n");
 
-// ============================================================================
-// CaddyOp Functions
-// ============================================================================
-
-/**
- * Convert a single directive to CaddyOp.
- */
 export const directiveOp = (directive: Directive): CaddyOp =>
   !directive.block || directive.block.length === 0
     ? Caddy.directive(directive.name, directive.args)
@@ -56,20 +39,10 @@ export const directiveOp = (directive: Directive): CaddyOp =>
         Caddy.close
       );
 
-/**
- * Convert multiple directives to CaddyOp.
- */
 export const directivesOps = (directives: readonly Directive[], _level = 0): CaddyOp =>
   directives.length === 0 ? Caddy.id : Caddy.forEach(directives, directiveOp);
 
-// ============================================================================
-// Common Directive Builders
-// ============================================================================
-
 export const Directives: Record<string, (...args: never[]) => Directive> = {
-  /**
-   * reverse_proxy directive
-   */
   reverseProxy: (
     upstreams: string[],
     options?: { healthCheck?: boolean; lb?: string }
@@ -89,9 +62,6 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
       : { name: "reverse_proxy", args: upstreams };
   },
 
-  /**
-   * file_server directive
-   */
   fileServer: (options?: { root?: string; browse?: boolean }): Directive => {
     const block: Directive[] = [
       ...(options?.root ? [{ name: "root", args: [options.root] }] : []),
@@ -101,17 +71,11 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     return block.length > 0 ? { name: "file_server", block } : { name: "file_server" };
   },
 
-  /**
-   * encode directive
-   */
   encode: (algorithms: string[] = ["gzip", "zstd"]): Directive => ({
     name: "encode",
     args: algorithms,
   }),
 
-  /**
-   * header directive
-   */
   header: (headers: Record<string, string>): Directive => ({
     name: "header",
     block: Object.entries(headers).map(([name, value]) => ({
@@ -120,33 +84,21 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     })),
   }),
 
-  /**
-   * respond directive
-   */
   respond: (body: string, status?: number): Directive => ({
     name: "respond",
     args: status ? [body, String(status)] : [body],
   }),
 
-  /**
-   * redir directive
-   */
   redir: (target: string, code?: number): Directive => ({
     name: "redir",
     args: code ? [target, String(code)] : [target],
   }),
 
-  /**
-   * rewrite directive
-   */
   rewrite: (pattern: string, replacement: string): Directive => ({
     name: "rewrite",
     args: [pattern, replacement],
   }),
 
-  /**
-   * log directive
-   */
   log: (options?: { output?: string; format?: string; level?: string }): Directive => {
     const block: Directive[] = [
       ...(options?.output ? [{ name: "output", args: [options.output] }] : []),
@@ -157,9 +109,6 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     return block.length > 0 ? { name: "log", block } : { name: "log" };
   },
 
-  /**
-   * tls directive
-   */
   tls: (options?: {
     email?: string;
     cert?: string;
@@ -180,9 +129,6 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
       Match.orElse((): Directive => ({ name: "tls" }))
     ),
 
-  /**
-   * basicauth directive
-   */
   basicauth: (users: Array<{ username: string; passwordHash: string }>): Directive => ({
     name: "basicauth",
     block: users.map((u) => ({
@@ -191,34 +137,22 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     })),
   }),
 
-  /**
-   * import directive (for snippets)
-   */
   import: (name: string, args?: string[]): Directive => ({
     name: "import",
     args: args ? [name, ...args] : [name],
   }),
 
-  /**
-   * handle directive
-   */
   handle: (matcher: string | undefined, directives: Directive[]): Directive =>
     matcher
       ? { name: "handle", args: [matcher], block: directives }
       : { name: "handle", block: directives },
 
-  /**
-   * handle_path directive (strips matched path prefix)
-   */
   handlePath: (path: string, directives: Directive[]): Directive => ({
     name: "handle_path",
     args: [path],
     block: directives,
   }),
 
-  /**
-   * route directive (maintains order)
-   */
   route: (matcher: string | undefined, directives: Directive[]): Directive =>
     matcher
       ? { name: "route", args: [matcher], block: directives }

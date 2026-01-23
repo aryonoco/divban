@@ -22,10 +22,6 @@ export interface ImageConfig {
   readonly autoUpdate?: "registry" | "local" | false | undefined;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// State type for parsing
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface ParseState {
   readonly remaining: string;
   readonly digest: Option.Option<string>;
@@ -39,10 +35,6 @@ const initialState = (ref: string): ParseState => ({
   tag: Option.none(),
   registry: Option.none(),
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// State transitions
-// ─────────────────────────────────────────────────────────────────────────────
 
 const extractDigest = (state: ParseState): ParseState => {
   const idx = state.remaining.indexOf("@");
@@ -85,10 +77,6 @@ const extractRegistry = (state: ParseState): ParseState => {
   };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Final conversion (State → Result)
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface ImageComponents {
   readonly name: string;
   readonly registry?: string;
@@ -122,15 +110,9 @@ export const getImageEntries = (config: ImageConfig): Entries =>
     fromMaybe("AutoUpdate", config.autoUpdate, (v) => (v === false ? "" : v))
   ).filter((e) => e.value !== "");
 
-/**
- * Parse image reference using state machine.
- */
 export const parseImageReference = (ref: string): ImageComponents =>
   pipe(initialState(ref), extractDigest, extractTag, extractRegistry, toComponents);
 
-/**
- * Build image reference from components.
- */
 export const buildImageReference = (components: ImageComponents): string =>
   pipe(
     components.name,
@@ -154,9 +136,6 @@ export const buildImageReference = (components: ImageComponents): string =>
       )
   );
 
-/**
- * Common container registries.
- */
 export const Registries: Record<string, string> = {
   DOCKER_HUB: "docker.io",
   GHCR: "ghcr.io",

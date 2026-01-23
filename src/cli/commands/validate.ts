@@ -25,9 +25,6 @@ export interface ValidateOptions {
   logger: Logger;
 }
 
-/**
- * Execute the validate command.
- */
 export const executeValidate = (options: ValidateOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;

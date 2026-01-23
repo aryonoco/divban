@@ -26,16 +26,9 @@ import type { AbsolutePath } from "./types";
 /** Sanitize ISO timestamp for filenames: replace : and . with - */
 const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" : c));
 
-/**
- * Create a backup-safe timestamp string.
- * Format: YYYY-MM-DDTHH-mm-ss-sssZ (ISO with colons/periods replaced)
- */
 export const createBackupTimestamp = (): string =>
   pipe(new Date().toISOString(), sanitizeTimestamp);
 
-/**
- * Ensure backup directory exists with proper error mapping.
- */
 export const ensureBackupDirectory = (backupDir: AbsolutePath): Effect.Effect<void, BackupError> =>
   ensureDirectory(backupDir).pipe(
     Effect.mapError(
@@ -48,9 +41,6 @@ export const ensureBackupDirectory = (backupDir: AbsolutePath): Effect.Effect<vo
     )
   );
 
-/**
- * Create archive metadata for a backup.
- */
 export const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
   version: "1.0",
   service,
@@ -58,10 +48,6 @@ export const createBackupMetadata = (service: string, files: string[]): ArchiveM
   files,
 });
 
-/**
- * Write a backup archive to disk.
- * Returns the path on success.
- */
 export const writeBackupArchive = (
   backupPath: AbsolutePath,
   files: Record<string, string | Uint8Array | Blob>,
@@ -85,11 +71,6 @@ export const writeBackupArchive = (
     });
   });
 
-/**
- * List backup files in a directory, sorted by modification time (newest first).
- * @param backupDir - Directory containing backups
- * @param pattern - Glob pattern (default: "*.tar.{gz,zst}" for both formats)
- */
 export const listBackupFiles = (
   backupDir: AbsolutePath,
   pattern = "*.tar.{gz,zst}"
@@ -139,9 +120,6 @@ const COMPRESSION_EXTENSIONS: readonly {
   { extensions: [".tar.zst", ".zst"], format: "zstd" },
 ];
 
-/**
- * Detect compression format from file extension.
- */
 export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> =>
   pipe(
     COMPRESSION_EXTENSIONS,
@@ -149,9 +127,6 @@ export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "z
     Option.map((entry) => entry.format)
   );
 
-/**
- * Validate backup file exists before restore.
- */
 export const validateBackupExists = (backupPath: AbsolutePath): Effect.Effect<void, BackupError> =>
   pipe(
     Effect.promise(() => Bun.file(backupPath).exists()),
@@ -166,9 +141,6 @@ export const validateBackupExists = (backupPath: AbsolutePath): Effect.Effect<vo
     Effect.asVoid
   );
 
-/**
- * Get accurate file size using stat().
- */
 export const getBackupFileSize = async (backupPath: AbsolutePath): Promise<number> => {
   const stat = await Bun.file(backupPath).stat();
   return stat?.size ?? 0;
@@ -199,24 +171,11 @@ export const validateBackupService = (
       }),
   });
 
-// ============================================================================
-// Directory Scanning Utilities
-// ============================================================================
-
-/**
- * Predicate: path does NOT match any exclusion pattern.
- * Pure function for use with filter.
- */
 const notExcluded =
   (exclude: readonly string[]) =>
   (path: string): boolean =>
     !exclude.some((ex) => path.startsWith(ex) || path === ex);
 
-/**
- * Scan directory and collect files, excluding patterns.
- * Uses Effect Stream instead of for-await loops.
- * Reusable across backup implementations.
- */
 export const scanDirectoryFiles = (
   dir: string,
   exclude: readonly string[] = []
@@ -228,31 +187,20 @@ export const scanDirectoryFiles = (
     return files.filter(notExcluded(exclude));
   });
 
-/** File entry with modification time. */
 interface FileWithMtime {
   readonly name: string;
   readonly mtime: number;
 }
 
-/**
- * Get file stat safely, defaulting mtime to 0 on error.
- */
 const getFileMtime = (dir: string, name: string): Effect.Effect<FileWithMtime> =>
   Effect.promise(async () => ({
     name,
     mtime: (await Bun.file(`${dir}/${name}`).stat())?.mtimeMs ?? 0,
   }));
 
-/**
- * Sort files by mtime descending (newest first).
- * Pure function - creates new sorted array.
- */
 const sortByMtimeDesc = (files: readonly FileWithMtime[]): readonly string[] =>
   [...files].sort((a, b) => b.mtime - a.mtime).map((f) => f.name);
 
-/**
- * List files sorted by modification time (newest first).
- */
 export const listFilesByMtime = (
   dir: string,
   pattern: string
@@ -268,41 +216,27 @@ export const listFilesByMtime = (
     return sortByMtimeDesc(withStats);
   });
 
-/** File entry with content. */
 interface FileWithContent {
   readonly path: string;
   readonly content: Uint8Array;
 }
 
-/**
- * Read file content from directory.
- */
 const readFileContent = (dir: string, path: string): Effect.Effect<FileWithContent> =>
   Effect.promise(async () => ({
     path,
     content: await Bun.file(`${dir}/${path}`).bytes(),
   }));
 
-/**
- * Build files record from entries.
- * Uses Object.fromEntries (pure - creates new object).
- */
 const buildFilesRecord = (
   entries: readonly FileWithContent[]
 ): Readonly<Record<string, Uint8Array>> =>
   Object.fromEntries(entries.map((e) => [e.path, e.content]));
 
-/**
- * Collected files result type.
- */
 export interface CollectedFiles {
   readonly files: Readonly<Record<string, Uint8Array>>;
   readonly fileList: readonly string[];
 }
 
-/**
- * Collect files with their contents from a directory.
- */
 export const collectFilesWithContent = (
   dir: string,
   exclude: readonly string[] = []

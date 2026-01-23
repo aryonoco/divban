@@ -5,10 +5,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Immich database backup command.
- */
-
 import { Effect, pipe } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
@@ -36,16 +32,10 @@ import { CONTAINERS } from "../constants";
  */
 export type CompressionMethod = "zstd" | "gzip";
 
-/**
- * Get file extension for the compression method.
- */
 const getCompressionExtension = (method: CompressionMethod): string => {
   return method === "zstd" ? ".zst" : ".gz";
 };
 
-/**
- * Create archive metadata for a backup.
- */
 const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
   version: "1.0",
   service,
@@ -54,28 +44,16 @@ const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata
 });
 
 export interface BackupOptions {
-  /** Data directory */
   dataDir: AbsolutePath;
-  /** Service user */
   user: Username;
-  /** Service user UID */
   uid: UserId;
-  /** Logger instance */
   logger: Logger;
-  /** Database container name */
   containerName?: string;
-  /** Database name */
   database?: string;
-  /** Database user */
   dbUser?: string;
-  /** Compression method (default: zstd) */
   compression?: CompressionMethod;
 }
 
-/**
- * Create a PostgreSQL database backup.
- * Uses Bun.Archive to create a tar archive containing SQL dump and metadata.
- */
 export const backupDatabase = (
   options: BackupOptions
 ): Effect.Effect<AbsolutePath, BackupError | SystemError | GeneralError> =>
@@ -98,10 +76,8 @@ export const backupDatabase = (
 
     logger.info(`Creating database backup: ${backupFilename}`);
 
-    // Ensure backup directory exists
     yield* ensureDirectory(backupDir, { uid, gid: uid as unknown as GroupId });
 
-    // Run pg_dumpall inside the postgres container
     const dumpResult = yield* execAsUser(
       user,
       uid,
@@ -125,7 +101,6 @@ export const backupDatabase = (
       )
     );
 
-    // Create metadata and archive
     const metadata = createBackupMetadata("immich", ["database.sql"]);
     const files: Record<string, string | Uint8Array> = {
       "database.sql": dumpResult.stdout,
@@ -138,7 +113,6 @@ export const backupDatabase = (
 
     yield* writeBytes(backupPath, archiveData);
 
-    // Get backup size using stat for accuracy
     const stat = yield* Effect.promise(() => Bun.file(backupPath).stat());
     const size = stat?.size ?? 0;
 
@@ -146,9 +120,6 @@ export const backupDatabase = (
     return backupPath;
   });
 
-/**
- * List available backups.
- */
 export const listBackups = (
   dataDir: AbsolutePath,
   pattern = "*.tar.{gz,zst}"

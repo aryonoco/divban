@@ -21,9 +21,6 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-/**
- * Color names supported by Bun.color() for terminal output.
- */
 type ColorName = "red" | "green" | "yellow" | "blue" | "magenta" | "cyan" | "white" | "gray";
 
 /**
@@ -35,18 +32,11 @@ const colorize = (color: ColorName, text: string): string => {
   return ansi ? `${ansi}${text}\x1b[0m` : text;
 };
 
-/**
- * Apply bold styling to text.
- */
 const bold = (text: string): string => {
-  // Bun.color doesn't support bold directly, use ANSI escape
   const supportsColor = Bun.color("white", "ansi") !== null;
   return supportsColor ? `\x1b[1m${text}\x1b[0m` : text;
 };
 
-/**
- * Strip ANSI escape codes from text.
- */
 export const stripColors = (text: string): string => Bun.stripANSI(text);
 
 export interface LoggerOptions {
@@ -64,22 +54,15 @@ export interface Logger {
   step(current: number, total: number, message: string): void;
   success(message: string): void;
   fail(message: string): void;
-  /** Output raw text without any formatting */
   raw(text: string): void;
   child(service: string): Logger;
 }
 
-/**
- * Create a logger instance with the given options.
- */
 export const createLogger = (options: LoggerOptions): Logger => {
   const minLevel = LOG_LEVELS[options.level];
   const service = options.service;
-
-  // Determine if we should use colors based on option or auto-detect
   const useColor = options.color ?? Bun.color("white", "ansi") !== null;
 
-  // Internal colorize that respects the useColor option
   const applyColor = (color: ColorName, text: string): string =>
     useColor ? colorize(color, text) : text;
 
@@ -182,10 +165,7 @@ export const createLogger = (options: LoggerOptions): Logger => {
   };
 };
 
-/**
- * Default logger for quick access.
- * Creates a new logger instance - prefer using LoggerFiberRef for Effect pipelines.
- */
+/** Prefer LoggerFiberRef for Effect pipelines. */
 export const getLogger = (): Logger => createLogger({ level: "info", format: "pretty" });
 
 /**
@@ -196,19 +176,12 @@ export const setDefaultLogger = (_logger: Logger): void => {
   // No-op: prefer using LoggerFiberRef for Effect-based logger management
 };
 
-// ─── Effect Alternative ──────────────────────────────────────────────────────
-
-/**
- * Fiber-local logger for Effect pipelines.
- */
 export const LoggerFiberRef: FiberRef.FiberRef<Logger> = FiberRef.unsafeMake(
   createLogger({ level: "info", format: "pretty" })
 );
 
-/** Get logger from current fiber context */
 export const getLoggerEffect: Effect.Effect<Logger> = FiberRef.get(LoggerFiberRef);
 
-/** Run effect with specific logger in scope */
 export const withLogger = <A, E, R>(
   logger: Logger
 ): ((effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>) =>

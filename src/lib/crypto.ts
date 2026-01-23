@@ -33,9 +33,6 @@ export const generatePassword = (length = 32): string => {
   const charsetLength = PASSWORD_CHARSET.length;
   const maxValid = 256 - (256 % charsetLength);
 
-  /**
-   * Generate valid characters from random bytes.
-   */
   const charsFromBytes = (bytes: Uint8Array): string =>
     pipe(
       Array.from(bytes),
@@ -44,10 +41,7 @@ export const generatePassword = (length = 32): string => {
       )
     ).join("");
 
-  /**
-   * Tail-recursive accumulator.
-   * Generates random bytes, filters valid chars, recurses until done.
-   */
+  // Recurse if rejection sampling discarded too many bytes to reach target length
   const go = (needed: number, acc: string): string =>
     needed <= 0
       ? acc

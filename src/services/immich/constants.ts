@@ -5,12 +5,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Centralized constants for Immich service.
- * All container names, network names, and default images defined here.
- */
+/** Centralized constants for Immich service. */
 
-/** Container names for all Immich components */
 export const CONTAINERS = {
   redis: "immich-redis",
   postgres: "immich-postgres",
@@ -18,10 +14,8 @@ export const CONTAINERS = {
   ml: "immich-machine-learning",
 } as const;
 
-/** Internal network name */
 export const NETWORK_NAME = "immich-net";
 
-/** Default container images */
 export const DEFAULT_IMAGES = {
   redis: "docker.io/library/redis:7-alpine",
   postgres: "docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0",
@@ -29,7 +23,6 @@ export const DEFAULT_IMAGES = {
   ml: "ghcr.io/immich-app/immich-machine-learning:release",
 } as const;
 
-/** Internal service URLs (container-to-container) */
 export const INTERNAL_URLS = {
   server: "http://immich-server:2283",
   ml: "http://immich-machine-learning:3003",

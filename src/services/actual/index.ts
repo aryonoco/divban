@@ -42,9 +42,6 @@ import { type ActualConfig, actualConfigSchema } from "./schema";
 const SERVICE_NAME = "actual" as ServiceName;
 const CONTAINER_NAME = "actual" as ServiceName;
 
-/**
- * Actual service definition.
- */
 const definition: ServiceDefinition = {
   name: SERVICE_NAME,
   description: "Self-hosted personal finance management",
@@ -58,24 +55,13 @@ const definition: ServiceDefinition = {
   },
 };
 
-/**
- * Single-container operations for Actual.
- * Uses Effect context - no ctx parameter needed.
- */
 const ops = createSingleContainerOps({
   serviceName: CONTAINER_NAME,
   displayName: "Actual",
 });
 
-/**
- * Validate Actual configuration file.
- */
 const validate = createConfigValidator(actualConfigSchema);
 
-/**
- * Generate all files for Actual service.
- * Dependencies accessed via Effect context.
- */
 const generate = (): Effect.Effect<
   GeneratedFiles,
   ServiceError | GeneralError,
@@ -85,7 +71,6 @@ const generate = (): Effect.Effect<
     const config = yield* ActualConfigTag;
     const system = yield* SystemCapabilities;
 
-    // Build container quadlet
     const port = config.network?.port ?? 5006;
     const host = config.network?.host ?? "127.0.0.1";
 
@@ -120,22 +105,18 @@ const generate = (): Effect.Effect<
         mode: "keep-id",
       },
 
-      // Health check
       healthCheck: createHttpHealthCheck("http://localhost:5006/", {
         interval: duration("30s"),
         startPeriod: duration("10s"),
       }),
 
-      // Security
       readOnlyRootfs: false, // Actual needs write access to various paths
       noNewPrivileges: true,
 
-      // Service options
       service: {
         restart: "always",
       },
 
-      // Auto-update (only if configured)
       ...(config.container?.autoUpdate !== undefined && {
         autoUpdate: config.container.autoUpdate,
       }),
@@ -143,7 +124,6 @@ const generate = (): Effect.Effect<
 
     const containerQuadlet = generateContainerQuadlet(quadletConfig);
 
-    // Return GeneratedFiles with pre-built Maps (no mutations)
     return {
       quadlets: new Map([[`${CONTAINER_NAME}.container`, containerQuadlet.content]]),
       networks: new Map(),
@@ -153,35 +133,22 @@ const generate = (): Effect.Effect<
     };
   });
 
-// ============================================================================
-// Setup Step Output Types
-// ============================================================================
-
-/** Output from generate step */
 interface GenerateOutput {
   readonly files: GeneratedFiles;
 }
 
-/** Output from create directories step */
 interface CreateDirsOutput {
   readonly createdDirs: readonly AbsolutePath[];
 }
 
-/** Output from write files step */
 interface WriteFilesOutput {
   readonly fileResults: FilesWriteResult;
 }
 
-/** Output from enable services step */
 interface EnableServicesOutput {
   readonly serviceResults: ServicesEnableResult;
 }
 
-// ============================================================================
-// Setup Steps
-// ============================================================================
-
-/** Step 1: Generate (pure - no release) */
 const generateStep: SetupStep<
   EmptyState,
   GenerateOutput,
@@ -191,7 +158,6 @@ const generateStep: SetupStep<
   Effect.map(generate(), (files): GenerateOutput => ({ files }))
 );
 
-/** Step 2: Create directories (resource - has release) */
 const createDirsStep: SetupStep<
   EmptyState & GenerateOutput,
   CreateDirsOutput,
@@ -226,7 +192,6 @@ const createDirsStep: SetupStep<
     })
 );
 
-/** Step 3: Write files (resource - has release) */
 const writeFilesStep: SetupStep<
   EmptyState & GenerateOutput & CreateDirsOutput,
   WriteFilesOutput,
@@ -248,7 +213,6 @@ const writeFilesStep: SetupStep<
     })
 );
 
-/** Step 4: Enable services (resource - has release) */
 const enableServicesStep: SetupStep<
   EmptyState & GenerateOutput & CreateDirsOutput & WriteFilesOutput,
   EnableServicesOutput,
@@ -269,10 +233,6 @@ const enableServicesStep: SetupStep<
     })
 );
 
-/**
- * Full setup for Actual service.
- * Dependencies accessed via Effect context.
- */
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
@@ -285,10 +245,6 @@ const setup = (): Effect.Effect<
     .andThen(enableServicesStep)
     .execute(emptyState);
 
-/**
- * Backup Actual data.
- * Dependencies accessed via Effect context.
- */
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | SystemError | GeneralError,
@@ -309,10 +265,6 @@ const backup = (): Effect.Effect<
     );
   });
 
-/**
- * Restore Actual data from backup.
- * Dependencies accessed via Effect context.
- */
 const restore = (
   backupPath: AbsolutePath
 ): Effect.Effect<
@@ -334,9 +286,6 @@ const restore = (
     );
   });
 
-/**
- * Actual service implementation.
- */
 export const actualService: ServiceEffect<ActualConfig, ActualConfigTag, typeof ActualConfigTag> = {
   definition,
   configTag: ActualConfigTag,

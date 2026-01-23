@@ -43,9 +43,6 @@ export interface BackupOptions {
   logger: Logger;
 }
 
-/**
- * Create archive metadata for a backup.
- */
 const createBackupMetadata = (service: string, files: readonly string[]): ArchiveMetadata => ({
   version: "1.0",
   service,
@@ -53,17 +50,12 @@ const createBackupMetadata = (service: string, files: readonly string[]): Archiv
   files: [...files],
 });
 
-/**
- * Create a backup of the Actual data directory.
- * Creates a compressed tar archive using Bun.Archive.
- */
 export const backupActual = (
   options: BackupOptions
 ): Effect.Effect<AbsolutePath, BackupError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const { dataDir, logger } = options;
 
-    // Check data directory exists
     yield* pipe(
       directoryExists(dataDir),
       Effect.filterOrFail(
@@ -83,14 +75,11 @@ export const backupActual = (
 
     logger.info(`Creating backup: ${backupFilename}`);
 
-    // Ensure backup directory exists
     yield* ensureDirectory(backupsDir);
 
-    // Collect files to archive
     // Excludes the backups directory to avoid recursion
     const { files, fileList } = yield* collectFilesWithContent(dataDir, ["backups/", "backups"]);
 
-    // Create metadata and archive
     const metadata = createBackupMetadata("actual", fileList);
 
     const archiveData = yield* createArchive(files, {
@@ -100,7 +89,6 @@ export const backupActual = (
 
     yield* writeBytes(backupPath, archiveData);
 
-    // Get backup size using stat for accuracy
     const stat = yield* Effect.promise(() => Bun.file(backupPath).stat());
     const size = stat?.size ?? 0;
 
@@ -108,9 +96,6 @@ export const backupActual = (
     return backupPath;
   });
 
-/**
- * List available backups.
- */
 export const listBackups = (
   dataDir: AbsolutePath,
   pattern = "*.tar.gz"
@@ -129,25 +114,18 @@ export const listBackups = (
     )
   );
 
-// ============================================================================
-// Restore Helper Functions
-// ============================================================================
-
-/** Predicate: filename contains path traversal attack vectors */
+/** Path traversal attack vectors: parent refs, absolute paths, null bytes */
 const isUnsafeFilename = (name: string): boolean =>
   name.includes("..") || name.startsWith("/") || name.includes("\x00");
 
-/** Predicate: parent dir differs from data dir and needs creation */
 const needsParentDir = (parentDir: string, dataDir: string): boolean =>
   parentDir.length > 0 && parentDir !== dataDir;
 
-/** Extract parent directory from path, None if at root */
 const getParentDir = (fullPath: string): Option.Option<string> =>
   pipe(fullPath.lastIndexOf("/"), (idx) =>
     idx > 0 ? Option.some(fullPath.substring(0, idx)) : Option.none()
   );
 
-/** Validate filename and fail with BackupError if unsafe */
 const validateFilename = (
   name: string,
   backupPath: AbsolutePath
@@ -162,7 +140,6 @@ const validateFilename = (
       )
     : Effect.void;
 
-/** Ensure parent directory exists if needed */
 const ensureParentIfNeeded = (
   fullPath: string,
   dataDir: string
@@ -178,7 +155,6 @@ const ensureParentIfNeeded = (
     })
   );
 
-/** Write single file with validation */
 const writeValidatedFile =
   (dataDir: string, backupPath: AbsolutePath) =>
   ([name, content]: readonly [string, Uint8Array]): Effect.Effect<
@@ -203,13 +179,6 @@ const writeValidatedFile =
     );
   };
 
-// ============================================================================
-// Restore Command
-// ============================================================================
-
-/**
- * Restore from a backup archive.
- */
 export const restoreActual = (
   backupPath: AbsolutePath,
   dataDir: AbsolutePath,
@@ -218,7 +187,6 @@ export const restoreActual = (
   logger: Logger
 ): Effect.Effect<void, BackupError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    // Check backup file exists
     yield* pipe(
       fileExists(backupPath),
       Effect.filterOrFail(
@@ -235,10 +203,8 @@ export const restoreActual = (
     logger.info(`Restoring from: ${backupPath}`);
     logger.warn("This will overwrite existing data!");
 
-    // Read and decompress archive
     const compressedData = yield* readBytes(backupPath);
 
-    // Read and validate metadata
     const metadataOpt = yield* readArchiveMetadata(compressedData, { decompress: "gzip" });
     yield* Option.match(metadataOpt, {
       onNone: (): Effect.Effect<void, BackupError> => Effect.void,
@@ -256,10 +222,8 @@ export const restoreActual = (
             ),
     });
 
-    // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: "gzip" });
 
-    // Filter metadata, then write files sequentially
     const filesToWrite = [...files].filter(([name]) => name !== "metadata.json");
 
     yield* Effect.forEach(filesToWrite, writeValidatedFile(dataDir, backupPath), {

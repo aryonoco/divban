@@ -32,9 +32,6 @@ import { getSecurityEntries } from "./security";
 import { getUserNsEntries } from "./user";
 import { getVolumeEntries } from "./volumes";
 
-/**
- * Build container section by composing all entry generators.
- */
 export const buildContainerSection = (config: ContainerQuadlet): IniSection => ({
   name: "Container",
   entries: concat(
@@ -60,9 +57,6 @@ export const buildContainerSection = (config: ContainerQuadlet): IniSection => (
   ),
 });
 
-/**
- * Generate a complete container quadlet file.
- */
 export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQuadlet => {
   const unitDeps = buildUnitDependencies(
     config.requires,
@@ -87,9 +81,6 @@ export const generateContainerQuadlet = (config: ContainerQuadlet): GeneratedQua
   };
 };
 
-// Re-export all container modules
-
-// capabilities.ts
 export type { ContainerCapabilitiesConfig } from "./capabilities";
 export {
   getCapabilityEntries,
@@ -99,7 +90,6 @@ export {
   isValidCapability,
 } from "./capabilities";
 
-// environment.ts
 export type { ContainerEnvironmentConfig } from "./environment";
 export {
   getEnvironmentEntries,
@@ -109,7 +99,6 @@ export {
   filterEnvByPrefix,
 } from "./environment";
 
-// secrets.ts
 export type { ContainerSecretsConfig } from "./secrets";
 export {
   getSecretEntries,
@@ -119,7 +108,6 @@ export {
   getSecretMountPath,
 } from "./secrets";
 
-// health.ts
 export {
   getHealthCheckEntries,
   createHealthCheck,
@@ -131,7 +119,6 @@ export {
   HealthOnFailure,
 } from "./health";
 
-// image.ts
 export type { ImageConfig } from "./image";
 export {
   getImageEntries,
@@ -140,7 +127,6 @@ export {
   Registries,
 } from "./image";
 
-// misc.ts
 export type { ContainerMiscConfig } from "./misc";
 export {
   getMiscEntries,
@@ -150,7 +136,6 @@ export {
   CommonDevices,
 } from "./misc";
 
-// network.ts
 export type { ContainerNetworkConfig } from "./network";
 export {
   formatPortMapping,
@@ -161,7 +146,6 @@ export {
   CommonPorts,
 } from "./network";
 
-// resources.ts
 export type { ContainerResourcesConfig } from "./resources";
 export {
   getResourceEntries,
@@ -170,7 +154,6 @@ export {
   ResourceProfiles,
 } from "./resources";
 
-// security.ts
 export type { ContainerSecurityConfig } from "./security";
 export {
   getSecurityEntries,
@@ -180,7 +163,6 @@ export {
   SeccompProfiles,
 } from "./security";
 
-// user.ts
 export {
   getUserNsEntries,
   createAutoNs,
@@ -192,7 +174,6 @@ export {
   UserNsModes,
 } from "./user";
 
-// volumes.ts
 export type { ContainerVolumeConfig, VolumeProcessingOptions } from "./volumes";
 export {
   getVolumeEntries,

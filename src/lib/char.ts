@@ -37,7 +37,6 @@ export const isLowerHex = (c: string): boolean => isDigit(c) || (c >= "a" && c <
 export const isWhitespace = (c: string): boolean =>
   c === " " || c === "\t" || c === "\n" || c === "\r";
 
-/** Check if character is in a given set */
 export const isOneOf =
   (chars: string) =>
   (c: string): boolean =>

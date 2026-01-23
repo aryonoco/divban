@@ -23,9 +23,7 @@ import type { ContainerSecretsConfig } from "./container/secrets";
 import type { ContainerSecurityConfig } from "./container/security";
 import type { ContainerVolumeConfig } from "./container/volumes";
 
-/**
- * Port mapping configuration.
- */
+/** Maps `--publish hostIp:host:container/protocol` in Podman. */
 export interface PortMapping {
   /** Host IP to bind to (optional, defaults to all interfaces) */
   readonly hostIp?: string | undefined;
@@ -37,9 +35,7 @@ export interface PortMapping {
   readonly protocol?: "tcp" | "udp" | undefined;
 }
 
-/**
- * Volume mount configuration.
- */
+/** Maps `--volume source:target:options` in Podman. */
 export interface VolumeMount {
   /** Source path or volume name */
   source: string;
@@ -49,10 +45,7 @@ export interface VolumeMount {
   options?: string | undefined;
 }
 
-/**
- * Secret mount configuration.
- * Maps a podman secret to a container.
- */
+/** Maps `--secret` in Podman. Secrets must be pre-created via `podman secret create`. */
 export interface SecretMount {
   /** Secret name (must exist in podman) */
   name: string;
@@ -64,9 +57,7 @@ export interface SecretMount {
   mode?: string | undefined;
 }
 
-/**
- * Health check configuration.
- */
+/** Maps `--health-*` flags in Podman. Healthchecks run inside the container. */
 export interface HealthCheck {
   /** Command to run for health check */
   cmd: string;
@@ -83,7 +74,8 @@ export interface HealthCheck {
 }
 
 /**
- * User namespace configuration discriminated union.
+ * User namespace isolation mode. `keep-id` maps host UID into container (for bind mounts);
+ * `auto` allocates a subordinate UID range; `host` disables isolation entirely.
  */
 export type UserNamespace =
   | {
@@ -94,9 +86,7 @@ export type UserNamespace =
   | { readonly mode: "auto"; readonly size?: number | undefined }
   | { readonly mode: "host" };
 
-/**
- * Service section configuration for systemd.
- */
+/** Systemd [Service] section directives for restart behavior and timeouts. */
 export interface ServiceConfig {
   /** Restart policy */
   restart: "no" | "on-success" | "on-failure" | "on-abnormal" | "on-abort" | "always";
@@ -152,9 +142,7 @@ export interface ContainerQuadlet
   readonly wantedBy?: string | undefined;
 }
 
-/**
- * Network quadlet configuration.
- */
+/** Configuration for a `.network` quadlet file. */
 export interface NetworkQuadlet {
   /** Network name */
   name: string;
@@ -178,9 +166,7 @@ export interface NetworkQuadlet {
   dns?: string[] | undefined;
 }
 
-/**
- * Volume quadlet configuration.
- */
+/** Configuration for a `.volume` quadlet file. */
 export interface VolumeQuadlet {
   /** Volume name */
   name: string;
@@ -194,9 +180,7 @@ export interface VolumeQuadlet {
   labels?: Record<string, string> | undefined;
 }
 
-/**
- * Generated quadlet file.
- */
+/** Output artifact ready to be written to disk. */
 export interface GeneratedQuadlet {
   /** Filename (e.g., "caddy.container") */
   filename: string;

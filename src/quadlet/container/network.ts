@@ -40,19 +40,10 @@ export interface ContainerNetworkConfig {
   readonly addHost?: readonly string[] | undefined;
 }
 
-/**
- * Check if an IP address is IPv6.
- */
 const isIPv6 = (ip: string): boolean => ip.includes(":");
 
-/**
- * Format host IP for port mapping, wrapping IPv6 in brackets.
- */
 const formatHostIp = (ip: string): string => (isIPv6(ip) ? `[${ip}]` : ip);
 
-/**
- * Format a port mapping for quadlet.
- */
 export const formatPortMapping = (port: PortMapping): string => {
   const protocol = port.protocol ?? "tcp";
   const hostIp = port.hostIp ? `${formatHostIp(port.hostIp)}:` : "";
@@ -60,9 +51,6 @@ export const formatPortMapping = (port: PortMapping): string => {
   return `${hostIp}${port.host}:${port.container}/${protocol}`;
 };
 
-/**
- * Format network mode value with pasta options if applicable.
- */
 export const formatNetworkMode = (
   mode: "pasta" | "slirp4netns" | "host" | "none",
   mapHostLoopback?: string
@@ -84,9 +72,6 @@ export const getNetworkEntries = (config: ContainerNetworkConfig): Entries =>
     fromArray("AddHost", config.addHost)
   );
 
-/**
- * Create a standard port mapping.
- */
 export const createPort = (
   host: number,
   container: number,
@@ -97,9 +82,6 @@ export const createPort = (
   protocol,
 });
 
-/**
- * Create a localhost-only port mapping.
- */
 export const createLocalhostPort = (
   host: number,
   container: number,
@@ -111,9 +93,6 @@ export const createLocalhostPort = (
   protocol,
 });
 
-/**
- * Create port mappings for common services.
- */
 export const CommonPorts: Record<string, PortMapping> = {
   HTTP: createPort(80, 80),
   HTTPS: createPort(443, 443),

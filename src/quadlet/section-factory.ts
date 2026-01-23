@@ -15,10 +15,8 @@ import type { Entries } from "./entry";
 import type { IniSection } from "./format";
 
 /**
- * Factory for creating section builders.
- * Eliminates boilerplate: (name, getEntries) → (config → IniSection)
- *
- * Note: Explicit return type required for isolatedDeclarations.
+ * Explicit return type annotation required for TypeScript's isolatedDeclarations mode.
+ * @see https://www.typescriptlang.org/tsconfig/#isolatedDeclarations
  */
 export const makeSection =
   <C>(name: string, getEntries: (config: C) => Entries): ((config: C) => IniSection) =>

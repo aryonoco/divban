@@ -5,9 +5,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Effect-based timing utilities.
- */
+/** Stopwatch using Effect Ref for concurrency-safe lap timing. */
 
 import { Duration, Effect, Ref, pipe } from "effect";
 
@@ -17,9 +15,6 @@ export interface EffectStopwatch {
   readonly reset: Effect.Effect<void>;
 }
 
-/**
- * Stopwatch for Effect pipelines using Ref for managed state.
- */
 export const createStopwatchEffect = (): Effect.Effect<EffectStopwatch> =>
   Effect.gen(function* () {
     const startNs = Bun.nanoseconds();

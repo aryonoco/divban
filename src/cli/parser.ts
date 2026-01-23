@@ -17,9 +17,6 @@ import { Array as Arr, Effect, Match, Option, pipe } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
 import { extractMessage } from "../lib/match-helpers";
 
-/**
- * Available commands.
- */
 export const COMMANDS = [
   "validate",
   "generate",
@@ -42,9 +39,6 @@ export const COMMANDS = [
 
 export type Command = (typeof COMMANDS)[number];
 
-/**
- * Parsed command line arguments.
- */
 export interface ParsedArgs {
   readonly service: string;
   readonly command: Command;
@@ -67,9 +61,6 @@ export interface ParsedArgs {
   readonly format: "pretty" | "json";
 }
 
-/**
- * Default parsed arguments.
- */
 const defaultArgs: ParsedArgs = {
   service: "",
   command: "help",
@@ -85,14 +76,8 @@ const defaultArgs: ParsedArgs = {
   format: "pretty",
 };
 
-/**
- * Type guard for Command.
- */
 export const isCommand = (s: string): s is Command => (COMMANDS as readonly string[]).includes(s);
 
-/**
- * Parse options for nodeParseArgs.
- */
 const PARSE_OPTIONS = {
   help: { type: "boolean", short: "h" },
   version: { type: "boolean", short: "V" },
@@ -110,9 +95,6 @@ const PARSE_OPTIONS = {
   "global-config": { type: "string", short: "g" },
 } as const;
 
-/**
- * Node parseArgs result type.
- */
 type ParsedValues = {
   help?: boolean;
   version?: boolean;
@@ -145,19 +127,12 @@ const getPositional = (positionals: readonly string[], index: number): Option.Op
 // Extractors
 // ============================================================================
 
-/**
- * Extract service from first positional.
- */
 const parseService = (positionals: readonly string[]): string =>
   pipe(
     getPositional(positionals, 0),
     Option.getOrElse(() => "")
   );
 
-/**
- * Parse command from second positional.
- * Returns Effect to handle invalid command error.
- */
 const parseCommand = (positionals: readonly string[]): Effect.Effect<Command, GeneralError> =>
   Option.match(getPositional(positionals, 1), {
     onNone: (): Effect.Effect<Command, GeneralError> => Effect.succeed("status" as Command),
@@ -172,9 +147,6 @@ const parseCommand = (positionals: readonly string[]): Effect.Effect<Command, Ge
           ),
   });
 
-/**
- * Get maximum positionals for command using Match (exhaustive).
- */
 const getMaxPositionals = (command: Command): number =>
   Match.value(command).pipe(
     Match.when("secret", () => 4),
@@ -187,9 +159,6 @@ const getMaxPositionals = (command: Command): number =>
     Match.orElse(() => 2)
   );
 
-/**
- * Validate no extra positional arguments.
- */
 const validateNoExtraPositionals = (
   positionals: readonly string[],
   command: Command
@@ -207,9 +176,6 @@ const validateNoExtraPositionals = (
     : Effect.void;
 };
 
-/**
- * Extract boolean flags as partial object.
- */
 const extractBooleanFlags = (values: ParsedValues): Partial<ParsedArgs> => ({
   help: values.help ?? false,
   version: values.version ?? false,
@@ -222,9 +188,6 @@ const extractBooleanFlags = (values: ParsedValues): Partial<ParsedArgs> => ({
   ...(values.json === true && { format: "json" as const }),
 });
 
-/**
- * Parse lines option.
- */
 const parseLines = (lines: string | undefined): number | undefined =>
   pipe(
     Option.fromNullable(lines),
@@ -233,9 +196,6 @@ const parseLines = (lines: string | undefined): number | undefined =>
     Option.getOrUndefined
   );
 
-/**
- * Validate log level option.
- */
 const validateLogLevel = (level: string | undefined): ParsedArgs["logLevel"] | undefined =>
   pipe(
     Option.fromNullable(level),
@@ -244,9 +204,6 @@ const validateLogLevel = (level: string | undefined): ParsedArgs["logLevel"] | u
     Option.getOrUndefined
   );
 
-/**
- * Validate format option.
- */
 const validateFormat = (format: string | undefined): ParsedArgs["format"] | undefined =>
   pipe(
     Option.fromNullable(format),
@@ -255,9 +212,6 @@ const validateFormat = (format: string | undefined): ParsedArgs["format"] | unde
     Option.getOrUndefined
   );
 
-/**
- * Extract string options
- */
 const extractStringOptions = (values: ParsedValues): Partial<ParsedArgs> => {
   const lines = parseLines(values.lines);
   const logLevel = validateLogLevel(values["log-level"]);
@@ -273,9 +227,6 @@ const extractStringOptions = (values: ParsedValues): Partial<ParsedArgs> => {
   };
 };
 
-/**
- * Extract positional args based on command
- */
 const extractPositionalArgs = (
   positionals: readonly string[],
   command: Command
@@ -301,9 +252,6 @@ const extractPositionalArgs = (
 // Main Parse Function
 // ============================================================================
 
-/**
- * Build parsed args from values and positionals.
- */
 const buildParsedArgs = (
   values: ParsedValues,
   positionals: readonly string[]
@@ -332,9 +280,6 @@ const buildParsedArgs = (
       }),
   });
 
-/**
- * Parse raw args
- */
 const parseRawArgs = (argv: readonly string[]): { values: ParsedValues; positionals: string[] } =>
   nodeParseArgs({
     args: [...argv],
@@ -343,18 +288,12 @@ const parseRawArgs = (argv: readonly string[]): { values: ParsedValues; position
     strict: true,
   }) as { values: ParsedValues; positionals: string[] };
 
-/**
- * Convert parse error to GeneralError.
- */
 const toParseError = (e: unknown): GeneralError =>
   new GeneralError({
     code: ErrorCode.INVALID_ARGS as 2,
     message: extractMessage(e),
   });
 
-/**
- * Parse command line arguments.
- */
 export const parseArgs = (argv: readonly string[]): Effect.Effect<ParsedArgs, GeneralError> => {
   const tryParse = (): { values: ParsedValues; positionals: string[] } => parseRawArgs(argv);
 
@@ -364,12 +303,9 @@ export const parseArgs = (argv: readonly string[]): Effect.Effect<ParsedArgs, Ge
   );
 };
 
-/** Commands requiring config path */
+/** Used in validateArgs to fail fast before attempting config load */
 const CONFIG_REQUIRED_COMMANDS: readonly Command[] = ["validate", "generate", "diff", "setup"];
 
-/**
- * Validate parsed arguments for a specific command.
- */
 export const validateArgs = (args: ParsedArgs): Effect.Effect<void, GeneralError> =>
   pipe(
     // Check service or help is provided

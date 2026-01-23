@@ -45,6 +45,7 @@ Code must follow these constraints strictly. They are non-negotiable.
 ### Functional Style
 - **No loops**: Use `Arr.map`, `Arr.filter`, `Arr.reduce`, `Arr.filterMap`, `Effect.forEach` instead of `for`/`while`
 - **No conditionals**: Use `Match.value().pipe(Match.when(...), Match.exhaustive)`, `Option.match`, `Exit.match` instead of `if`/`switch`
+  - **Exceptions**: Type guards (`value is T`), try-catch at API boundaries, and state machine parsers where Match would significantly reduce readability
 - **Immutable data**: All interfaces use `readonly`, collections use `ReadonlyMap`/`ReadonlyArray`
 - **Composition**: Use `pipe()` for chaining, `Effect.gen` for sequential operations
 
@@ -52,6 +53,11 @@ Code must follow these constraints strictly. They are non-negotiable.
 - **No `any`/`unknown` in business logic**: Only acceptable at validation boundaries (type guards, Schema decode, catch variables)
 - **Branded types required**: Use types from `src/lib/types.ts` (AbsolutePath, Username, UserId, etc.) - never raw strings/numbers for domain values
 - **Strict tsconfig**: Code must compile with all strict flags enabled (see `tsconfig.json`)
+
+### String Handling
+- **No RegExp**: Use character predicates from `src/lib/char.ts` (`isLower`, `isDigit`, `isAlphaNum`, etc.) composed with `all`/`any` from `src/lib/str.ts`
+- **Parsing**: Use Option-chained pipelines with `split`, `indexOf`, `slice`, and character predicates - see `src/lib/schema-utils.ts` for examples (IPv4/IPv6, email, container image parsing)
+- **Transformations**: Use fold-based utilities from `src/lib/str-transform.ts` (`collapseChar`, `stripPrefix`, `mapCharsToString`)
 
 ### Effect Patterns
 - **Error handling**: Use `Effect.either` + pattern match, `Effect.mapError` for transformation

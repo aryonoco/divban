@@ -22,10 +22,6 @@ export interface ContainerSecretsConfig {
   readonly secrets?: readonly SecretMount[] | undefined;
 }
 
-/**
- * Format a secret mount for quadlet.
- * Format: name[,type=mount|env][,target=path|envvar][,mode=0XXX]
- */
 export const formatSecretMount = (secret: SecretMount): string => {
   const optionalParts = [
     pipe(
@@ -48,25 +44,16 @@ export const formatSecretMount = (secret: SecretMount): string => {
 export const getSecretEntries = (config: ContainerSecretsConfig): Entries =>
   fromArrayWith("Secret", config.secrets, formatSecretMount);
 
-/**
- * Create a secret mounted as a file.
- */
 export const createMountedSecret = (name: string, target?: string): SecretMount => ({
   name,
   type: "mount",
   target: target ?? `/run/secrets/${name}`,
 });
 
-/**
- * Create a secret injected as environment variable.
- */
 export const createEnvSecret = (name: string, envVar: string): SecretMount => ({
   name,
   type: "env",
   target: envVar,
 });
 
-/**
- * Get the default mount path for a secret.
- */
 export const getSecretMountPath = (secretName: string): string => `/run/secrets/${secretName}`;

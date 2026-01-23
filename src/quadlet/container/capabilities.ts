@@ -26,9 +26,7 @@ export interface ContainerCapabilitiesConfig {
 export const getCapabilityEntries = (config: ContainerCapabilitiesConfig): Entries =>
   concat(fromArray("AddCapability", config.capAdd), fromArray("DropCapability", config.capDrop));
 
-/**
- * Linux capabilities interface for isolatedDeclarations compatibility.
- */
+/** Explicit interface required for TypeScript's isolatedDeclarations mode. */
 interface CapabilitiesMap {
   readonly SYS_ADMIN: "SYS_ADMIN";
   readonly SYS_CHROOT: "SYS_CHROOT";
@@ -96,17 +94,11 @@ export const Capabilities: CapabilitiesMap = {
   ALL: "ALL",
 };
 
-/**
- * Drop all capabilities except those needed.
- */
 export const dropAllExcept = (keep: string[]): ContainerCapabilitiesConfig => ({
   capDrop: [Capabilities.ALL],
   capAdd: keep,
 });
 
-/**
- * Common capability profiles.
- */
 export const CapabilityProfiles: Record<string, ContainerCapabilitiesConfig> = {
   /** Drop all capabilities (most secure) */
   DROP_ALL: { capDrop: [Capabilities.ALL] } as ContainerCapabilitiesConfig,
@@ -131,9 +123,6 @@ export const CapabilityProfiles: Record<string, ContainerCapabilitiesConfig> = {
   } as ContainerCapabilitiesConfig,
 } as const satisfies Record<string, ContainerCapabilitiesConfig>;
 
-/**
- * Check if a capability name is valid.
- */
 export const isValidCapability = (cap: string): boolean => {
   return Object.values(Capabilities).includes(
     cap as (typeof Capabilities)[keyof typeof Capabilities]

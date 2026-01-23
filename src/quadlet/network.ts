@@ -30,23 +30,15 @@ export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
     fromRecord("Options", config.options)
   );
 
-/**
- * Build the [Network] section.
- */
 export const buildNetworkSection: (config: NetworkQuadlet) => IniSection = makeSection(
   "Network",
   getNetworkSectionEntries
 );
 
-/**
- * Generate a complete network quadlet file.
- */
 export const generateNetworkQuadlet: (config: NetworkQuadlet) => GeneratedQuadlet =
   makeSimpleQuadletGenerator("network", buildNetworkSection);
 
-/**
- * Create a simple internal bridge network configuration.
- */
+/** Internal networks have no route to the host or internet - containers can only reach each other. */
 export const createInternalNetwork = (name: string, description?: string): NetworkQuadlet => ({
   name,
   description: description ?? `Internal network for ${name}`,
@@ -54,9 +46,7 @@ export const createInternalNetwork = (name: string, description?: string): Netwo
   driver: "bridge",
 });
 
-/**
- * Create a network with external connectivity.
- */
+/** External networks route traffic through the host, enabling internet access and port publishing. */
 export const createExternalNetwork = (
   name: string,
   options?: {

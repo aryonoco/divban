@@ -25,46 +25,17 @@ import {
 } from "./schema-utils";
 import { collapseChar } from "./str-transform";
 
-// ============================================================================
-// Branded Type Definitions
-// ============================================================================
-
-/** User ID (0-65534 range for POSIX users) */
 export type UserId = number & Brand.Brand<"UserId">;
-
-/** Group ID (0-65534 range for POSIX groups) */
 export type GroupId = number & Brand.Brand<"GroupId">;
-
-/** Subordinate ID for user namespaces (100000-4294967294 range) */
 export type SubordinateId = number & Brand.Brand<"SubordinateId">;
-
-/** Absolute filesystem path (must start with /) */
 export type AbsolutePath = string & Brand.Brand<"AbsolutePath">;
-
-/** POSIX username (lowercase, starts with letter or underscore, max 32 chars) */
 export type Username = string & Brand.Brand<"Username">;
-
-/** Service name identifier */
 export type ServiceName = string & Brand.Brand<"ServiceName">;
-
-/** Container name identifier */
 export type ContainerName = string & Brand.Brand<"ContainerName">;
-
-/** Network name identifier */
 export type NetworkName = string & Brand.Brand<"NetworkName">;
-
-/** Volume name identifier */
 export type VolumeName = string & Brand.Brand<"VolumeName">;
-
-/** Private IPv4 (RFC 1918) or IPv6 (RFC 4193 ULA) address */
 export type PrivateIP = string & Brand.Brand<"PrivateIP">;
-
-/** Container image reference (registry/image:tag@sha256:digest) */
 export type ContainerImage = string & Brand.Brand<"ContainerImage">;
-
-// ============================================================================
-// Message Functions
-// ============================================================================
 
 const userIdIntMsg = (): string => "UserId must be an integer";
 const userIdRangeMsg = (): string => "UserId must be 0-65534";
@@ -83,25 +54,18 @@ const privateIPEmptyMsg = (): string => "IP address cannot be empty";
 const privateIPInvalidMsg = (): string => "Must be RFC 1918 IPv4 or RFC 4193 IPv6";
 const containerImageMsg = (): string => "Invalid container image format";
 
-// ============================================================================
-// Numeric Branded Schemas
-// ============================================================================
-
-/** User ID schema (0-65534 range for POSIX users) */
 export const UserIdSchema: Schema.BrandSchema<UserId, number, never> = Schema.Number.pipe(
   Schema.int({ message: userIdIntMsg }),
   Schema.between(0, 65534, { message: userIdRangeMsg }),
   Schema.brand("UserId")
 );
 
-/** Group ID schema (0-65534 range for POSIX groups) */
 export const GroupIdSchema: Schema.BrandSchema<GroupId, number, never> = Schema.Number.pipe(
   Schema.int({ message: groupIdIntMsg }),
   Schema.between(0, 65534, { message: groupIdRangeMsg }),
   Schema.brand("GroupId")
 );
 
-/** Subordinate ID schema for user namespaces (100000-4294967294 range) */
 export const SubordinateIdSchema: Schema.BrandSchema<SubordinateId, number, never> =
   Schema.Number.pipe(
     Schema.int({ message: subIdIntMsg }),
@@ -109,64 +73,47 @@ export const SubordinateIdSchema: Schema.BrandSchema<SubordinateId, number, neve
     Schema.brand("SubordinateId")
   );
 
-// ============================================================================
-// String Branded Schemas
-// ============================================================================
-
-/** Absolute filesystem path schema (must start with /) */
 export const AbsolutePathSchema: Schema.BrandSchema<AbsolutePath, string, never> =
   Schema.String.pipe(
     Schema.filter((s): boolean => s.startsWith("/"), { message: absolutePathMsg }),
     Schema.brand("AbsolutePath")
   );
 
-/** POSIX username schema (lowercase, starts with letter or underscore, max 32 chars) */
 export const UsernameSchema: Schema.BrandSchema<Username, string, never> = Schema.String.pipe(
   Schema.filter(isValidPosixUsername, { message: usernamePatternMsg }),
   Schema.maxLength(32, { message: usernameMaxLenMsg }),
   Schema.brand("Username")
 );
 
-/** Service name schema */
 export const ServiceNameSchema: Schema.BrandSchema<ServiceName, string, never> = Schema.String.pipe(
   Schema.filter(isValidServiceName, { message: serviceNamePatternMsg }),
   Schema.brand("ServiceName")
 );
 
-/** Container name schema */
 export const ContainerNameSchema: Schema.BrandSchema<ContainerName, string, never> =
   Schema.String.pipe(
     Schema.filter(isValidContainerName, { message: containerNameMsg }),
     Schema.brand("ContainerName")
   );
 
-/** Network name schema */
 export const NetworkNameSchema: Schema.BrandSchema<NetworkName, string, never> = Schema.String.pipe(
   Schema.filter(isValidContainerName, { message: networkNameMsg }),
   Schema.brand("NetworkName")
 );
 
-/** Volume name schema */
 export const VolumeNameSchema: Schema.BrandSchema<VolumeName, string, never> = Schema.String.pipe(
   Schema.filter(isValidContainerName, { message: volumeNameMsg }),
   Schema.brand("VolumeName")
 );
 
-/** Container image schema (registry/image:tag@sha256:digest) */
 export const ContainerImageSchema: Schema.BrandSchema<ContainerImage, string, never> =
   Schema.String.pipe(
     Schema.filter(isValidContainerImage, { message: containerImageMsg }),
     Schema.brand("ContainerImage")
   );
 
-// ============================================================================
-// Duration String Types
-// ============================================================================
-
-/** Branded duration string for runtime validation */
 export type DurationString = string & Brand.Brand<"DurationString">;
 
-/** Duration pattern: digits followed by unit */
 const DURATION_PATTERN = /^[0-9]+(?:ms|s|m|h|d)$/;
 
 const durationMsg = (): string => "Duration must be number followed by unit (ms, s, m, h, d)";
@@ -194,11 +141,6 @@ export const duration = <const S extends `${number}${"ms" | "s" | "m" | "h" | "d
   literal: S
 ): DurationString => literal as string as DurationString;
 
-// ============================================================================
-// PrivateIP Branded Schema
-// ============================================================================
-
-/** Private IPv4 (RFC 1918) validation using parser */
 const isRfc1918IPv4 = (s: string): boolean =>
   Option.match(parseIPv4(s), {
     onNone: (): boolean => false,
@@ -206,7 +148,6 @@ const isRfc1918IPv4 = (s: string): boolean =>
       a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168),
   });
 
-/** Private IPv6 (RFC 4193 ULA) validation using parser */
 const isRfc4193IPv6 = (s: string): boolean =>
   Option.match(parseIPv6Groups(s), {
     onNone: (): boolean => false,
@@ -220,16 +161,10 @@ const isRfc4193IPv6 = (s: string): boolean =>
       }),
   });
 
-/** Check if string is a valid private IP */
 const isPrivateIPString = (s: string): boolean => isRfc1918IPv4(s) || isRfc4193IPv6(s);
-
-/** Decode function for PrivateIP transform */
 const trimString = (s: string): string => s.trim();
-
-/** Encode function for PrivateIP transform (identity) */
 const identityString = (s: string): string => s;
 
-/** Private IP schema (RFC 1918 IPv4 or RFC 4193 IPv6) */
 export const PrivateIPSchema: Schema.Schema<PrivateIP, string> = Schema.String.pipe(
   Schema.nonEmptyString({ message: privateIPEmptyMsg }),
   Schema.transform(Schema.String, {
@@ -240,11 +175,6 @@ export const PrivateIPSchema: Schema.Schema<PrivateIP, string> = Schema.String.p
   Schema.filter(isPrivateIPString, { message: privateIPInvalidMsg }),
   Schema.brand("PrivateIP")
 );
-
-// ============================================================================
-// Type Guards
-// ============================================================================
-// Schema.is(schema) returns (u: unknown) => u is A - a type guard predicate
 
 export const isUserId: (u: unknown) => u is UserId = Schema.is(UserIdSchema);
 export const isGroupId: (u: unknown) => u is GroupId = Schema.is(GroupIdSchema);
@@ -259,11 +189,7 @@ export const isPrivateIP: (u: unknown) => u is PrivateIP = Schema.is(PrivateIPSc
 export const isContainerImage: (u: unknown) => u is ContainerImage =
   Schema.is(ContainerImageSchema);
 
-// ============================================================================
-// Effect-Based Decoders (for untrusted input in Effect pipelines)
-// ============================================================================
 // Usage: yield* decodeUserId(untrustedInput).pipe(Effect.mapError(parseErrorToGeneralError))
-
 export const decodeUserId: (
   i: number,
   options?: SchemaAST.ParseOptions
@@ -322,10 +248,6 @@ export const decodeContainerImage: (
 ) => Effect.Effect<ContainerImage, ParseResult.ParseError, never> =
   Schema.decode(ContainerImageSchema);
 
-// ============================================================================
-// Error Conversion Helper
-// ============================================================================
-
 /**
  * Convert ParseError to GeneralError for Effect pipelines.
  * Used with Effect.mapError to translate Schema validation errors.
@@ -338,24 +260,12 @@ export const parseErrorToGeneralError = (error: ParseResult.ParseError): General
   });
 };
 
-// ============================================================================
-// UID/GID Conversion Helper
-// ============================================================================
-
 /**
  * Convert UserId to GroupId.
  * POSIX convention: GID matches UID for service users.
  */
 export const userIdToGroupId = (uid: UserId): GroupId => uid as number as GroupId;
 
-// ============================================================================
-// Compile-Time Path Validation
-// ============================================================================
-
-/**
- * Template literal type that matches absolute path patterns.
- * Used for compile-time validation of path literals.
- */
 type AbsolutePathLiteral = `/${string}`;
 
 /**
@@ -398,10 +308,6 @@ export const path = <const S extends AbsolutePathLiteral>(literal: S): AbsoluteP
  */
 export const containerImage = <const S extends string>(literal: S): ContainerImage =>
   literal as string as ContainerImage;
-
-// ============================================================================
-// Type-Safe Path Concatenation
-// ============================================================================
 
 /**
  * Join path segments with type preservation.
@@ -449,10 +355,6 @@ export function pathWithSuffix(base: string, suffix: string): string {
   return `${base}${suffix}`;
 }
 
-/**
- * Join path segments into an AbsolutePath.
- * First segment must start with /.
- */
 export const joinPath = (...segments: string[]): Effect.Effect<AbsolutePath, GeneralError> =>
   segments.length === 0
     ? Effect.fail(

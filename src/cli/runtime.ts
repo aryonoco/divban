@@ -22,9 +22,6 @@ import {
   SystemCapabilities,
 } from "../services/context";
 
-/**
- * Service paths configuration for a command.
- */
 export interface ServicePathsConfig {
   readonly dataDir: AbsolutePath;
   readonly quadletDir: AbsolutePath;
@@ -32,27 +29,18 @@ export interface ServicePathsConfig {
   readonly homeDir: AbsolutePath;
 }
 
-/**
- * Service user configuration for a command.
- */
 export interface ServiceUserConfig {
   readonly name: Username;
   readonly uid: UserId;
   readonly gid: GroupId;
 }
 
-/**
- * Service options for a command.
- */
 export interface ServiceOptionsConfig {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
 }
 
-/**
- * System capabilities for a command.
- */
 export interface SystemCapabilitiesConfig {
   readonly selinuxEnforcing: boolean;
 }

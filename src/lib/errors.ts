@@ -117,15 +117,9 @@ export const ErrorCode: ErrorCodeMap = {
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
-/**
- * Convert error code to process exit code.
- * Exit codes are capped at 125 (POSIX convention).
- */
+/** Exit codes above 125 have special meaning in POSIX shells. */
 export const toExitCode = (code: ErrorCodeValue): number => Math.min(code, 125);
 
-/**
- * Get human-readable error code name.
- */
 export const getErrorCodeName = (code: ErrorCodeValue): string => {
   const entry = Object.entries(ErrorCode).find(([, v]) => v === code);
   return pipe(
@@ -135,9 +129,6 @@ export const getErrorCodeName = (code: ErrorCodeValue): string => {
   );
 };
 
-/**
- * Extract error message from unknown value.
- */
 export const errorMessage = (e: unknown): string =>
   pipe(
     Match.value(e),
@@ -146,36 +137,19 @@ export const errorMessage = (e: unknown): string =>
     Match.orElse((v) => String(v))
   );
 
-// ============================================================================
-// Effect-Style Tagged Error Classes
-// ============================================================================
-
-/** General error code values (1-4) */
 export type GeneralErrorCode = 1 | 2 | 3 | 4;
-
-/** Config error code values (10-13) */
 export type ConfigErrorCode = 10 | 11 | 12 | 13;
-
-/** System error code values (20-28) */
 export type SystemErrorCode = 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28;
-
-/** Service error code values (30-35) */
 export type ServiceErrorCode = 30 | 31 | 32 | 33 | 34 | 35;
-
-/** Container error code values (40-46) */
 export type ContainerErrorCode = 40 | 41 | 42 | 43 | 44 | 45 | 46;
-
-/** Backup error code values (50-52) */
 export type BackupErrorCode = 50 | 51 | 52;
 
-/** Props for GeneralError */
 export interface GeneralErrorProps {
   readonly code: GeneralErrorCode;
   readonly message: string;
   readonly cause?: Error;
 }
 
-/** Props for ConfigError */
 export interface ConfigErrorProps {
   readonly code: ConfigErrorCode;
   readonly message: string;
@@ -183,14 +157,12 @@ export interface ConfigErrorProps {
   readonly cause?: Error;
 }
 
-/** Props for SystemError */
 export interface SystemErrorProps {
   readonly code: SystemErrorCode;
   readonly message: string;
   readonly cause?: Error;
 }
 
-/** Props for ServiceError */
 export interface ServiceErrorProps {
   readonly code: ServiceErrorCode;
   readonly message: string;
@@ -198,7 +170,6 @@ export interface ServiceErrorProps {
   readonly cause?: Error;
 }
 
-/** Props for ContainerError */
 export interface ContainerErrorProps {
   readonly code: ContainerErrorCode;
   readonly message: string;
@@ -206,7 +177,6 @@ export interface ContainerErrorProps {
   readonly cause?: Error;
 }
 
-/** Props for BackupError */
 export interface BackupErrorProps {
   readonly code: BackupErrorCode;
   readonly message: string;
@@ -214,10 +184,7 @@ export interface BackupErrorProps {
   readonly cause?: Error;
 }
 
-/**
- * General errors (codes 1-4)
- * GENERAL_ERROR, INVALID_ARGS, ROOT_REQUIRED, DEPENDENCY_MISSING
- */
+/** Codes: GENERAL_ERROR (1), INVALID_ARGS (2), ROOT_REQUIRED (3), DEPENDENCY_MISSING (4) */
 export class GeneralError extends Error {
   readonly _tag = "GeneralError" as const;
   readonly code: GeneralErrorCode;
@@ -236,10 +203,7 @@ export class GeneralError extends Error {
   }
 }
 
-/**
- * Config errors (codes 10-13)
- * CONFIG_NOT_FOUND, CONFIG_PARSE_ERROR, CONFIG_VALIDATION_ERROR, CONFIG_MERGE_ERROR
- */
+/** Codes: CONFIG_NOT_FOUND (10), CONFIG_PARSE_ERROR (11), CONFIG_VALIDATION_ERROR (12), CONFIG_MERGE_ERROR (13) */
 export class ConfigError extends Error {
   readonly _tag = "ConfigError" as const;
   readonly code: ConfigErrorCode;
@@ -263,9 +227,7 @@ export class ConfigError extends Error {
   }
 }
 
-/**
- * System errors (codes 20-28)
- */
+/** Codes: USER_CREATE_FAILED (20) through FILE_WRITE_FAILED (28) */
 export class SystemError extends Error {
   readonly _tag = "SystemError" as const;
   readonly code: SystemErrorCode;
@@ -284,9 +246,7 @@ export class SystemError extends Error {
   }
 }
 
-/**
- * Service errors (codes 30-35)
- */
+/** Codes: SERVICE_NOT_FOUND (30) through SERVICE_RELOAD_FAILED (35) */
 export class ServiceError extends Error {
   readonly _tag = "ServiceError" as const;
   readonly code: ServiceErrorCode;
@@ -310,9 +270,7 @@ export class ServiceError extends Error {
   }
 }
 
-/**
- * Container errors (codes 40-46)
- */
+/** Codes: CONTAINER_BUILD_FAILED (40) through SECRET_NOT_FOUND (46) */
 export class ContainerError extends Error {
   readonly _tag = "ContainerError" as const;
   readonly code: ContainerErrorCode;
@@ -336,9 +294,7 @@ export class ContainerError extends Error {
   }
 }
 
-/**
- * Backup errors (codes 50-52)
- */
+/** Codes: BACKUP_FAILED (50), RESTORE_FAILED (51), BACKUP_NOT_FOUND (52) */
 export class BackupError extends Error {
   readonly _tag = "BackupError" as const;
   readonly code: BackupErrorCode;
@@ -362,10 +318,6 @@ export class BackupError extends Error {
   }
 }
 
-/**
- * Union type for Effect error channel.
- * This is the complete set of errors that can occur in the application.
- */
 export type DivbanEffectError =
   | GeneralError
   | ConfigError
@@ -374,18 +326,8 @@ export type DivbanEffectError =
   | ContainerError
   | BackupError;
 
-/**
- * Helper to get exit code from any Effect error.
- */
 export const getExitCode = (error: DivbanEffectError): number => error.exitCode;
 
-// ============================================================================
-// Error Factory Functions
-// ============================================================================
-
-/**
- * Create a GeneralError from an ErrorCode constant and message.
- */
 export const makeGeneralError = (
   code: GeneralErrorCode,
   message: string,
@@ -395,9 +337,6 @@ export const makeGeneralError = (
     ? new GeneralError({ code, message, cause })
     : new GeneralError({ code, message });
 
-/**
- * Create a ConfigError with exactOptionalPropertyTypes compliance.
- */
 export const makeConfigError = (
   code: ConfigErrorCode,
   message: string,
@@ -411,9 +350,6 @@ export const makeConfigError = (
     ...optionalProp("cause", cause),
   });
 
-/**
- * Create a SystemError from an ErrorCode constant and message.
- */
 export const makeSystemError = (
   code: SystemErrorCode,
   message: string,
@@ -423,9 +359,6 @@ export const makeSystemError = (
     ? new SystemError({ code, message, cause })
     : new SystemError({ code, message });
 
-/**
- * Create a ServiceError with exactOptionalPropertyTypes compliance.
- */
 export const makeServiceError = (
   code: ServiceErrorCode,
   message: string,
@@ -439,9 +372,6 @@ export const makeServiceError = (
     ...optionalProp("cause", cause),
   });
 
-/**
- * Create a ContainerError with exactOptionalPropertyTypes compliance.
- */
 export const makeContainerError = (
   code: ContainerErrorCode,
   message: string,
@@ -455,9 +385,6 @@ export const makeContainerError = (
     ...optionalProp("cause", cause),
   });
 
-/**
- * Create a BackupError with exactOptionalPropertyTypes compliance.
- */
 export const makeBackupError = (
   code: BackupErrorCode,
   message: string,

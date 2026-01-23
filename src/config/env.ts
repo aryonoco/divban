@@ -6,7 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Config definitions for environment-based configuration.
+ * Environment-based configuration using Effect's Config combinators.
+ * Implements config precedence: CLI args > env vars > TOML config.
  */
 
 import { Config, ConfigProvider } from "effect";
@@ -16,15 +17,10 @@ import { optionalProp } from "../lib/option-helpers";
 // Type Definitions
 // ============================================================================
 
-/** Supported log levels */
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
-/** Supported log formats */
 export type LogFormat = "pretty" | "json";
 
-/**
- * Environment configuration shape.
- */
 export interface EnvConfig {
   readonly home: string;
   readonly logging: {
@@ -49,10 +45,6 @@ export const HomeConfig: Config.Config<string> = Config.string("HOME").pipe(
   Config.withDefault("/root")
 );
 
-/**
- * Log level with DIVBAN_ namespace.
- * Uses Config.literal for compile-time type safety on valid values.
- */
 export const LogLevelConfig: Config.Config<LogLevel> = Config.nested(
   Config.literal(
     "debug",
@@ -63,17 +55,11 @@ export const LogLevelConfig: Config.Config<LogLevel> = Config.nested(
   "DIVBAN"
 );
 
-/**
- * Log format with DIVBAN_ namespace.
- */
 export const LogFormatConfig: Config.Config<LogFormat> = Config.nested(
   Config.literal("pretty", "json")("LOG_FORMAT").pipe(Config.withDefault("pretty" as const)),
   "DIVBAN"
 );
 
-/**
- * Base data directory with DIVBAN_ namespace.
- */
 export const BaseDataDirConfig: Config.Config<string> = Config.nested(
   Config.string("BASE_DATA_DIR").pipe(Config.withDefault("/srv")),
   "DIVBAN"
@@ -92,11 +78,6 @@ export const DebugModeConfig: Config.Config<boolean> = Config.nested(
 // Composite Config
 // ============================================================================
 
-/**
- * Combined environment configuration.
- *
- * Composed from primitive configs using Config.all and Config.map.
- */
 export const EnvConfigSpec: Config.Config<EnvConfig> = Config.all([
   HomeConfig,
   LogLevelConfig,
@@ -133,9 +114,6 @@ const envVarNames = {
   debug: "DIVBAN_DEBUG",
 } as const;
 
-/**
- * Test config override options using camelCase keys.
- */
 export interface TestConfigOverrides {
   readonly home?: string;
   readonly logLevel?: string;
@@ -144,9 +122,6 @@ export interface TestConfigOverrides {
   readonly debug?: string;
 }
 
-/**
- * Default test configuration values.
- */
 const testDefaults = {
   [envVarNames.home]: "/home/testuser",
   [envVarNames.logLevel]: "info",
@@ -186,56 +161,36 @@ export const createTestConfigProvider = (
 // Config Resolution
 // ============================================================================
 
-/**
- * Resolve effective log level from multiple sources.
- *
- * Priority: CLI args > env vars > TOML config
- *
- * @param cliVerbose - CLI --verbose flag
- * @param cliLogLevel - CLI --log-level argument
- * @param envConfig - Environment config from EnvConfigSpec
- * @param tomlLogLevel - Log level from TOML config file
- */
+/** Priority: CLI args > env vars > TOML config. --verbose or DIVBAN_DEBUG=true forces debug. */
 export const resolveLogLevel = (
   cliVerbose: boolean,
   cliLogLevel: LogLevel,
   envConfig: EnvConfig,
   tomlLogLevel: LogLevel
 ): LogLevel => {
-  // CLI --verbose or env DIVBAN_DEBUG=true forces debug
   if (cliVerbose || envConfig.debug) {
     return "debug";
   }
-  // CLI --log-level takes precedence if explicitly set (not default)
   if (cliLogLevel !== "info") {
     return cliLogLevel;
   }
-  // Env var takes precedence over TOML if explicitly set
   if (envConfig.logging.level !== "info") {
     return envConfig.logging.level;
   }
-  // Fall back to TOML config
   return tomlLogLevel;
 };
 
-/**
- * Resolve effective log format from multiple sources.
- *
- * Priority: CLI args > env vars > TOML config
- */
+/** Priority: CLI args > env vars > TOML config. */
 export const resolveLogFormat = (
   cliFormat: LogFormat,
   envConfig: EnvConfig,
   tomlFormat: LogFormat
 ): LogFormat => {
-  // CLI --format takes precedence if explicitly set
   if (cliFormat !== "pretty") {
     return cliFormat;
   }
-  // Env var takes precedence over TOML if explicitly set
   if (envConfig.logging.format !== "pretty") {
     return envConfig.logging.format;
   }
-  // Fall back to TOML config
   return tomlFormat;
 };

@@ -18,22 +18,11 @@ import { nonEmpty } from "../../../lib/option-helpers";
 import type { NamedMatcher } from "../schema";
 import { Caddy, type CaddyOp, caddyfile, escapeValue } from "./format";
 
-// ============================================================================
-// Record → CaddyOp[] Transformers
-// ============================================================================
-
-/**
- * Transform header record to operations.
- * Uses mapEntries instead of for loop over Object.entries.
- */
 const headerOps = (header: Record<string, string> | undefined): readonly CaddyOp[] =>
   header === undefined
     ? []
     : mapEntries(header, (name, value) => Caddy.directive("header", [name, value]));
 
-/**
- * Transform header regexp record to operations.
- */
 const headerRegexpOps = (headerRegexp: Record<string, string> | undefined): readonly CaddyOp[] =>
   headerRegexp === undefined
     ? []
@@ -41,18 +30,11 @@ const headerRegexpOps = (headerRegexp: Record<string, string> | undefined): read
         Caddy.directive("header_regexp", [name, pattern])
       );
 
-/**
- * Transform query record to operations.
- */
 const queryOps = (query: Record<string, string> | undefined): readonly CaddyOp[] =>
   query === undefined
     ? []
     : mapEntries(query, (key, value) => Caddy.directive("query", [`${key}=${escapeValue(value)}`]));
 
-/**
- * Negation block operations.
- * Returns id (no-op) if not is undefined.
- */
 const notBlockOps = (not: NamedMatcher["not"]): CaddyOp =>
   not === undefined
     ? Caddy.id
@@ -64,9 +46,6 @@ const notBlockOps = (not: NamedMatcher["not"]): CaddyOp =>
         Caddy.close
       );
 
-/**
- * Conditional directive for array-valued options.
- */
 const maybeArrayDirective = (name: string, opt: Option.Option<readonly string[]>): CaddyOp =>
   pipe(
     opt,
@@ -76,14 +55,6 @@ const maybeArrayDirective = (name: string, opt: Option.Option<readonly string[]>
     })
   );
 
-// ============================================================================
-// Main Functions
-// ============================================================================
-
-/**
- * Generate operations for a single named matcher.
- * Returns CaddyOp for composition with other operations.
- */
 export const matcherOps = (matcher: NamedMatcher): CaddyOp => {
   const pathOpt = nonEmpty(matcher.path);
   const hostOpt = nonEmpty(matcher.host);
@@ -119,40 +90,17 @@ export const matcherOps = (matcher: NamedMatcher): CaddyOp => {
   );
 };
 
-/**
- * Generate operations for multiple matchers.
- */
 export const matchersOps = (matchers: readonly NamedMatcher[]): CaddyOp =>
   matchers.length === 0 ? Caddy.id : Caddy.forEach(matchers, matcherOps);
 
-// ============================================================================
-// String-returning functions
-// ============================================================================
-
-/**
- * Generate a named matcher definition as string.
- * Wrapper around matcherOps for backward compatibility.
- */
 export const generateNamedMatcher = (matcher: NamedMatcher): string =>
   caddyfile(matcherOps(matcher));
 
-/**
- * Generate all named matchers as string.
- */
 export const generateNamedMatchers = (matchers: readonly NamedMatcher[]): string =>
   matchers.length === 0 ? "" : matchers.map(generateNamedMatcher).join("\n");
 
-// ============================================================================
-// Utilities
-// ============================================================================
-
-/** Generate a matcher reference for use in directives. */
 export const matcherRef = (name: string): string => `@${name}`;
 
-/**
- * Check if a matcher is empty (has no conditions).
- * Uses Option for null-safe checking.
- */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
   const defined = <T>(v: T | undefined): boolean =>
     Option.match(Option.fromNullable(v), {

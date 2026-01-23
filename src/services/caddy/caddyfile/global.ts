@@ -27,14 +27,6 @@ interface ServerConfig {
   readonly strictSniHost?: boolean | undefined;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Server config to operations.
- * Uses flatMapEntries instead of for loop.
- */
 const serverConfigOps = (name: string, config: ServerConfig): readonly CaddyOp[] =>
   name === "*" || name === "default"
     ? [
@@ -49,10 +41,6 @@ const serverConfigOps = (name: string, config: ServerConfig): readonly CaddyOp[]
         Caddy.close,
       ];
 
-/**
- * Server block operations.
- * Returns id (no-op) if no servers configured.
- */
 const serversBlockOps = (servers: Record<string, ServerConfig> | undefined): CaddyOp =>
   servers === undefined || Object.keys(servers).length === 0
     ? Caddy.id
@@ -62,9 +50,6 @@ const serversBlockOps = (servers: Record<string, ServerConfig> | undefined): Cad
         Caddy.close
       );
 
-/**
- * Log block operations.
- */
 const logBlockOps = (options: GlobalOptions): CaddyOp =>
   options.logFormat === undefined && options.logLevel === undefined
     ? Caddy.id
@@ -75,9 +60,6 @@ const logBlockOps = (options: GlobalOptions): CaddyOp =>
         Caddy.close
       );
 
-/**
- * Admin block operations - uses pattern matching style.
- */
 const adminBlockOps = (options: GlobalOptions): CaddyOp =>
   pipe(
     Match.value(options),
@@ -89,14 +71,6 @@ const adminBlockOps = (options: GlobalOptions): CaddyOp =>
     Match.orElse((): CaddyOp => Caddy.id)
   );
 
-// ============================================================================
-// Main Functions
-// ============================================================================
-
-/**
- * Generate global options operations.
- * Returns CaddyOp for composition, not string.
- */
 export const globalOps = (options: GlobalOptions): CaddyOp =>
   Caddy.seq(
     Caddy.open(""),
@@ -115,16 +89,9 @@ export const globalOps = (options: GlobalOptions): CaddyOp =>
     Caddy.close
   );
 
-/**
- * Generate the global options block as string.
- * Wrapper around globalOps for backward compatibility.
- */
 export const generateGlobalOptions = (options: GlobalOptions): string =>
   caddyfile(globalOps(options));
 
-/**
- * Check if global options block is needed.
- */
 export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean =>
   pipe(
     Match.value(options),

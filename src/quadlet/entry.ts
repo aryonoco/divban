@@ -11,20 +11,11 @@
  * pipelines before any I/O (write) occurs.
  */
 
-/**
- * An INI entry - the fundamental unit of quadlet configuration.
- */
 export interface Entry {
   readonly key: string;
   readonly value: string;
 }
 
-/**
- * Type alias for a collection of entries.
- */
 export type Entries = readonly Entry[];
 
-/**
- * Empty entries - empty starting point for entry arrays.
- */
 export const empty: Entries = [];
