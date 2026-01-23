@@ -57,9 +57,13 @@ Before implementing, read these existing patterns to understand the codebase:
 
 **Single-container reference** (follow this pattern closely):
 - `src/services/actual/index.ts` - Complete single-container service
-- `src/services/actual/schema.ts` - Schema definition pattern
+- `src/services/actual/schema.ts` - Schema definition pattern with backup config
 - `src/services/actual/config.ts` - Context tag pattern
 - `examples/divban-actual.toml` - Example TOML configuration
+
+**Single-container with backup** (for services needing backup/restore):
+- `src/services/freshrss/index.ts` - Single-container with unified backup
+- `src/services/freshrss/schema.ts` - Schema with versioning + backup config
 
 **Multi-container reference** (for complex services):
 - `src/services/immich/index.ts` - Multi-container stack service
@@ -72,6 +76,8 @@ Before implementing, read these existing patterns to understand the codebase:
 - `src/lib/types.ts` - Branded type definitions (MUST use these)
 - `src/services/helpers.ts` - Setup pipeline helpers
 - `src/services/types.ts` - ServiceEffect interface
+- `src/lib/versioning/` - Config and backup schema versioning
+- `src/lib/db-backup/` - Unified backup strategies (postgres, sqlite-stop, freshrss-cli)
 - `CLAUDE.md` - Coding standards (CRITICAL - must follow exactly)
 
 ---
@@ -135,6 +141,7 @@ Create `examples/divban-{servicename}.toml`:
 #
 # divban-{servicename}.toml - {ServiceName} configuration
 
+divbanConfigSchemaVersion = "1.0.0"
 
 [paths]
 # Directory for service data
@@ -172,11 +179,13 @@ logLevel = "info"
 
 ### Configuration Design Rules
 
-1. **Use sensible defaults** - Most options should be optional in schema with defaults
-2. **Secrets are generated, not configured** - Document with comment: `# Password auto-generated during setup`
-3. **Paths are absolute** - Always start with `/`
-4. **Include full registry prefixes** - Use `docker.io/`, `ghcr.io/`, `quay.io/`, etc.
-5. **Comments document usage** - Add helpful comments for users
+1. **Include schema version** - All configs MUST start with `divbanConfigSchemaVersion = "1.0.0"` after the header
+2. **Use sensible defaults** - Most options should be optional in schema with defaults
+3. **Secrets are generated, not configured** - Document with comment: `# Password auto-generated during setup`
+4. **Paths are absolute** - Always start with `/`
+5. **Include full registry prefixes** - Use `docker.io/`, `ghcr.io/`, `quay.io/`, etc.
+6. **Comments document usage** - Add helpful comments for users
+7. **Backup config has defaults** - Backup configuration typically doesn't need TOML exposure as it has sensible defaults
 
 ---
 
@@ -240,14 +249,24 @@ Create `src/services/{servicename}/schema.ts`:
 
 import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+// For services with backup support, import the appropriate backup config type:
+// import type { SqliteStopBackupConfig } from "../../lib/db-backup";
+// import type { PostgresBackupConfig } from "../../lib/db-backup";
+// import type { FreshRssCliBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
 import { type AbsolutePath, type ContainerImage, containerImage } from "../../lib/types";
+import {
+  type DivbanConfigSchemaVersion,
+  DivbanConfigSchemaVersionSchema,
+} from "../../lib/versioning";
 
 // ============================================================================
 // Output Interface (after validation, with branded types)
 // ============================================================================
 
 export interface {ServiceName}Config {
+  /** Config schema version - required for all configs */
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   /** Path configuration */
   readonly paths: {
     /** Directory for service data */
@@ -273,6 +292,8 @@ export interface {ServiceName}Config {
     | undefined;
   /** Logging level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  // For services with backup support, add:
+  // readonly backup: SqliteStopBackupConfig;  // or PostgresBackupConfig, FreshRssCliBackupConfig
 }
 
 // ============================================================================
@@ -281,6 +302,7 @@ export interface {ServiceName}Config {
 
 /** Fields with defaults are optional in input */
 export interface {ServiceName}ConfigInput {
+  readonly divbanConfigSchemaVersion: string;  // Required, validated by schema
   readonly paths: {
     readonly dataDir: string;  // string, not AbsolutePath
   };
@@ -297,13 +319,50 @@ export interface {ServiceName}ConfigInput {
       }
     | undefined;
   readonly logLevel?: "debug" | "info" | "warn" | "error" | undefined;
+  // For services with backup support, add:
+  // readonly backup?: {ServiceName}BackupConfigInput | undefined;
 }
+
+// ============================================================================
+// Backup Configuration (for services with hasBackup: true)
+// ============================================================================
+
+// For services with backup support, define backup config input and schema:
+//
+// /** Backup configuration input - optional since it has defaults */
+// export interface {ServiceName}BackupConfigInput {
+//   readonly type?: "sqlite-stop" | undefined;  // or "postgres", "freshrss-cli"
+//   readonly container?: string | undefined;
+//   // ... strategy-specific optional fields
+// }
+//
+// const defaultBackupConfig = (): SqliteStopBackupConfig => ({
+//   type: "sqlite-stop",
+//   container: "{servicename}" as ContainerName,
+//   sqlitePath: "data/database.sqlite",
+//   includeFiles: [],
+//   exclude: [],
+// });
+//
+// export const {servicename}BackupConfigSchema: Schema.Schema<
+//   SqliteStopBackupConfig,
+//   {ServiceName}BackupConfigInput
+// > = Schema.Struct({
+//   type: Schema.optionalWith(Schema.Literal("sqlite-stop"), {
+//     default: (): "sqlite-stop" => "sqlite-stop",
+//   }),
+//   container: Schema.optionalWith(ContainerNameSchema, {
+//     default: (): ContainerName => "{servicename}" as ContainerName,
+//   }),
+//   // ... strategy-specific fields with defaults
+// });
 
 // ============================================================================
 // Effect Schema (runtime validation)
 // ============================================================================
 
 export const {servicename}ConfigSchema: Schema.Schema<{ServiceName}Config, {ServiceName}ConfigInput> = Schema.Struct({
+  divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,  // Required for all configs
   paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),
@@ -333,6 +392,8 @@ export const {servicename}ConfigSchema: Schema.Schema<{ServiceName}Config, {Serv
   logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
     default: (): "info" => "info",
   }),
+  // For services with backup support, add:
+  // backup: Schema.optionalWith({servicename}BackupConfigSchema, { default: defaultBackupConfig }),
 });
 
 // ============================================================================
@@ -390,12 +451,20 @@ Create `src/services/{servicename}/index.ts`:
  */
 
 import { Effect } from "effect";
-import type { GeneralError, ServiceError, SystemError } from "../../lib/errors";
+// For services with backup support, import from db-backup:
+// import { backupService, restoreService } from "../../lib/db-backup";
+import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
 import { type AbsolutePath, type ServiceName, duration } from "../../lib/types";
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
-import { AppLogger, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
+import {
+  type AppLogger,
+  ServiceOptions,  // Required for backup() - provides force flag
+  type ServicePaths,
+  ServiceUser,
+  SystemCapabilities,
+} from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -410,9 +479,10 @@ import {
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
+  wrapBackupResult,  // Helper for backup result wrapping
   writeGeneratedFilesTracked,
 } from "../helpers";
-import type { GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
+import type { BackupResult, GeneratedFiles, ServiceDefinition, ServiceEffect } from "../types";
 import { {ServiceName}ConfigTag } from "./config";
 import { type {ServiceName}Config, {servicename}ConfigSchema } from "./schema";
 
@@ -686,11 +756,13 @@ export const initializeServices = async (): Promise<void> => {
   const { caddyService } = await import("./caddy");
   const { immichService } = await import("./immich");
   const { actualService } = await import("./actual");
+  const { freshRssService } = await import("./freshrss");
   const { {servicename}Service } = await import("./{servicename}");  // ADD
 
   registerService(caddyService);
   registerService(immichService);
   registerService(actualService);
+  registerService(freshRssService);
   registerService({servicename}Service);  // ADD
 };
 ```
@@ -1037,156 +1109,100 @@ const restart = (): Effect.Effect<
 
 ## 10. Backup and Restore
 
-If your service has `hasBackup: true` / `hasRestore: true`, implement backup commands.
+If your service has `hasBackup: true` / `hasRestore: true`, use the unified `db-backup` module.
 
-### 10.1 File Structure
+### 10.1 Backup Strategies
 
-```
-src/services/{servicename}/commands/
-└── backup.ts    # Contains both backup and restore functions
-```
+divban provides three backup strategies via `src/lib/db-backup/`:
 
-### 10.2 Database Backup (PostgreSQL Example)
+| Strategy | Config Type | Use Case | Hot Backup Safe |
+|----------|-------------|----------|-----------------|
+| `postgres` | `PostgresBackupConfig` | PostgreSQL via pg_dumpall | Yes |
+| `sqlite-stop` | `SqliteStopBackupConfig` | SQLite with container stop | No (requires `--force`) |
+| `freshrss-cli` | `FreshRssCliBackupConfig` | FreshRSS PHP CLI export | Yes |
+
+### 10.2 Schema Integration
+
+Add backup config to your schema (see Section 6 for full pattern):
 
 ```typescript
-// src/services/{servicename}/commands/backup.ts
+import type { SqliteStopBackupConfig } from "../../lib/db-backup";
+import { type ContainerName, ContainerNameSchema } from "../../lib/types";
 
-import { Effect, pipe } from "effect";
-import { formatBytes } from "../../../cli/commands/utils";
-import { DEFAULT_TIMEOUTS } from "../../../config/schema";
-import { createBackupTimestamp } from "../../../lib/backup-utils";
-import { BackupError, ErrorCode, type GeneralError, type SystemError } from "../../../lib/errors";
-import type { Logger } from "../../../lib/logger";
-import {
-  type AbsolutePath,
-  type GroupId,
-  type UserId,
-  type Username,
-  pathJoin,
-} from "../../../lib/types";
-import type { ArchiveMetadata } from "../../../system/archive";
-import { createArchive } from "../../../system/archive";
-import { ensureDirectory } from "../../../system/directories";
-import { execAsUser } from "../../../system/exec";
-import { writeBytes } from "../../../system/fs";
-import { CONTAINERS } from "../constants";
+const CONTAINER_NAME = "{servicename}" as ContainerName;
 
-/** Compression method: zstd (faster, better ratio) or gzip (compatibility) */
-export type CompressionMethod = "zstd" | "gzip";
-
-const getCompressionExtension = (method: CompressionMethod): string =>
-  method === "zstd" ? ".zst" : ".gz";
-
-const createBackupMetadata = (service: string, files: string[]): ArchiveMetadata => ({
-  version: "1.0",
-  service,
-  timestamp: new Date().toISOString(),
-  files,
-});
-
-export interface BackupOptions {
-  dataDir: AbsolutePath;
-  user: Username;
-  uid: UserId;
-  logger: Logger;
-  containerName?: string;
-  database?: string;
-  dbUser?: string;
-  compression?: CompressionMethod;
+/** Backup configuration input - optional since it has defaults */
+export interface {ServiceName}BackupConfigInput {
+  readonly type?: "sqlite-stop" | undefined;
+  readonly container?: string | undefined;
+  readonly sqlitePath?: string | undefined;
+  readonly includeFiles?: readonly string[] | undefined;
+  readonly exclude?: readonly string[] | undefined;
 }
 
-export const backupDatabase = (
-  options: BackupOptions
-): Effect.Effect<AbsolutePath, BackupError | SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const {
-      dataDir,
-      user,
-      uid,
-      logger,
-      containerName = CONTAINERS.postgres,
-      dbUser = "app",
-      compression = "zstd",  // Default to zstd for better performance
-    } = options;
+const defaultBackupConfig = (): SqliteStopBackupConfig => ({
+  type: "sqlite-stop",
+  container: CONTAINER_NAME,
+  sqlitePath: "data/database.sqlite",
+  includeFiles: [],
+  exclude: [],
+});
 
-    const timestamp = createBackupTimestamp();
-    const ext = getCompressionExtension(compression);
-    const backupFilename = `myservice-db-backup-${timestamp}.tar${ext}`;
-    const backupDir = pathJoin(dataDir, "backups");
-    const backupPath = pathJoin(backupDir, backupFilename);
+export const {servicename}BackupConfigSchema: Schema.Schema<
+  SqliteStopBackupConfig,
+  {ServiceName}BackupConfigInput
+> = Schema.Struct({
+  type: Schema.optionalWith(Schema.Literal("sqlite-stop"), {
+    default: (): "sqlite-stop" => "sqlite-stop",
+  }),
+  container: Schema.optionalWith(ContainerNameSchema, {
+    default: (): ContainerName => CONTAINER_NAME,
+  }),
+  sqlitePath: Schema.optionalWith(Schema.String, {
+    default: (): string => "data/database.sqlite",
+  }),
+  includeFiles: Schema.optionalWith(Schema.Array(Schema.String), {
+    default: (): readonly string[] => [],
+  }),
+  exclude: Schema.optionalWith(Schema.Array(Schema.String), {
+    default: (): readonly string[] => [],
+  }),
+});
 
-    logger.info(`Creating database backup: ${backupFilename}`);
-
-    yield* ensureDirectory(backupDir, { uid, gid: uid as unknown as GroupId });
-
-    // Execute pg_dumpall in container
-    const dumpResult = yield* execAsUser(
-      user,
-      uid,
-      ["podman", "exec", containerName, "pg_dumpall", "-U", dbUser, "--clean", "--if-exists"],
-      {
-        timeout: DEFAULT_TIMEOUTS.backup,
-        captureStdout: true,
-        captureStderr: true,
-      }
-    );
-
-    yield* pipe(
-      Effect.succeed(dumpResult),
-      Effect.filterOrFail(
-        (r) => r.exitCode === 0,
-        (r) =>
-          new BackupError({
-            code: ErrorCode.BACKUP_FAILED as 50,
-            message: `Database dump failed: ${r.stderr}`,
-          })
-      )
-    );
-
-    const metadata = createBackupMetadata("myservice", ["database.sql"]);
-
-    const archiveData = yield* createArchive(
-      { "database.sql": dumpResult.stdout },
-      { compress: compression, metadata }
-    );
-
-    yield* writeBytes(backupPath, archiveData);
-
-    const stat = yield* Effect.promise(() => Bun.file(backupPath).stat());
-    logger.success(`Backup created: ${backupPath} (${formatBytes(stat?.size ?? 0)})`);
-    return backupPath;
-  });
+// In main config schema:
+export const {servicename}ConfigSchema = Schema.Struct({
+  // ... other fields
+  backup: Schema.optionalWith({servicename}BackupConfigSchema, { default: defaultBackupConfig }),
+});
 ```
 
-### 10.3 Wire Backup into Service
+### 10.3 Implementation in index.ts
 
-In `index.ts`:
+Use `backupService` and `restoreService` from the unified module:
 
 ```typescript
-import { backupDatabase } from "./commands/backup";
-import { restoreDatabase } from "./commands/restore";
+import { backupService, restoreService } from "../../lib/db-backup";
+import { ServiceOptions } from "../context";  // Provides force flag
 import { wrapBackupResult } from "../helpers";
 import type { BackupResult } from "../types";
-import type { BackupError } from "../../lib/errors";
 
 const backup = (): Effect.Effect<
   BackupResult,
-  BackupError | SystemError | GeneralError,
-  MyServiceConfigTag | ServiceUser | AppLogger
+  BackupError | ServiceError | SystemError | GeneralError,
+  {ServiceName}ConfigTag | ServiceUser | ServiceOptions | AppLogger
 > =>
   Effect.gen(function* () {
-    const config = yield* MyServiceConfigTag;
+    const config = yield* {ServiceName}ConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
+    const options = yield* ServiceOptions;
 
     return yield* wrapBackupResult(
-      backupDatabase({
+      backupService(config.backup, {
+        serviceName: definition.name,
         dataDir: config.paths.dataDir,
         user: user.name,
         uid: user.uid,
-        logger,
-        database: config.database.database,
-        dbUser: config.database.username,
+        force: options.force,
       })
     );
   });
@@ -1195,38 +1211,34 @@ const restore = (
   backupPath: AbsolutePath
 ): Effect.Effect<
   void,
-  BackupError | SystemError | GeneralError,
-  MyServiceConfigTag | ServiceUser | AppLogger
+  BackupError | ServiceError | SystemError | GeneralError,
+  {ServiceName}ConfigTag | ServiceUser | AppLogger
 > =>
   Effect.gen(function* () {
-    const config = yield* MyServiceConfigTag;
+    const config = yield* {ServiceName}ConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
-    yield* restoreDatabase({
-      backupPath,
+    yield* restoreService(backupPath, config.backup, {
+      serviceName: definition.name,
       dataDir: config.paths.dataDir,
       user: user.name,
       uid: user.uid,
-      logger,
-      database: config.database.database,
-      dbUser: config.database.username,
     });
   });
 
 // Add to service export:
-export const myserviceService: ServiceEffect<MyServiceConfig, MyServiceConfigTag, typeof MyServiceConfigTag> = {
+export const {servicename}Service: ServiceEffect<{ServiceName}Config, {ServiceName}ConfigTag, typeof {ServiceName}ConfigTag> = {
   definition,
-  configTag: MyServiceConfigTag,
-  configSchema: myserviceConfigSchema,
+  configTag: {ServiceName}ConfigTag,
+  configSchema: {servicename}ConfigSchema,
   validate,
   generate,
   setup,
-  start,
-  stop,
-  restart,
-  status,
-  logs,
+  start: ops.start,
+  stop: ops.stop,
+  restart: ops.restart,
+  status: ops.status,
+  logs: ops.logs,
   backup,
   restore,
 };
@@ -1237,7 +1249,7 @@ const definition: ServiceDefinition = {
   description: "...",
   version: "0.1.0",
   capabilities: {
-    multiContainer: true,
+    multiContainer: false,
     hasReload: false,
     hasBackup: true,
     hasRestore: true,
@@ -1245,6 +1257,45 @@ const definition: ServiceDefinition = {
   },
 };
 ```
+
+### 10.4 Strategy Selection Guide
+
+**Use `postgres`** when:
+- Service uses PostgreSQL database
+- Hot backup is required (no downtime)
+- Example: Immich
+
+**Use `sqlite-stop`** when:
+- Service uses SQLite database
+- Service must be stopped for consistent backup
+- Requires `--force` flag from user
+- Example: Actual Budget
+
+**Use `freshrss-cli`** when:
+- Service provides its own CLI backup command
+- Hot backup is safe via application logic
+- Example: FreshRSS (uses PHP CLI export)
+
+### 10.5 Archive Metadata
+
+All backups include `metadata.json` with versioning fields:
+
+```json
+{
+  "version": "1.0",
+  "schemaVersion": "1.0.0",
+  "producer": "divban",
+  "producerVersion": "0.5.4",
+  "service": "actual",
+  "timestamp": "2026-01-24T12:00:00.000Z",
+  "files": ["database.sql"]
+}
+```
+
+On restore, divban validates:
+- `producer` must be `"divban"`
+- `service` must match the restoring service
+- `schemaVersion` and `producerVersion` must be compatible
 
 ---
 
@@ -1466,6 +1517,14 @@ createEnvSecret("db-password", "DATABASE_PASSWORD")
 getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 ```
 
+### Backup Strategy Types
+
+| Strategy | Config Type | Import From | Requires Force |
+|----------|-------------|-------------|----------------|
+| `postgres` | `PostgresBackupConfig` | `../../lib/db-backup` | No |
+| `sqlite-stop` | `SqliteStopBackupConfig` | `../../lib/db-backup` | Yes |
+| `freshrss-cli` | `FreshRssCliBackupConfig` | `../../lib/db-backup` | No |
+
 ---
 
 ## 14. Quick Debugging
@@ -1480,6 +1539,12 @@ getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 
 **ServicePaths type error:** Use `type ServicePaths` in import, not value import
 
+**Backup not working:** Ensure `ServiceOptions` is in the R type parameter of `backup()` - it provides the `force` flag
+
+**"Invalid backup" on restore:** Check that `metadata.json` exists in backup archive and contains valid `producer`, `service`, `schemaVersion`, and `producerVersion` fields
+
+**Config validation fails on version:** Ensure `divbanConfigSchemaVersion = "1.0.0"` is placed immediately after the TOML header comment block
+
 ---
 
 ## Checklist
@@ -1488,11 +1553,15 @@ Before submitting, verify:
 
 - [ ] Reviewed docker-compose and determined service type
 - [ ] Created `examples/divban-{servicename}.toml` with all configurable options
+- [ ] TOML starts with `divbanConfigSchemaVersion = "1.0.0"` after header
 - [ ] Created `src/services/{servicename}/config.ts` - Context.Tag defined correctly
 - [ ] Created `src/services/{servicename}/schema.ts` - Effect Schema with Input/Output interfaces
+- [ ] Schema includes `divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema`
 - [ ] Created `src/services/{servicename}/index.ts` - ServiceEffect implementation
 - [ ] (If multi-container) Created `constants.ts` and `secrets.ts`
-- [ ] (If backup needed) Created `commands/backup.ts` and `commands/restore.ts`
+- [ ] (If backup) Schema includes backup config with defaults (see Section 10.2)
+- [ ] (If backup) index.ts imports `backupService`/`restoreService` from `../../lib/db-backup`
+- [ ] (If backup) `backup()` includes `ServiceOptions` in R type parameter
 - [ ] Service registered in `src/services/index.ts`
 - [ ] `just ci` passes with no errors or warnings
 - [ ] No loops, conditionals, or RegExp in code
