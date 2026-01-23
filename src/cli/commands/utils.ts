@@ -13,7 +13,7 @@
  */
 
 import type { Context } from "effect";
-import { Effect, Either, Layer, Schema, pipe } from "effect";
+import { Array as Arr, Effect, Either, Layer, Option, Schema, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -128,36 +128,57 @@ export const findAndLoadConfig = <C>(
 // Formatting Utilities
 // ============================================================================
 
+/** Threshold entry for data-driven formatting */
+interface ThresholdEntry<T> {
+  readonly threshold: number;
+  readonly format: (value: T) => string;
+}
+
+/** Duration formatting thresholds (descending order) */
+const DURATION_THRESHOLDS: readonly ThresholdEntry<number>[] = [
+  {
+    threshold: 60000,
+    format: (ms): string => {
+      const minutes = Math.floor(ms / 60000);
+      const seconds = Math.floor((ms % 60000) / 1000);
+      return `${minutes}m ${seconds}s`;
+    },
+  },
+  { threshold: 1000, format: (ms): string => `${(ms / 1000).toFixed(1)}s` },
+];
+
 /**
  * Format duration for display.
  */
-export const formatDuration = (ms: number): string => {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  if (ms < 60000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  return `${minutes}m ${seconds}s`;
-};
+export const formatDuration = (ms: number): string =>
+  pipe(
+    DURATION_THRESHOLDS,
+    Arr.findFirst((t) => ms >= t.threshold),
+    Option.match({
+      onNone: (): string => `${ms}ms`,
+      onSome: (t): string => t.format(ms),
+    })
+  );
+
+/** Byte formatting thresholds (descending order) */
+const BYTE_THRESHOLDS: readonly ThresholdEntry<number>[] = [
+  { threshold: 1024 ** 3, format: (b): string => `${(b / 1024 ** 3).toFixed(2)} GB` },
+  { threshold: 1024 ** 2, format: (b): string => `${(b / 1024 ** 2).toFixed(2)} MB` },
+  { threshold: 1024, format: (b): string => `${(b / 1024).toFixed(2)} KB` },
+];
 
 /**
  * Format bytes for display.
  */
-export const formatBytes = (bytes: number): string => {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(2)} KB`;
-  }
-  return `${bytes} B`;
-};
+export const formatBytes = (bytes: number): string =>
+  pipe(
+    BYTE_THRESHOLDS,
+    Arr.findFirst((t) => bytes >= t.threshold),
+    Option.match({
+      onNone: (): string => `${bytes} B`,
+      onSome: (t): string => t.format(bytes),
+    })
+  );
 
 /**
  * Interface for configs that may have a paths.dataDir property.
@@ -183,15 +204,13 @@ const hasPathsWithDataDir = (config: object): config is ConfigWithPaths =>
 export const getDataDirFromConfig = <C extends object>(
   config: C,
   fallback: AbsolutePathType
-): AbsolutePathType => {
-  if (hasPathsWithDataDir(config)) {
-    const dataDir = config.paths?.dataDir;
-    if (dataDir !== undefined && Schema.is(AbsolutePathSchema)(dataDir)) {
-      return dataDir;
-    }
-  }
-  return fallback;
-};
+): AbsolutePathType =>
+  pipe(
+    Option.liftPredicate(hasPathsWithDataDir)(config),
+    Option.flatMap((c) => Option.fromNullable(c.paths?.dataDir)),
+    Option.filter(Schema.is(AbsolutePathSchema)),
+    Option.getOrElse(() => fallback)
+  );
 
 /**
  * Pad text to a specific display width using Bun.stringWidth().

@@ -225,35 +225,35 @@ const extractBooleanFlags = (values: ParsedValues): Partial<ParsedArgs> => ({
 /**
  * Parse lines option.
  */
-const parseLines = (lines: string | undefined): number | undefined => {
-  if (lines === undefined) {
-    return undefined;
-  }
-  const n = Number.parseInt(lines, 10);
-  return Number.isNaN(n) || n <= 0 ? undefined : n;
-};
+const parseLines = (lines: string | undefined): number | undefined =>
+  pipe(
+    Option.fromNullable(lines),
+    Option.map((l) => Number.parseInt(l, 10)),
+    Option.filter((n) => !Number.isNaN(n) && n > 0),
+    Option.getOrUndefined
+  );
 
 /**
  * Validate log level option.
  */
-const validateLogLevel = (level: string | undefined): ParsedArgs["logLevel"] | undefined => {
-  if (level === undefined) {
-    return undefined;
-  }
-  return ["debug", "info", "warn", "error"].includes(level)
-    ? (level as ParsedArgs["logLevel"])
-    : undefined;
-};
+const validateLogLevel = (level: string | undefined): ParsedArgs["logLevel"] | undefined =>
+  pipe(
+    Option.fromNullable(level),
+    Option.filter((l) => ["debug", "info", "warn", "error"].includes(l)),
+    Option.map((l) => l as ParsedArgs["logLevel"]),
+    Option.getOrUndefined
+  );
 
 /**
  * Validate format option.
  */
-const validateFormat = (format: string | undefined): ParsedArgs["format"] | undefined => {
-  if (format === undefined) {
-    return undefined;
-  }
-  return ["pretty", "json"].includes(format) ? (format as ParsedArgs["format"]) : undefined;
-};
+const validateFormat = (format: string | undefined): ParsedArgs["format"] | undefined =>
+  pipe(
+    Option.fromNullable(format),
+    Option.filter((f) => ["pretty", "json"].includes(f)),
+    Option.map((f) => f as ParsedArgs["format"]),
+    Option.getOrUndefined
+  );
 
 /**
  * Extract string options
@@ -308,26 +308,28 @@ const buildParsedArgs = (
   values: ParsedValues,
   positionals: readonly string[]
 ): Effect.Effect<ParsedArgs, GeneralError> =>
-  Effect.gen(function* () {
-    if (positionals.length === 0) {
+  Effect.if(positionals.length === 0, {
+    onTrue: (): Effect.Effect<ParsedArgs, GeneralError> => {
       // Preserve boolean flags (version, verbose, etc) from parsed values
       // If no version flag, show help by default
       const flags = extractBooleanFlags(values);
-      return { ...defaultArgs, ...flags, help: !flags.version };
-    }
+      return Effect.succeed({ ...defaultArgs, ...flags, help: !flags.version });
+    },
+    onFalse: (): Effect.Effect<ParsedArgs, GeneralError> =>
+      Effect.gen(function* () {
+        const service = parseService(positionals);
+        const command = yield* parseCommand(positionals);
+        yield* validateNoExtraPositionals(positionals, command);
 
-    const service = parseService(positionals);
-    const command = yield* parseCommand(positionals);
-    yield* validateNoExtraPositionals(positionals, command);
-
-    return {
-      ...defaultArgs,
-      ...extractBooleanFlags(values),
-      ...extractStringOptions(values),
-      ...extractPositionalArgs(positionals, command),
-      service,
-      command,
-    };
+        return {
+          ...defaultArgs,
+          ...extractBooleanFlags(values),
+          ...extractStringOptions(values),
+          ...extractPositionalArgs(positionals, command),
+          service,
+          command,
+        };
+      }),
   });
 
 /**
@@ -362,58 +364,63 @@ export const parseArgs = (argv: readonly string[]): Effect.Effect<ParsedArgs, Ge
   );
 };
 
+/** Commands requiring config path */
+const CONFIG_REQUIRED_COMMANDS: readonly Command[] = ["validate", "generate", "diff", "setup"];
+
 /**
  * Validate parsed arguments for a specific command.
  */
 export const validateArgs = (args: ParsedArgs): Effect.Effect<void, GeneralError> =>
-  Effect.gen(function* () {
-    if (!(args.help || args.service)) {
-      return yield* Effect.fail(
+  pipe(
+    // Check service or help is provided
+    Effect.succeed(args),
+    Effect.filterOrFail(
+      (a) => a.help || Boolean(a.service),
+      () =>
         new GeneralError({
           code: ErrorCode.INVALID_ARGS as 2,
           message: "Service name is required. Usage: divban <service> <command>",
         })
-      );
-    }
-
-    const configRequired: readonly Command[] = ["validate", "generate", "diff", "setup"];
-    if (configRequired.includes(args.command) && args.configPath === undefined) {
-      return yield* Effect.fail(
+    ),
+    // Check config path for commands that require it
+    Effect.filterOrFail(
+      (a) => !CONFIG_REQUIRED_COMMANDS.includes(a.command) || a.configPath !== undefined,
+      (a) =>
         new GeneralError({
           code: ErrorCode.INVALID_ARGS as 2,
-          message: `Config path is required for '${args.command}' command. Usage: divban ${args.service} ${args.command} <config-path>`,
+          message: `Config path is required for '${a.command}' command. Usage: divban ${a.service} ${a.command} <config-path>`,
         })
-      );
-    }
-
-    if (args.command === "restore" && args.backupPath === undefined) {
-      return yield* Effect.fail(
+    ),
+    // Check backup path for restore command
+    Effect.filterOrFail(
+      (a) => a.command !== "restore" || a.backupPath !== undefined,
+      () =>
         new GeneralError({
           code: ErrorCode.INVALID_ARGS as 2,
           message:
             "Backup path is required for 'restore' command. Usage: divban <service> restore <backup-path>",
         })
-      );
-    }
-
-    if (args.command === "secret") {
-      if (args.subcommand === undefined || !["show", "list"].includes(args.subcommand)) {
-        return yield* Effect.fail(
-          new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
-            message:
-              "Secret command requires subcommand. Usage: divban <service> secret <show|list> [name]",
-          })
-        );
-      }
-      if (args.subcommand === "show" && args.secretName === undefined) {
-        return yield* Effect.fail(
-          new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
-            message:
-              "Secret name is required for 'show'. Usage: divban <service> secret show <name>",
-          })
-        );
-      }
-    }
-  });
+    ),
+    // Check secret subcommand
+    Effect.filterOrFail(
+      (a) =>
+        a.command !== "secret" ||
+        (a.subcommand !== undefined && ["show", "list"].includes(a.subcommand)),
+      () =>
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message:
+            "Secret command requires subcommand. Usage: divban <service> secret <show|list> [name]",
+        })
+    ),
+    // Check secret name for show subcommand
+    Effect.filterOrFail(
+      (a) => a.command !== "secret" || a.subcommand !== "show" || a.secretName !== undefined,
+      () =>
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Secret name is required for 'show'. Usage: divban <service> secret show <name>",
+        })
+    ),
+    Effect.asVoid
+  );

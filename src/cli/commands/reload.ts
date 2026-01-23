@@ -33,14 +33,10 @@ export interface ReloadOptions {
   logger: Logger;
 }
 
-/**
- * Execute the reload command.
- */
 export const executeReload = (options: ReloadOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
 
-    // Check if service supports reload
     return yield* pipe(
       Match.value(service.definition.capabilities.hasReload),
       Match.when(false, () =>
@@ -63,13 +59,10 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
             Effect.gen(function* () {
               logger.info(`Reloading ${service.definition.name} configuration...`);
 
-              // Resolve prerequisites without config
               const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-              // Access service methods with proper config typing
               yield* service.apply((s) =>
                 Effect.gen(function* () {
-                  // Load config with typed schema (optional for reload)
                   const configResult = yield* Effect.either(
                     pipe(
                       Match.value(args.configPath),
@@ -88,7 +81,6 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     )
                   );
 
-                  // Use empty config if not found
                   type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
                   type PathsType = typeof prereqs.paths;
                   const config = Either.match(configResult, {
@@ -96,7 +88,6 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     onRight: (cfg): ConfigType => cfg,
                   });
 
-                  // Update paths with config dataDir if available
                   const updatedPaths = Either.match(configResult, {
                     onLeft: (): PathsType => prereqs.paths,
                     onRight: (cfg): PathsType => ({

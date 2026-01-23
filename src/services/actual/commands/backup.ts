@@ -64,15 +64,17 @@ export const backupActual = (
     const { dataDir, logger } = options;
 
     // Check data directory exists
-    const exists = yield* directoryExists(dataDir);
-    if (!exists) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.BACKUP_FAILED as 50,
-          message: `Data directory not found: ${dataDir}`,
-        })
-      );
-    }
+    yield* pipe(
+      directoryExists(dataDir),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new BackupError({
+            code: ErrorCode.BACKUP_FAILED as 50,
+            message: `Data directory not found: ${dataDir}`,
+          })
+      )
+    );
 
     const timestamp = createBackupTimestamp();
     const backupFilename = `actual-backup-${timestamp}.tar.gz`;
@@ -113,18 +115,19 @@ export const listBackups = (
   dataDir: AbsolutePath,
   pattern = "*.tar.gz"
 ): Effect.Effect<string[], never> =>
-  Effect.gen(function* () {
-    const backupDir = pathJoin(dataDir, "backups");
-
-    const exists = yield* directoryExists(backupDir);
-    if (!exists) {
-      return [];
-    }
-
-    // Use shared utility - returns files sorted by mtime (newest first)
-    const files = yield* listFilesByMtime(backupDir, pattern);
-    return [...files]; // Convert readonly to mutable for return type compatibility
-  });
+  pipe(
+    directoryExists(pathJoin(dataDir, "backups")),
+    Effect.flatMap((exists) =>
+      Effect.if(exists, {
+        onTrue: (): Effect.Effect<string[], never> =>
+          pipe(
+            listFilesByMtime(pathJoin(dataDir, "backups"), pattern),
+            Effect.map((files) => [...files])
+          ),
+        onFalse: (): Effect.Effect<string[], never> => Effect.succeed([] as string[]),
+      })
+    )
+  );
 
 // ============================================================================
 // Restore Helper Functions
@@ -216,16 +219,18 @@ export const restoreActual = (
 ): Effect.Effect<void, BackupError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     // Check backup file exists
-    const exists = yield* fileExists(backupPath);
-    if (!exists) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.BACKUP_NOT_FOUND as 52,
-          message: `Backup file not found: ${backupPath}`,
-          path: backupPath,
-        })
-      );
-    }
+    yield* pipe(
+      fileExists(backupPath),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new BackupError({
+            code: ErrorCode.BACKUP_NOT_FOUND as 52,
+            message: `Backup file not found: ${backupPath}`,
+            path: backupPath,
+          })
+      )
+    );
 
     logger.info(`Restoring from: ${backupPath}`);
     logger.warn("This will overwrite existing data!");

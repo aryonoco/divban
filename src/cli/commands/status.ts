@@ -35,14 +35,10 @@ export interface StatusOptions {
   logger: Logger;
 }
 
-/**
- * Execute the status command.
- */
 export const executeStatus = (options: StatusOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
 
-    // Get service user - check if configured first
     const username = yield* getServiceUsername(service.definition.name);
     const userResult = yield* Effect.either(getUserByName(username));
 
@@ -72,13 +68,10 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
         ),
       onRight: (): MatchResultType =>
         Effect.gen(function* () {
-          // Resolve prerequisites without config
           const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-          // Access service methods with proper config typing
           const status = yield* service.apply((s) =>
             Effect.gen(function* () {
-              // Load config with typed schema (optional for status)
               const configResult = yield* Effect.either(
                 pipe(
                   Match.value(args.configPath),
@@ -93,7 +86,6 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                 )
               );
 
-              // Use empty config if not found
               type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
               type PathsType = typeof prereqs.paths;
               const config = Either.match(configResult, {
@@ -101,7 +93,6 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                 onRight: (cfg): ConfigType => cfg,
               });
 
-              // Update paths with config dataDir if available
               const updatedPaths = Either.match(configResult, {
                 onLeft: (): PathsType => prereqs.paths,
                 onRight: (cfg): PathsType => ({

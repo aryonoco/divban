@@ -34,9 +34,6 @@ export interface BackupOptions {
   logger: Logger;
 }
 
-/**
- * Execute the backup command.
- */
 export const executeBackup = (options: BackupOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;

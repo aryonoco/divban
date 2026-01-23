@@ -12,7 +12,7 @@
  * Error classes are tagged (with _tag property) for use with Effect.ts
  */
 
-import { Option, pipe } from "effect";
+import { Match, Option, pipe } from "effect";
 import { optionalProp } from "./option-helpers";
 
 interface ErrorCodeMap {
@@ -138,15 +138,13 @@ export const getErrorCodeName = (code: ErrorCodeValue): string => {
 /**
  * Extract error message from unknown value.
  */
-export const errorMessage = (e: unknown): string => {
-  if (e instanceof Error) {
-    return e.message;
-  }
-  if (typeof e === "string") {
-    return e;
-  }
-  return String(e);
-};
+export const errorMessage = (e: unknown): string =>
+  pipe(
+    Match.value(e),
+    Match.when(Match.instanceOf(Error), (err) => err.message),
+    Match.when(Match.string, (s) => s),
+    Match.orElse((v) => String(v))
+  );
 
 // ============================================================================
 // Effect-Style Tagged Error Classes
@@ -229,9 +227,7 @@ export class GeneralError extends Error {
     super(props.message);
     this.name = "GeneralError";
     this.code = props.code;
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(this, props.cause !== undefined ? { cause: props.cause } : {});
     Error.captureStackTrace?.(this, GeneralError);
   }
 
@@ -254,12 +250,11 @@ export class ConfigError extends Error {
     super(props.message);
     this.name = "ConfigError";
     this.code = props.code;
-    if (props.path !== undefined) {
-      this.path = props.path;
-    }
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(
+      this,
+      props.path !== undefined ? { path: props.path } : {},
+      props.cause !== undefined ? { cause: props.cause } : {}
+    );
     Error.captureStackTrace?.(this, ConfigError);
   }
 
@@ -280,9 +275,7 @@ export class SystemError extends Error {
     super(props.message);
     this.name = "SystemError";
     this.code = props.code;
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(this, props.cause !== undefined ? { cause: props.cause } : {});
     Error.captureStackTrace?.(this, SystemError);
   }
 
@@ -304,12 +297,11 @@ export class ServiceError extends Error {
     super(props.message);
     this.name = "ServiceError";
     this.code = props.code;
-    if (props.service !== undefined) {
-      this.service = props.service;
-    }
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(
+      this,
+      props.service !== undefined ? { service: props.service } : {},
+      props.cause !== undefined ? { cause: props.cause } : {}
+    );
     Error.captureStackTrace?.(this, ServiceError);
   }
 
@@ -331,12 +323,11 @@ export class ContainerError extends Error {
     super(props.message);
     this.name = "ContainerError";
     this.code = props.code;
-    if (props.container !== undefined) {
-      this.container = props.container;
-    }
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(
+      this,
+      props.container !== undefined ? { container: props.container } : {},
+      props.cause !== undefined ? { cause: props.cause } : {}
+    );
     Error.captureStackTrace?.(this, ContainerError);
   }
 
@@ -358,12 +349,11 @@ export class BackupError extends Error {
     super(props.message);
     this.name = "BackupError";
     this.code = props.code;
-    if (props.path !== undefined) {
-      this.path = props.path;
-    }
-    if (props.cause !== undefined) {
-      this.cause = props.cause;
-    }
+    Object.assign(
+      this,
+      props.path !== undefined ? { path: props.path } : {},
+      props.cause !== undefined ? { cause: props.cause } : {}
+    );
     Error.captureStackTrace?.(this, BackupError);
   }
 

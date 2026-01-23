@@ -58,6 +58,13 @@ const isGeneratedUnit = (unit: string, options: SystemctlOptions): Effect.Effect
     });
   });
 
+/** Commands where non-zero exit code is informational, not an error */
+const INFORMATIONAL_COMMANDS: readonly SystemctlCommand[] = ["is-active", "is-enabled", "status"];
+
+/** Check if command is informational (non-zero exit doesn't mean failure) */
+const isInformationalCommand = (cmd: SystemctlCommand): boolean =>
+  INFORMATIONAL_COMMANDS.includes(cmd);
+
 /**
  * Run a systemctl --user command as a service user.
  */
@@ -66,30 +73,26 @@ export const systemctl = (
   unit: string | null,
   options: SystemctlOptions
 ): Effect.Effect<string, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const args = unit ? ["systemctl", "--user", cmd, unit] : ["systemctl", "--user", cmd];
-
-    const result = yield* execAsUser(options.user, options.uid, args, {
-      captureStdout: true,
-      captureStderr: true,
-    });
-
-    // For commands like is-active, non-zero exit code is informational, not an error
-    if (cmd === "is-active" || cmd === "is-enabled" || cmd === "status") {
-      return result.stdout.trim();
-    }
-
-    if (result.exitCode !== 0) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
-          message: `systemctl ${cmd} ${unit ?? ""} failed: ${result.stderr.trim()}`,
-        })
-      );
-    }
-
-    return result.stdout.trim();
-  });
+  pipe(
+    execAsUser(
+      options.user,
+      options.uid,
+      unit ? ["systemctl", "--user", cmd, unit] : ["systemctl", "--user", cmd],
+      { captureStdout: true, captureStderr: true }
+    ),
+    Effect.flatMap((result) =>
+      Effect.if(isInformationalCommand(cmd) || result.exitCode === 0, {
+        onTrue: (): Effect.Effect<string, SystemError> => Effect.succeed(result.stdout.trim()),
+        onFalse: (): Effect.Effect<string, SystemError> =>
+          Effect.fail(
+            new SystemError({
+              code: ErrorCode.EXEC_FAILED as 26,
+              message: `systemctl ${cmd} ${unit ?? ""} failed: ${result.stderr.trim()}`,
+            })
+          ),
+      })
+    )
+  );
 
 /**
  * Start a systemd user service.
@@ -199,19 +202,22 @@ export const enableService = (
   unit: string,
   options: SystemctlOptions
 ): Effect.Effect<void, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const isGenerated = yield* isGeneratedUnit(unit, options);
-    if (isGenerated) {
-      return;
-    }
-
-    yield* systemctl("enable", unit, options).pipe(
-      Effect.retry({
-        schedule: systemRetrySchedule,
-        while: (err): boolean => isTransientSystemError(err),
+  pipe(
+    isGeneratedUnit(unit, options),
+    Effect.flatMap((isGenerated) =>
+      Effect.if(isGenerated, {
+        onTrue: (): Effect.Effect<void, SystemError | GeneralError> => Effect.void,
+        onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
+          systemctl("enable", unit, options).pipe(
+            Effect.retry({
+              schedule: systemRetrySchedule,
+              while: (err): boolean => isTransientSystemError(err),
+            }),
+            Effect.asVoid
+          ),
       })
-    );
-  });
+    )
+  );
 
 /**
  * Disable a systemd user service.

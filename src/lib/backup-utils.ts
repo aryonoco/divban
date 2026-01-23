@@ -94,67 +94,77 @@ export const listBackupFiles = (
   backupDir: AbsolutePath,
   pattern = "*.tar.{gz,zst}"
 ): Effect.Effect<string[], SystemError> =>
-  Effect.gen(function* () {
-    const exists = yield* directoryExists(backupDir);
-    if (!exists) {
-      return [];
-    }
+  pipe(
+    directoryExists(backupDir),
+    Effect.flatMap((exists) =>
+      Effect.if(exists, {
+        onTrue: (): Effect.Effect<string[], SystemError> =>
+          Effect.gen(function* () {
+            const glob = new Glob(pattern);
+            const files = yield* collectAsyncOrDie(glob.scan({ cwd: backupDir, onlyFiles: true }));
 
-    const glob = new Glob(pattern);
-    const files = yield* collectAsyncOrDie(glob.scan({ cwd: backupDir, onlyFiles: true }));
+            const withStats = yield* Effect.forEach(
+              files,
+              (name) =>
+                Effect.promise(async () => ({
+                  name,
+                  mtime: (await Bun.file(`${backupDir}/${name}`).stat())?.mtimeMs ?? 0,
+                })),
+              { concurrency: 10 }
+            );
 
-    const withStats = yield* Effect.forEach(
-      files,
-      (name) =>
-        Effect.promise(async () => ({
-          name,
-          mtime: (await Bun.file(`${backupDir}/${name}`).stat())?.mtimeMs ?? 0,
-        })),
-      { concurrency: 10 }
-    );
+            const byMtimeDesc: Order.Order<{ mtime: number }> = pipe(
+              Order.number,
+              Order.mapInput((f: { mtime: number }) => f.mtime),
+              Order.reverse
+            );
 
-    const byMtimeDesc: Order.Order<{ mtime: number }> = pipe(
-      Order.number,
-      Order.mapInput((f: { mtime: number }) => f.mtime),
-      Order.reverse
-    );
+            return pipe(
+              withStats,
+              Arr.sort(byMtimeDesc),
+              Arr.map((f) => f.name)
+            );
+          }),
+        onFalse: (): Effect.Effect<string[], SystemError> => Effect.succeed([]),
+      })
+    )
+  );
 
-    return pipe(
-      withStats,
-      Arr.sort(byMtimeDesc),
-      Arr.map((f) => f.name)
-    );
-  });
+/** Compression format detection thresholds */
+const COMPRESSION_EXTENSIONS: readonly {
+  readonly extensions: readonly string[];
+  readonly format: "gzip" | "zstd";
+}[] = [
+  { extensions: [".tar.gz", ".gz"], format: "gzip" },
+  { extensions: [".tar.zst", ".zst"], format: "zstd" },
+];
 
 /**
  * Detect compression format from file extension.
  */
-export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> => {
-  if (path.endsWith(".tar.gz") || path.endsWith(".gz")) {
-    return Option.some("gzip");
-  }
-  if (path.endsWith(".tar.zst") || path.endsWith(".zst")) {
-    return Option.some("zstd");
-  }
-  return Option.none();
-};
+export const detectCompressionFormat = (path: string): Option.Option<"gzip" | "zstd"> =>
+  pipe(
+    COMPRESSION_EXTENSIONS,
+    Arr.findFirst((entry) => entry.extensions.some((ext) => path.endsWith(ext))),
+    Option.map((entry) => entry.format)
+  );
 
 /**
  * Validate backup file exists before restore.
  */
 export const validateBackupExists = (backupPath: AbsolutePath): Effect.Effect<void, BackupError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(backupPath);
-    const exists = yield* Effect.promise(() => file.exists());
-    if (!exists) {
-      return yield* Effect.fail(
+  pipe(
+    Effect.promise(() => Bun.file(backupPath).exists()),
+    Effect.filterOrFail(
+      (exists): exists is true => exists === true,
+      () =>
         new BackupError({
           code: ErrorCode.BACKUP_NOT_FOUND as 51,
           message: `Backup file not found: ${backupPath}`,
         })
-      );
-    }
-  });
+    ),
+    Effect.asVoid
+  );
 
 /**
  * Get accurate file size using stat().
@@ -175,18 +185,18 @@ export const validateBackupService = (
 ): Effect.Effect<void, BackupError> =>
   Option.match(metadata, {
     onNone: (): Effect.Effect<void, BackupError> => Effect.void, // No metadata = legacy backup, allow
-    onSome: ({ service, timestamp }): Effect.Effect<void, BackupError> => {
-      if (service !== expectedService) {
-        return Effect.fail(
-          new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 52,
-            message: `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`,
-          })
-        );
-      }
-      logger.info(`Backup from: ${timestamp}, service: ${service}`);
-      return Effect.void;
-    },
+    onSome: ({ service, timestamp }): Effect.Effect<void, BackupError> =>
+      Effect.if(service === expectedService, {
+        onTrue: (): Effect.Effect<void, BackupError> =>
+          Effect.sync(() => logger.info(`Backup from: ${timestamp}, service: ${service}`)),
+        onFalse: (): Effect.Effect<void, BackupError> =>
+          Effect.fail(
+            new BackupError({
+              code: ErrorCode.RESTORE_FAILED as 52,
+              message: `Backup is for service '${service}', not '${expectedService}'. Use the correct restore command.`,
+            })
+          ),
+      }),
   });
 
 // ============================================================================

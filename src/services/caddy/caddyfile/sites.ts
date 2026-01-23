@@ -26,19 +26,21 @@ import { matchersOps } from "./matchers";
 /**
  * Determine the route opener based on route config.
  */
-const routeOpener = (route: Route): CaddyOp => {
-  if (route.name !== undefined) {
-    return Caddy.open(`@${route.name}`);
-  }
-
-  return pipe(
-    nonEmpty(route.match),
+const routeOpener = (route: Route): CaddyOp =>
+  pipe(
+    Option.fromNullable(route.name),
     Option.match({
-      onNone: (): CaddyOp => Caddy.open("handle"),
-      onSome: (matches): CaddyOp => Caddy.open(`handle_path ${matches.join(" ")}`),
+      onNone: (): CaddyOp =>
+        pipe(
+          nonEmpty(route.match),
+          Option.match({
+            onNone: (): CaddyOp => Caddy.open("handle"),
+            onSome: (matches): CaddyOp => Caddy.open(`handle_path ${matches.join(" ")}`),
+          })
+        ),
+      onSome: (name): CaddyOp => Caddy.open(`@${name}`),
     })
   );
-};
 
 /**
  * Generate operations for a single route.

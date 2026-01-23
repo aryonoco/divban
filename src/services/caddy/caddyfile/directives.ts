@@ -12,6 +12,7 @@
  * readable output.
  */
 
+import { Match, pipe } from "effect";
 import type { Directive } from "../schema";
 import { Caddy, type CaddyOp, escapeValue, indent } from "./format";
 
@@ -27,14 +28,10 @@ export const renderDirective = (directive: Directive, level = 0): string => {
   const args = directive.args?.map(escapeValue).join(" ") ?? "";
   const argsStr = args ? ` ${args}` : "";
 
-  // Base case: no block
-  if (!directive.block || directive.block.length === 0) {
-    return `${prefix}${directive.name}${argsStr}`;
-  }
-
-  const childLines = directive.block.map((child) => renderDirective(child, level + 1)).join("\n");
-
-  return `${prefix}${directive.name}${argsStr} {\n${childLines}\n${prefix}}`;
+  // Base case vs nested block
+  return !directive.block || directive.block.length === 0
+    ? `${prefix}${directive.name}${argsStr}`
+    : `${prefix}${directive.name}${argsStr} {\n${directive.block.map((child) => renderDirective(child, level + 1)).join("\n")}\n${prefix}}`;
 };
 
 /**
@@ -50,21 +47,14 @@ export const renderDirectives = (directives: readonly Directive[], level = 0): s
 /**
  * Convert a single directive to CaddyOp.
  */
-export const directiveOp = (directive: Directive): CaddyOp => {
-  const args = directive.args;
-
-  // Base case: no block
-  if (!directive.block || directive.block.length === 0) {
-    return Caddy.directive(directive.name, args);
-  }
-
-  // Recursive case: open block, render children, close
-  return Caddy.seq(
-    Caddy.open(directive.name, args),
-    Caddy.forEach(directive.block, directiveOp),
-    Caddy.close
-  );
-};
+export const directiveOp = (directive: Directive): CaddyOp =>
+  !directive.block || directive.block.length === 0
+    ? Caddy.directive(directive.name, directive.args)
+    : Caddy.seq(
+        Caddy.open(directive.name, directive.args),
+        Caddy.forEach(directive.block, directiveOp),
+        Caddy.close
+      );
 
 /**
  * Convert multiple directives to CaddyOp.
@@ -175,21 +165,20 @@ export const Directives: Record<string, (...args: never[]) => Directive> = {
     cert?: string;
     key?: string;
     internal?: boolean;
-  }): Directive => {
-    if (options?.internal) {
-      return { name: "tls", args: ["internal"] };
-    }
-
-    if (options?.cert && options?.key) {
-      return { name: "tls", args: [options.cert, options.key] };
-    }
-
-    if (options?.email) {
-      return { name: "tls", args: [options.email] };
-    }
-
-    return { name: "tls" };
-  },
+  }): Directive =>
+    pipe(
+      Match.value(options ?? {}),
+      Match.when({ internal: true }, (): Directive => ({ name: "tls", args: ["internal"] })),
+      Match.when(
+        (o): o is { cert: string; key: string } => Boolean(o.cert && o.key),
+        (o): Directive => ({ name: "tls", args: [o.cert, o.key] })
+      ),
+      Match.when(
+        (o): o is { email: string } => Boolean(o.email),
+        (o): Directive => ({ name: "tls", args: [o.email] })
+      ),
+      Match.orElse((): Directive => ({ name: "tls" }))
+    ),
 
   /**
    * basicauth directive

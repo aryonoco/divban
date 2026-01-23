@@ -13,7 +13,7 @@
  * paths fail on any error to catch typos and permission issues.
  */
 
-import { Config, Effect, type Schema, pipe } from "effect";
+import { Config, Effect, Option, type Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { extractCauseProps } from "../lib/match-helpers";
 import { toAbsolutePathEffect } from "../lib/paths";
@@ -32,17 +32,18 @@ export const loadTomlFile = <A, I = A>(
   Effect.gen(function* () {
     // Check if file exists
     const file = Bun.file(filePath);
-    const exists = yield* Effect.promise(() => file.exists());
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new ConfigError({
-          code: ErrorCode.CONFIG_NOT_FOUND as 10,
-          message: `Configuration file not found: ${filePath}`,
-          path: filePath,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.promise(() => file.exists()),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new ConfigError({
+            code: ErrorCode.CONFIG_NOT_FOUND as 10,
+            message: `Configuration file not found: ${filePath}`,
+            path: filePath,
+          })
+      )
+    );
 
     // Read file content
     const content = yield* Effect.tryPromise({
@@ -86,23 +87,21 @@ export const loadGlobalConfigWithHome = (
         pipe(
           fileExists(absPath),
           Effect.flatMap((exists) =>
-            exists
-              ? loadTomlFile(absPath, globalConfigSchema)
-              : Effect.fail(
+            Effect.if(exists, {
+              onTrue: (): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
+                loadTomlFile(absPath, globalConfigSchema),
+              onFalse: (): Effect.Effect<GlobalConfig, ConfigError> =>
+                Effect.fail(
                   new ConfigError({
                     code: ErrorCode.CONFIG_NOT_FOUND as 10,
                     message: `File not found: ${p}`,
                   })
-                )
+                ),
+            })
           )
         )
       )
     );
-
-  // Explicit path: fail on any error
-  if (configPath !== undefined) {
-    return tryLoadPath(configPath);
-  }
 
   // Default paths: try each, return empty config if all fail
   const defaultPaths: readonly string[] = [
@@ -111,9 +110,17 @@ export const loadGlobalConfigWithHome = (
     "./divban.toml",
   ];
 
+  // Explicit path: fail on any error; otherwise try defaults
   return pipe(
-    Effect.firstSuccessOf(defaultPaths.map(tryLoadPath)),
-    Effect.orElseSucceed(() => decodeUnsafe(globalConfigSchema, {}) as GlobalConfig)
+    Option.fromNullable(configPath),
+    Option.match({
+      onNone: (): Effect.Effect<GlobalConfig, ConfigError | SystemError> =>
+        pipe(
+          Effect.firstSuccessOf(defaultPaths.map(tryLoadPath)),
+          Effect.orElseSucceed(() => decodeUnsafe(globalConfigSchema, {}) as GlobalConfig)
+        ),
+      onSome: (path): Effect.Effect<GlobalConfig, ConfigError | SystemError> => tryLoadPath(path),
+    })
   );
 };
 
@@ -163,14 +170,16 @@ export const findServiceConfig = (
         pipe(
           fileExists(absPath),
           Effect.flatMap((exists) =>
-            exists
-              ? Effect.succeed(absPath)
-              : Effect.fail(
+            Effect.if(exists, {
+              onTrue: (): Effect.Effect<AbsolutePath, never> => Effect.succeed(absPath),
+              onFalse: (): Effect.Effect<AbsolutePath, ConfigError> =>
+                Effect.fail(
                   new ConfigError({
                     code: ErrorCode.CONFIG_NOT_FOUND as 10,
                     message: `Not found: ${p}`,
                   })
-                )
+                ),
+            })
           )
         )
       )

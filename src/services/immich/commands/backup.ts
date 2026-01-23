@@ -9,7 +9,7 @@
  * Immich database backup command.
  */
 
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { formatBytes } from "../../../cli/commands/utils";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import { createBackupTimestamp, listFilesByMtime } from "../../../lib/backup-utils";
@@ -113,14 +113,17 @@ export const backupDatabase = (
       }
     );
 
-    if (dumpResult.exitCode !== 0) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.BACKUP_FAILED as 50,
-          message: `Database dump failed: ${dumpResult.stderr}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(dumpResult),
+      Effect.filterOrFail(
+        (r) => r.exitCode === 0,
+        (r) =>
+          new BackupError({
+            code: ErrorCode.BACKUP_FAILED as 50,
+            message: `Database dump failed: ${r.stderr}`,
+          })
+      )
+    );
 
     // Create metadata and archive
     const metadata = createBackupMetadata("immich", ["database.sql"]);
@@ -150,15 +153,16 @@ export const listBackups = (
   dataDir: AbsolutePath,
   pattern = "*.tar.{gz,zst}"
 ): Effect.Effect<string[], never> =>
-  Effect.gen(function* () {
-    const backupDir = pathJoin(dataDir, "backups");
-
-    const exists = yield* directoryExists(backupDir);
-    if (!exists) {
-      return [];
-    }
-
-    // Use shared utility - returns files sorted by mtime (newest first)
-    const files = yield* listFilesByMtime(backupDir, pattern);
-    return [...files]; // Convert readonly to mutable for return type compatibility
-  });
+  pipe(
+    directoryExists(pathJoin(dataDir, "backups")),
+    Effect.flatMap((exists) =>
+      Effect.if(exists, {
+        onTrue: (): Effect.Effect<string[], never> =>
+          pipe(
+            listFilesByMtime(pathJoin(dataDir, "backups"), pattern),
+            Effect.map((files) => [...files])
+          ),
+        onFalse: (): Effect.Effect<string[], never> => Effect.succeed([] as string[]),
+      })
+    )
+  );

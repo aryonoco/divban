@@ -73,16 +73,18 @@ export const restoreDatabase = (
     } = options;
 
     // Check backup file exists
-    const exists = yield* fileExists(backupPath);
-    if (!exists) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.BACKUP_NOT_FOUND as 52,
-          message: `Backup file not found: ${backupPath}`,
-          path: backupPath,
-        })
-      );
-    }
+    yield* pipe(
+      fileExists(backupPath),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new BackupError({
+            code: ErrorCode.BACKUP_NOT_FOUND as 52,
+            message: `Backup file not found: ${backupPath}`,
+            path: backupPath,
+          })
+      )
+    );
 
     logger.info(`Restoring database from: ${backupPath}`);
     logger.warn("This will overwrite the existing database!");
@@ -124,16 +126,18 @@ export const restoreDatabase = (
 
     // Extract archive
     const files = yield* extractArchive(compressedData, { decompress: compression });
-    const sqlBytes = files.get("database.sql");
-    if (sqlBytes === undefined) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.RESTORE_FAILED as 51,
-          message: "Backup archive does not contain database.sql",
-          path: backupPath,
-        })
-      );
-    }
+    const sqlBytes = yield* pipe(
+      Effect.succeed(files.get("database.sql")),
+      Effect.filterOrFail(
+        (bytes): bytes is Uint8Array => bytes !== undefined,
+        () =>
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: "Backup archive does not contain database.sql",
+            path: backupPath,
+          })
+      )
+    );
 
     const sqlData = new TextDecoder().decode(sqlBytes);
 
@@ -150,21 +154,26 @@ export const restoreDatabase = (
       }
     );
 
-    if (restoreResult.exitCode !== 0) {
-      // psql may return non-zero for warnings, check stderr
-      const stderr = restoreResult.stderr;
-      if (stderr.includes("ERROR")) {
-        return yield* Effect.fail(
-          new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
-            message: `Database restore failed: ${stderr}`,
-            path: backupPath,
-          })
-        );
-      }
-      // Warnings are OK
-      logger.warn(`Restore completed with warnings: ${stderr}`);
-    }
+    // psql may return non-zero for warnings, check stderr for actual errors
+    type RestoreCheckEffect = Effect.Effect<void, BackupError>;
+    yield* Effect.if(restoreResult.exitCode !== 0, {
+      onTrue: (): RestoreCheckEffect =>
+        Effect.if(restoreResult.stderr.includes("ERROR"), {
+          onTrue: (): RestoreCheckEffect =>
+            Effect.fail(
+              new BackupError({
+                code: ErrorCode.RESTORE_FAILED as 51,
+                message: `Database restore failed: ${restoreResult.stderr}`,
+                path: backupPath,
+              })
+            ),
+          onFalse: (): RestoreCheckEffect =>
+            Effect.sync(() =>
+              logger.warn(`Restore completed with warnings: ${restoreResult.stderr}`)
+            ),
+        }),
+      onFalse: (): RestoreCheckEffect => Effect.void,
+    });
 
     logger.success("Database restored successfully");
   });
@@ -178,16 +187,18 @@ export const validateBackup = (
 ): Effect.Effect<void, BackupError | SystemError> =>
   Effect.gen(function* () {
     // Check file exists
-    const exists = yield* fileExists(backupPath);
-    if (!exists) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.BACKUP_NOT_FOUND as 52,
-          message: `Backup file not found: ${backupPath}`,
-          path: backupPath,
-        })
-      );
-    }
+    yield* pipe(
+      fileExists(backupPath),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new BackupError({
+            code: ErrorCode.BACKUP_NOT_FOUND as 52,
+            message: `Backup file not found: ${backupPath}`,
+            path: backupPath,
+          })
+      )
+    );
 
     // Detect compression type
     type CompressionResult = Effect.Effect<"gzip" | "zstd", BackupError>;
@@ -210,13 +221,16 @@ export const validateBackup = (
     const files = yield* extractArchive(compressedData, { decompress: compression });
 
     // Check for database.sql
-    if (!files.has("database.sql")) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.RESTORE_FAILED as 51,
-          message: "Invalid backup file: missing database.sql in archive",
-          path: backupPath,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(files.has("database.sql")),
+      Effect.filterOrFail(
+        (has): has is true => has === true,
+        () =>
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: "Invalid backup file: missing database.sql in archive",
+            path: backupPath,
+          })
+      )
+    );
   });

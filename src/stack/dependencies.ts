@@ -13,7 +13,7 @@
  * Stop order is the reverse of start order.
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
@@ -93,39 +93,60 @@ export const validateDependencies = (
 export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, GeneralError> => {
   const nodeMap = buildNodeMap(nodes);
 
+  /** Cycle detection state for pattern matching */
+  type CycleCheckResult =
+    | { readonly kind: "CycleFound" }
+    | { readonly kind: "AlreadyVisited" }
+    | { readonly kind: "Recurse" };
+
+  /** Classification state for ternary-free pattern matching */
+  type CycleCheckState = { readonly inStack: boolean; readonly visited: boolean };
+
+  const classifyCycleState = (
+    name: string,
+    visited: ReadonlySet<string>,
+    inStack: ReadonlySet<string>
+  ): CycleCheckResult =>
+    pipe(
+      Match.value({ inStack: inStack.has(name), visited: visited.has(name) } as CycleCheckState),
+      Match.when({ inStack: true }, (): CycleCheckResult => ({ kind: "CycleFound" })),
+      Match.when({ visited: true }, (): CycleCheckResult => ({ kind: "AlreadyVisited" })),
+      Match.orElse((): CycleCheckResult => ({ kind: "Recurse" }))
+    );
+
   const findCycle = (
     name: string,
     path: readonly string[],
     visited: ReadonlySet<string>,
     inStack: ReadonlySet<string>
-  ): Option.Option<readonly string[]> => {
-    if (inStack.has(name)) {
-      return Option.some([...path, name]);
-    }
-    if (visited.has(name)) {
-      return Option.none();
-    }
+  ): Option.Option<readonly string[]> =>
+    pipe(
+      Match.value(classifyCycleState(name, visited, inStack)),
+      Match.when({ kind: "CycleFound" }, () => Option.some([...path, name])),
+      Match.when({ kind: "AlreadyVisited" }, () => Option.none()),
+      Match.when({ kind: "Recurse" }, () =>
+        pipe(
+          Option.fromNullable(nodeMap.get(name)),
+          Option.flatMap((node) => {
+            const newPath = [...path, name];
+            const newVisited = new Set([...visited, name]);
+            const newStack = new Set([...inStack, name]);
 
-    return pipe(
-      Option.fromNullable(nodeMap.get(name)),
-      Option.flatMap((node) => {
-        const newPath = [...path, name];
-        const newVisited = new Set([...visited, name]);
-        const newStack = new Set([...inStack, name]);
-
-        // Find first cycle in dependencies (short-circuit with reduce)
-        type CycleResult = Option.Option<readonly string[]>;
-        return getNodeDeps(node).reduce<CycleResult>(
-          (acc, dep) =>
-            Option.match(acc, {
-              onSome: (): CycleResult => acc,
-              onNone: (): CycleResult => findCycle(dep, newPath, newVisited, newStack),
-            }),
-          Option.none()
-        );
-      })
+            // Find first cycle in dependencies (short-circuit with reduce)
+            type CycleResult = Option.Option<readonly string[]>;
+            return getNodeDeps(node).reduce<CycleResult>(
+              (acc, dep) =>
+                Option.match(acc, {
+                  onSome: (): CycleResult => acc,
+                  onNone: (): CycleResult => findCycle(dep, newPath, newVisited, newStack),
+                }),
+              Option.none()
+            );
+          })
+        )
+      ),
+      Match.exhaustive
     );
-  };
 
   // Check all nodes as starting points
   type CycleResult = Option.Option<readonly string[]>;
@@ -206,41 +227,48 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
       { inDegree, adjacency, queue: initialQueue, sorted: [] } as KahnState,
       {
         while: (s): boolean => s.queue.length > 0,
-        body: (s): Effect.Effect<KahnState> => {
-          const [current, ...rest] = s.queue;
-          if (!current) {
-            return Effect.succeed(s);
-          }
+        body: (s): Effect.Effect<KahnState> =>
+          pipe(
+            Option.fromNullable(s.queue[0]),
+            Option.match({
+              onNone: (): Effect.Effect<KahnState> => Effect.succeed(s),
+              onSome: (current): Effect.Effect<KahnState> => {
+                const rest = s.queue.slice(1);
+                const dependents = s.adjacency.get(current) ?? [];
+                const { newDegree, ready } = dependents.reduce(
+                  (acc, dep) => {
+                    const deg = (acc.newDegree.get(dep) ?? 1) - 1;
+                    const updated = new Map(acc.newDegree);
+                    updated.set(dep, deg);
+                    return {
+                      newDegree: updated,
+                      ready: deg === 0 ? [...acc.ready, dep] : acc.ready,
+                    };
+                  },
+                  { newDegree: s.inDegree, ready: [] as string[] }
+                );
 
-          const dependents = s.adjacency.get(current) ?? [];
-          const { newDegree, ready } = dependents.reduce(
-            (acc, dep) => {
-              const deg = (acc.newDegree.get(dep) ?? 1) - 1;
-              const updated = new Map(acc.newDegree);
-              updated.set(dep, deg);
-              return { newDegree: updated, ready: deg === 0 ? [...acc.ready, dep] : acc.ready };
-            },
-            { newDegree: s.inDegree, ready: [] as string[] }
-          );
-
-          return Effect.succeed({
-            ...s,
-            inDegree: newDegree,
-            queue: [...rest, ...ready],
-            sorted: [...s.sorted, current],
-          });
-        },
+                return Effect.succeed({
+                  ...s,
+                  inDegree: newDegree,
+                  queue: [...rest, ...ready],
+                  sorted: [...s.sorted, current],
+                });
+              },
+            })
+          ),
       }
     );
 
-    if (finalState.sorted.length !== nodes.length) {
-      return yield* Effect.fail(
+    yield* Effect.filterOrFail(
+      Effect.succeed(finalState),
+      (s): s is KahnState => s.sorted.length === nodes.length,
+      () =>
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
           message: "Dependency resolution failed - possible cycle or missing node",
         })
-      );
-    }
+    );
 
     return [...finalState.sorted];
   });
@@ -279,16 +307,16 @@ export const resolveStartOrder = (
             return node ? allDepsIn(getNodeDeps(node), s.placed) : false;
           });
 
-          if (ready.length === 0) {
-            return Effect.succeed({ ...s, remaining: [] });
-          }
-
-          const notReady = s.remaining.filter((name) => !ready.includes(name));
-
-          return Effect.succeed({
-            placed: new Set([...s.placed, ...ready]),
-            levels: [...s.levels, ready],
-            remaining: notReady,
+          return Effect.if(ready.length === 0, {
+            onTrue: (): Effect.Effect<LevelState> => Effect.succeed({ ...s, remaining: [] }),
+            onFalse: (): Effect.Effect<LevelState> => {
+              const notReady = s.remaining.filter((name) => !ready.includes(name));
+              return Effect.succeed({
+                placed: new Set([...s.placed, ...ready]),
+                levels: [...s.levels, ready],
+                remaining: notReady,
+              });
+            },
           });
         },
       }
@@ -330,32 +358,38 @@ export const getAllDependencies = (
   const containerMap = buildContainerMap(containers);
 
   // Tail-recursive BFS with immutable state
-  const bfs = (queue: readonly string[], visited: ReadonlySet<string>): ReadonlySet<string> => {
-    if (queue.length === 0) {
-      return visited;
-    }
+  const bfs = (queue: readonly string[], visited: ReadonlySet<string>): ReadonlySet<string> =>
+    queue.length === 0
+      ? visited
+      : pipe(
+          Option.fromNullable(queue[0]),
+          Option.match({
+            onNone: (): ReadonlySet<string> => visited,
+            onSome: (current): ReadonlySet<string> => {
+              const rest = queue.slice(1);
+              return pipe(
+                Option.fromNullable(containerMap.get(current)),
+                Option.match({
+                  onNone: (): ReadonlySet<string> => bfs(rest, visited),
+                  onSome: (container): ReadonlySet<string> => {
+                    const deps = getContainerDeps(container);
+                    const unvisited = deps.filter((d) => !visited.has(d));
+                    return bfs([...rest, ...unvisited], new Set([...visited, ...unvisited]));
+                  },
+                })
+              );
+            },
+          })
+        );
 
-    const [current, ...rest] = queue;
-    if (!current) {
-      return visited;
-    }
-
-    const container = containerMap.get(current);
-    if (!container) {
-      return bfs(rest, visited);
-    }
-
-    const deps = getContainerDeps(container);
-    const unvisited = deps.filter((d) => !visited.has(d));
-
-    return bfs([...rest, ...unvisited], new Set([...visited, ...unvisited]));
-  };
-
-  const start = containerMap.get(containerName);
-  if (!start) {
-    return [];
-  }
-
-  const initialDeps = getContainerDeps(start);
-  return [...bfs(initialDeps, new Set(initialDeps))];
+  return pipe(
+    Option.fromNullable(containerMap.get(containerName)),
+    Option.match({
+      onNone: (): string[] => [],
+      onSome: (start): string[] => {
+        const initialDeps = getContainerDeps(start);
+        return [...bfs(initialDeps, new Set(initialDeps))];
+      },
+    })
+  );
 };

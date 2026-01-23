@@ -10,7 +10,7 @@
  */
 
 import { semver } from "bun";
-import { Option } from "effect";
+import { Option, pipe } from "effect";
 
 /**
  * Check if a version satisfies a semver range.
@@ -106,13 +106,13 @@ export const neq = (a: string, b: string): boolean => {
  * @example
  * maxVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("2.0.0")
  */
-export const maxVersion = (versions: string[]): Option.Option<string> => {
-  if (versions.length === 0) {
-    return Option.none();
-  }
-  const sorted = sortVersionsDesc(versions);
-  return Option.fromNullable(sorted[0]);
-};
+export const maxVersion = (versions: string[]): Option.Option<string> =>
+  pipe(
+    Option.some(versions),
+    Option.filter((v) => v.length > 0),
+    Option.map(sortVersionsDesc),
+    Option.flatMap((sorted) => Option.fromNullable(sorted[0]))
+  );
 
 /**
  * Get the minimum version from an array of versions.
@@ -121,13 +121,13 @@ export const maxVersion = (versions: string[]): Option.Option<string> => {
  * @example
  * minVersion(["1.0.0", "2.0.0", "1.5.0"]) // Some("1.0.0")
  */
-export const minVersion = (versions: string[]): Option.Option<string> => {
-  if (versions.length === 0) {
-    return Option.none();
-  }
-  const sorted = sortVersions(versions);
-  return Option.fromNullable(sorted[0]);
-};
+export const minVersion = (versions: string[]): Option.Option<string> =>
+  pipe(
+    Option.some(versions),
+    Option.filter((v) => v.length > 0),
+    Option.map(sortVersions),
+    Option.flatMap((sorted) => Option.fromNullable(sorted[0]))
+  );
 
 /**
  * Get the maximum version that satisfies a range.

@@ -33,20 +33,14 @@ export interface StartOptions {
   logger: Logger;
 }
 
-/**
- * Execute the start command.
- */
 export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
 
-    // Resolve prerequisites without config
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-    // Access service methods with proper config typing
     yield* service.apply((s) =>
       Effect.gen(function* () {
-        // Load config with typed schema (optional for start)
         const configResult = yield* Effect.either(
           pipe(
             Match.value(args.configPath),
@@ -61,7 +55,7 @@ export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanE
           )
         );
 
-        // Use empty config if not found
+        // Config is optional for start - service may have been set up with defaults
         type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
         type PathsType = typeof prereqs.paths;
         const config = Either.match(configResult, {
@@ -69,7 +63,6 @@ export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanE
           onRight: (cfg): ConfigType => cfg,
         });
 
-        // Update paths with config dataDir if available
         const updatedPaths = Either.match(configResult, {
           onLeft: (): PathsType => prereqs.paths,
           onRight: (cfg): PathsType => ({

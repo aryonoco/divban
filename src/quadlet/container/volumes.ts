@@ -114,54 +114,39 @@ export const isBindMount = (source: string): boolean => {
 /**
  * Check if volume options already include SELinux relabeling (:z or :Z).
  */
-const hasRelabelOption = (options: string | undefined): boolean => {
-  if (!options) {
-    return false;
-  }
-  const parts = options.split(",");
-  return parts.some((p) => p === "z" || p === "Z");
-};
+const hasRelabelOption = (options: string | undefined): boolean =>
+  pipe(
+    Option.fromNullable(options),
+    Option.map((o) => o.split(",").some((p) => p === "z" || p === "Z")),
+    Option.getOrElse(() => false)
+  );
 
 /**
  * Check if volume options already include ownership flag (:U).
  */
-const hasOwnershipFlag = (options: string | undefined): boolean => {
-  if (!options) {
-    return false;
-  }
-  const parts = options.split(",");
-  return parts.some((p) => p === "U");
-};
+const hasOwnershipFlag = (options: string | undefined): boolean =>
+  pipe(
+    Option.fromNullable(options),
+    Option.map((o) => o.split(",").some((p) => p === "U")),
+    Option.getOrElse(() => false)
+  );
+
+/**
+ * Check if SELinux relabeling should be applied to this mount.
+ * Conditions: SELinux enforcing, is bind mount, doesn't already have relabel.
+ */
+const shouldApplyRelabel = (mount: VolumeMount, selinuxEnforcing: boolean): boolean =>
+  selinuxEnforcing && isBindMount(mount.source) && !hasRelabelOption(mount.options);
 
 /**
  * Add SELinux relabel option to a single volume mount if needed.
  * Only applies to bind mounts (absolute paths), not named volumes.
  * Skips if already has :z or :Z option.
  */
-export const withSELinuxRelabel = (mount: VolumeMount, selinuxEnforcing: boolean): VolumeMount => {
-  // Only relabel if SELinux is enforcing
-  if (!selinuxEnforcing) {
-    return mount;
-  }
-
-  // Only relabel bind mounts (absolute paths), not named volumes
-  if (!isBindMount(mount.source)) {
-    return mount;
-  }
-
-  // Skip if already has relabel option
-  if (hasRelabelOption(mount.options)) {
-    return mount;
-  }
-
-  // Append Z to existing options or set it
-  const newOptions = mount.options ? `${mount.options},Z` : "Z";
-
-  return {
-    ...mount,
-    options: newOptions,
-  };
-};
+export const withSELinuxRelabel = (mount: VolumeMount, selinuxEnforcing: boolean): VolumeMount =>
+  shouldApplyRelabel(mount, selinuxEnforcing)
+    ? { ...mount, options: mount.options ? `${mount.options},Z` : "Z" }
+    : mount;
 
 /**
  * Add ownership flag (:U) to a bind mount.
@@ -171,25 +156,14 @@ export const withSELinuxRelabel = (mount: VolumeMount, selinuxEnforcing: boolean
  * Named volumes don't need :U because Podman manages their ownership.
  * Skips if already has :U option.
  */
-export const withOwnershipFlag = (mount: VolumeMount): VolumeMount => {
-  // Only apply to bind mounts
-  if (!isBindMount(mount.source)) {
-    return mount;
-  }
-
-  // Skip if already has ownership flag
-  if (hasOwnershipFlag(mount.options)) {
-    return mount;
-  }
-
-  // Append U to existing options or set it
-  const newOptions = mount.options ? `${mount.options},U` : "U";
-
-  return {
-    ...mount,
-    options: newOptions,
-  };
-};
+export const withOwnershipFlag = (mount: VolumeMount): VolumeMount =>
+  // Only apply to bind mounts that don't already have ownership flag
+  !isBindMount(mount.source) || hasOwnershipFlag(mount.options)
+    ? mount
+    : {
+        ...mount,
+        options: mount.options ? `${mount.options},U` : "U",
+      };
 
 /**
  * Apply SELinux relabeling to all volumes in an array.
@@ -198,12 +172,12 @@ export const withOwnershipFlag = (mount: VolumeMount): VolumeMount => {
 export const relabelVolumes = (
   volumes: readonly VolumeMount[] | undefined,
   selinuxEnforcing: boolean
-): readonly VolumeMount[] | undefined => {
-  if (!volumes) {
-    return undefined;
-  }
-  return volumes.map((v) => withSELinuxRelabel(v, selinuxEnforcing));
-};
+): readonly VolumeMount[] | undefined =>
+  pipe(
+    Option.fromNullable(volumes),
+    Option.map((v) => v.map((vol) => withSELinuxRelabel(vol, selinuxEnforcing))),
+    Option.getOrUndefined
+  );
 
 /**
  * Options for processing volumes.

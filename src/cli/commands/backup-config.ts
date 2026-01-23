@@ -47,7 +47,7 @@ export interface BackupConfigOptions {
   logger: Logger;
 }
 
-/** File entry: archive path and content */
+/** Tuple of [archive-relative path, raw bytes] for tar archive construction. */
 type FileEntry = readonly [string, Uint8Array];
 
 // ============================================================================
@@ -55,7 +55,8 @@ type FileEntry = readonly [string, Uint8Array];
 // ============================================================================
 
 /**
- * Read a file if it exists, returning the entry or null.
+ * Returns null for missing files since not all services have all file types
+ * (e.g., some lack encrypted secrets). Callers filter nulls after parallel reads.
  */
 const readFileIfExists = (
   path: AbsolutePath,
@@ -70,7 +71,8 @@ const readFileIfExists = (
   });
 
 /**
- * Collect config files for a single service.
+ * Gathers the three config file types a service may have: TOML config,
+ * age decryption key, and encrypted secrets file. Missing files are skipped.
  */
 const collectServiceConfigFiles = (
   configDir: AbsolutePath,
@@ -91,9 +93,6 @@ const collectServiceConfigFiles = (
     return Object.fromEntries(results.filter((entry): entry is FileEntry => entry !== null));
   });
 
-/**
- * Read a file and return as a FileEntry.
- */
 const readFileAsEntry = (
   filePath: AbsolutePath,
   archiveName: string
@@ -101,7 +100,8 @@ const readFileAsEntry = (
   Effect.map(readBytes(filePath), (bytes) => [archiveName, bytes] as const);
 
 /**
- * Scan directory with glob pattern, reading all matching files.
+ * Maps glob matches to archive entries with optional path prefix,
+ * preserving relative directory structure in the resulting archive.
  */
 const scanAndReadFiles = (
   baseDir: AbsolutePath,
@@ -112,7 +112,6 @@ const scanAndReadFiles = (
     const glob = new Glob(pattern);
     const files = yield* collectAsyncOrDie(glob.scan({ cwd: baseDir, onlyFiles: true }));
 
-    // Read all files in parallel
     const results = yield* Effect.all(
       files.map((file) => {
         const filePath = pathJoin(baseDir, file);
@@ -126,7 +125,8 @@ const scanAndReadFiles = (
   });
 
 /**
- * Collect all config files (for "all" service).
+ * Multi-service backup: collects all TOML configs, encrypted secrets,
+ * and age keys from the shared config directory.
  */
 const collectAllConfigFiles = (
   configDir: AbsolutePath
@@ -152,7 +152,8 @@ const collectAllConfigFiles = (
 // ============================================================================
 
 /**
- * Get config directory for a service by looking up its system user.
+ * Services store configs in their dedicated user's home directory.
+ * This indirection allows backup to work without knowing the exact path.
  */
 const getServiceConfigDir = (
   serviceName: ServiceName
@@ -195,7 +196,8 @@ const getServiceConfigDir = (
   });
 
 /**
- * Find first valid config directory from known services.
+ * For "all" backup mode: probes known services to locate the shared
+ * config directory without requiring the user to specify a service.
  */
 const findConfigDir = (): Effect.Effect<
   AbsolutePath,
@@ -221,9 +223,6 @@ const findConfigDir = (): Effect.Effect<
   );
 };
 
-/**
- * Resolve config directory based on service (single or "all").
- */
 const resolveConfigDir = (
   serviceName: ServiceName | "all"
 ): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError | ConfigError> =>
@@ -234,7 +233,8 @@ const resolveConfigDir = (
 // ============================================================================
 
 /**
- * Build archive output path and ensure directory exists.
+ * Defaults to configDir/backups/ with timestamp to keep archives
+ * alongside configs they describe, simplifying restore workflows.
  */
 const prepareOutputPath = (
   configDir: AbsolutePath,
@@ -246,7 +246,6 @@ const prepareOutputPath = (
       toAbsolutePathEffect(path),
     onNone: (): Effect.Effect<AbsolutePath, SystemError | GeneralError | ConfigError> =>
       Effect.gen(function* () {
-        // Generate timestamped default path
         const timestamp = createBackupTimestamp();
         const filename = `config-backup-${serviceName}-${timestamp}.tar.gz`;
         const backupDir = pathJoin(configDir, "backups");
@@ -260,9 +259,6 @@ const prepareOutputPath = (
 // Main Command Execution
 // ============================================================================
 
-/**
- * Execute backup-config command.
- */
 export const executeBackupConfig = (
   options: BackupConfigOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>

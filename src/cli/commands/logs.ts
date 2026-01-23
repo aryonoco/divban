@@ -33,17 +33,12 @@ export interface LogsCommandOptions {
   logger: Logger;
 }
 
-/**
- * Execute the logs command.
- */
 export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
 
-    // Resolve prerequisites without config
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-    // Access service methods with proper config typing
     yield* service.apply((s) =>
       Effect.gen(function* () {
         // Load config with typed schema (optional for logs)
@@ -61,7 +56,6 @@ export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, Di
           )
         );
 
-        // Use empty config if not found
         type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
         type PathsType = typeof prereqs.paths;
         const config = Either.match(configResult, {
@@ -69,7 +63,6 @@ export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, Di
           onRight: (cfg): ConfigType => cfg,
         });
 
-        // Update paths with config dataDir if available
         const updatedPaths = Either.match(configResult, {
           onLeft: (): PathsType => prereqs.paths,
           onRight: (cfg): PathsType => ({

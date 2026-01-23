@@ -14,7 +14,7 @@
  * and lifecycle settings.
  */
 
-import { Effect, Schema } from "effect";
+import { Effect, Schema, pipe } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
 import { isValidIP, isValidPosixUsername } from "../lib/schema-utils";
 import {
@@ -467,29 +467,27 @@ export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig, ServiceBaseConf
  */
 export const getServiceUsername = (
   serviceName: ServiceName
-): Effect.Effect<Username, GeneralError> => {
-  const username = `divban-${serviceName}`;
-
-  // Validate against POSIX username rules
-  if (!isValidPosixUsername(username)) {
-    return Effect.fail(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Invalid service name for username: ${serviceName}. Must match [a-z_][a-z0-9_-]*`,
-      })
-    );
-  }
-  if (username.length > 32) {
-    return Effect.fail(
-      new GeneralError({
-        code: ErrorCode.INVALID_ARGS as 2,
-        message: `Service name too long: ${serviceName}. Username would be ${username.length} chars (max 32)`,
-      })
-    );
-  }
-
-  return Effect.succeed(username as Username);
-};
+): Effect.Effect<Username, GeneralError> =>
+  pipe(
+    Effect.succeed(`divban-${serviceName}`),
+    Effect.filterOrFail(
+      isValidPosixUsername,
+      () =>
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Invalid service name for username: ${serviceName}. Must match [a-z_][a-z0-9_-]*`,
+        })
+    ),
+    Effect.filterOrFail(
+      (username): username is string => username.length <= 32,
+      (username) =>
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: `Service name too long: ${serviceName}. Username would be ${username.length} chars (max 32)`,
+        })
+    ),
+    Effect.map((username) => username as Username)
+  );
 
 /**
  * Get data directory for a service (Effect version).

@@ -12,7 +12,7 @@
  * bind HTTP/HTTPS ports without CAP_NET_BIND_SERVICE.
  */
 
-import { Effect, Either } from "effect";
+import { Effect, Either, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
 import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS } from "../lib/paths";
@@ -29,8 +29,8 @@ const SYSCTL_KEY = "net.ipv4.ip_unprivileged_port_start";
  * Get current value of net.ipv4.ip_unprivileged_port_start.
  */
 export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const output = yield* execOutput(["sysctl", "-n", SYSCTL_KEY]).pipe(
+  pipe(
+    execOutput(["sysctl", "-n", SYSCTL_KEY]).pipe(
       Effect.mapError(
         (err) =>
           new SystemError({
@@ -39,20 +39,18 @@ export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | 
             ...extractCauseProps(err),
           })
       )
-    );
-
-    const value = Number.parseInt(output.trim(), 10);
-    if (Number.isNaN(value)) {
-      return yield* Effect.fail(
+    ),
+    Effect.map((output) => ({ output: output.trim(), value: Number.parseInt(output.trim(), 10) })),
+    Effect.filterOrFail(
+      ({ value }) => !Number.isNaN(value),
+      ({ output }) =>
         new SystemError({
           code: ErrorCode.EXEC_FAILED as 26,
           message: `Invalid sysctl value for ${SYSCTL_KEY}: ${output}`,
         })
-      );
-    }
-
-    return value;
-  });
+    ),
+    Effect.map(({ value }) => value)
+  );
 
 /**
  * Check if unprivileged port binding is enabled for the given threshold.
@@ -68,27 +66,18 @@ export const isUnprivilegedPortEnabled = (
     });
   });
 
-/**
- * Configure unprivileged port start persistently.
- * Writes to /etc/sysctl.d/ and applies immediately. Idempotent.
- */
-export const configureUnprivilegedPorts = (
-  threshold: number = DEFAULT_UNPRIVILEGED_PORT_START
-): Effect.Effect<void, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    // Check if already configured
-    const alreadyEnabled = yield* isUnprivilegedPortEnabled(threshold);
-    if (alreadyEnabled) {
-      return;
-    }
-
-    const configContent = `# Configured by divban for rootless container privileged port binding
+/** Create sysctl config content */
+const sysctlConfigContent = (threshold: number): string =>
+  `# Configured by divban for rootless container privileged port binding
 # Allows unprivileged users to bind to ports >= ${threshold}
 ${SYSCTL_KEY} = ${threshold}
 `;
 
+/** Perform the actual sysctl configuration */
+const doConfigureSysctl = (threshold: number): Effect.Effect<void, SystemError | GeneralError> =>
+  pipe(
     // Write persistent configuration
-    yield* writeFile(SYSTEM_PATHS.sysctlUnprivilegedPorts, configContent).pipe(
+    writeFile(SYSTEM_PATHS.sysctlUnprivilegedPorts, sysctlConfigContent(threshold)).pipe(
       Effect.mapError(
         (err) =>
           new SystemError({
@@ -97,20 +86,40 @@ ${SYSCTL_KEY} = ${threshold}
             ...extractCauseProps(err),
           })
       )
-    );
-
+    ),
     // Apply immediately
-    yield* execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]).pipe(
-      Effect.mapError(
-        (err) =>
-          new SystemError({
-            code: ErrorCode.EXEC_FAILED as 26,
-            message: `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
-            ...extractCauseProps(err),
-          })
+    Effect.flatMap(() =>
+      execSuccess(["sysctl", "-w", `${SYSCTL_KEY}=${threshold}`]).pipe(
+        Effect.mapError(
+          (err) =>
+            new SystemError({
+              code: ErrorCode.EXEC_FAILED as 26,
+              message: `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
+              ...extractCauseProps(err),
+            })
+        )
       )
-    );
-  });
+    ),
+    Effect.asVoid
+  );
+
+/**
+ * Configure unprivileged port start persistently.
+ * Writes to /etc/sysctl.d/ and applies immediately. Idempotent.
+ */
+export const configureUnprivilegedPorts = (
+  threshold: number = DEFAULT_UNPRIVILEGED_PORT_START
+): Effect.Effect<void, SystemError | GeneralError> =>
+  pipe(
+    isUnprivilegedPortEnabled(threshold),
+    Effect.flatMap((alreadyEnabled) =>
+      Effect.if(alreadyEnabled, {
+        onTrue: (): Effect.Effect<void, SystemError | GeneralError> => Effect.void,
+        onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
+          doConfigureSysctl(threshold),
+      })
+    )
+  );
 
 /**
  * Ensure unprivileged port binding is configured for a service.

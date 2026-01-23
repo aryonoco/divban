@@ -14,7 +14,7 @@
 import { watch } from "node:fs";
 import { mkdir, writeFile as nodeWriteFile, rename, rm } from "node:fs/promises";
 import { type FileSink, Glob } from "bun";
-import { Effect, Option } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { extractCauseProps } from "../lib/match-helpers";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
@@ -55,19 +55,20 @@ const directoryError = (path: string, e: unknown): SystemError =>
 export const readFile = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
   Effect.gen(function* () {
     const file = Bun.file(path);
-    const exists = yield* Effect.tryPromise({
-      try: (): Promise<boolean> => file.exists(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
-          message: `File not found: ${path}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.tryPromise({
+        try: (): Promise<boolean> => file.exists(),
+        catch: (e): SystemError => fileReadError(path, e),
+      }),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.FILE_READ_FAILED as 27,
+            message: `File not found: ${path}`,
+          })
+      )
+    );
 
     return yield* Effect.tryPromise({
       try: (): Promise<string> => file.text(),
@@ -87,19 +88,20 @@ export const readLines = (path: AbsolutePath): Effect.Effect<string[], SystemErr
 export const readBytes = (path: AbsolutePath): Effect.Effect<Uint8Array, SystemError> =>
   Effect.gen(function* () {
     const file = Bun.file(path);
-    const exists = yield* Effect.tryPromise({
-      try: (): Promise<boolean> => file.exists(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
-          message: `File not found: ${path}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.tryPromise({
+        try: (): Promise<boolean> => file.exists(),
+        catch: (e): SystemError => fileReadError(path, e),
+      }),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.FILE_READ_FAILED as 27,
+            message: `File not found: ${path}`,
+          })
+      )
+    );
 
     return yield* Effect.tryPromise({
       try: (): Promise<Uint8Array> => file.bytes(),
@@ -226,19 +228,20 @@ export const copyFile = (
 ): Effect.Effect<void, SystemError> =>
   Effect.gen(function* () {
     const sourceFile = Bun.file(source);
-    const exists = yield* Effect.tryPromise({
-      try: (): Promise<boolean> => sourceFile.exists(),
-      catch: (e): SystemError => fileReadError(source, e),
-    });
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
-          message: `Source file not found: ${source}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.tryPromise({
+        try: (): Promise<boolean> => sourceFile.exists(),
+        catch: (e): SystemError => fileReadError(source, e),
+      }),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.FILE_READ_FAILED as 27,
+            message: `Source file not found: ${source}`,
+          })
+      )
+    );
 
     yield* Effect.tryPromise({
       try: (): Promise<number> => Bun.write(dest, sourceFile),
@@ -319,19 +322,20 @@ export const filesEqual = (
 export const getFileSize = (path: AbsolutePath): Effect.Effect<number, SystemError> =>
   Effect.gen(function* () {
     const file = Bun.file(path);
-    const exists = yield* Effect.tryPromise({
-      try: (): Promise<boolean> => file.exists(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
-          message: `File not found: ${path}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.tryPromise({
+        try: (): Promise<boolean> => file.exists(),
+        catch: (e): SystemError => fileReadError(path, e),
+      }),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.FILE_READ_FAILED as 27,
+            message: `File not found: ${path}`,
+          })
+      )
+    );
 
     return file.size;
   });
@@ -405,13 +409,13 @@ export const deleteFile = (path: AbsolutePath): Effect.Effect<void, SystemError>
     const file = Bun.file(path);
     const exists = yield* Effect.promise(() => file.exists());
 
-    if (!exists) {
-      return;
-    }
-
-    yield* Effect.tryPromise({
-      try: (): Promise<void> => file.delete(),
-      catch: (e): SystemError => fileWriteError(path, e),
+    yield* Effect.if(exists, {
+      onTrue: (): Effect.Effect<void, SystemError> =>
+        Effect.tryPromise({
+          try: (): Promise<void> => file.delete(),
+          catch: (e): SystemError => fileWriteError(path, e),
+        }),
+      onFalse: (): Effect.Effect<void, SystemError> => Effect.void,
     });
   });
 
@@ -424,16 +428,17 @@ export const deleteFileIfExists = (path: AbsolutePath): Effect.Effect<boolean, S
     const file = Bun.file(path);
     const exists = yield* Effect.promise(() => file.exists());
 
-    if (!exists) {
-      return false;
-    }
-
-    yield* Effect.tryPromise({
-      try: (): Promise<void> => file.delete(),
-      catch: (e): SystemError => fileWriteError(path, e),
+    return yield* Effect.if(exists, {
+      onTrue: (): Effect.Effect<boolean, SystemError> =>
+        pipe(
+          Effect.tryPromise({
+            try: (): Promise<void> => file.delete(),
+            catch: (e): SystemError => fileWriteError(path, e),
+          }),
+          Effect.as(true)
+        ),
+      onFalse: (): Effect.Effect<boolean, SystemError> => Effect.succeed(false),
     });
-
-    return true;
   });
 
 /**
@@ -467,19 +472,20 @@ export const hashContent = (content: string | Uint8Array): number | bigint => Bu
 export const sha256File = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
   Effect.gen(function* () {
     const file = Bun.file(path);
-    const exists = yield* Effect.tryPromise({
-      try: (): Promise<boolean> => file.exists(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-
-    if (!exists) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
-          message: `File not found: ${path}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.tryPromise({
+        try: (): Promise<boolean> => file.exists(),
+        catch: (e): SystemError => fileReadError(path, e),
+      }),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.FILE_READ_FAILED as 27,
+            message: `File not found: ${path}`,
+          })
+      )
+    );
 
     return yield* Effect.tryPromise({
       try: async (): Promise<string> => {

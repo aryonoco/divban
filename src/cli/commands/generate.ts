@@ -12,7 +12,7 @@
  * without affecting the running system.
  */
 
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -36,23 +36,23 @@ export interface GenerateOptions {
   logger: Logger;
 }
 
-/**
- * Execute the generate command.
- */
 export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
     const configPath = args.configPath;
     const outputDir = args.outputDir ?? ".";
 
-    if (!configPath) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Config path is required for generate command",
-        })
-      );
-    }
+    const validatedConfigPath = yield* pipe(
+      Effect.succeed(configPath),
+      Effect.filterOrFail(
+        (p): p is string => p !== undefined && p !== "",
+        () =>
+          new GeneralError({
+            code: ErrorCode.INVALID_ARGS as 2,
+            message: "Config path is required for generate command",
+          })
+      )
+    );
 
     logger.info(`Generating files for ${service.definition.name}...`);
 
@@ -61,12 +61,11 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
     const uid = UserIdSchema.make(1000);
     const gid = GroupIdSchema.make(1000);
 
-    const validPath = yield* toAbsolutePathEffect(configPath);
+    const validPath = yield* toAbsolutePathEffect(validatedConfigPath);
     const quadletDir = yield* outputQuadletDir(outputDir);
     const configDir = yield* outputConfigDir(outputDir);
     const system = yield* detectSystemCapabilities();
 
-    // Access service methods with proper config typing
     const files = yield* service.apply((s) =>
       Effect.gen(function* () {
         const config = yield* loadServiceConfig(validPath, s.configSchema);
@@ -91,34 +90,36 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
           logger
         );
 
-        // Generate files
         return yield* s.generate().pipe(Effect.provide(layer));
       })
     );
 
-    if (args.dryRun) {
-      logger.info("Would generate the following files:");
-
-      const logLines = [
-        ...[...files.quadlets].map(([name]) => `  quadlets/${name}`),
-        ...[...files.networks].map(([name]) => `  quadlets/${name}`),
-        ...[...files.volumes].map(([name]) => `  quadlets/${name}`),
-        ...[...files.environment].map(([name]) => `  config/${name}`),
-        ...[...files.other].map(([name]) => `  config/${name}`),
-      ];
-
-      yield* Effect.forEach(logLines, (line) => Effect.sync(() => logger.info(line)), {
-        discard: true,
+    const dryRunLog = (): Effect.Effect<void, never> =>
+      Effect.gen(function* () {
+        logger.info("Would generate the following files:");
+        const logLines = [
+          ...[...files.quadlets].map(([name]) => `  quadlets/${name}`),
+          ...[...files.networks].map(([name]) => `  quadlets/${name}`),
+          ...[...files.volumes].map(([name]) => `  quadlets/${name}`),
+          ...[...files.environment].map(([name]) => `  config/${name}`),
+          ...[...files.other].map(([name]) => `  config/${name}`),
+        ];
+        yield* Effect.forEach(logLines, (line) => Effect.sync(() => logger.info(line)), {
+          discard: true,
+        });
       });
 
-      return;
-    }
+    const writeFiles = (): Effect.Effect<void, DivbanEffectError> =>
+      Effect.gen(function* () {
+        yield* ensureDirectory(quadletDir);
+        yield* ensureDirectory(configDir);
+        yield* writeGeneratedFilesPreview(files, quadletDir, configDir);
+        const total = getFileCount(files);
+        logger.success(`Generated ${total} files in ${outputDir}/`);
+      });
 
-    yield* ensureDirectory(quadletDir);
-    yield* ensureDirectory(configDir);
-
-    yield* writeGeneratedFilesPreview(files, quadletDir, configDir);
-
-    const total = getFileCount(files);
-    logger.success(`Generated ${total} files in ${outputDir}/`);
+    yield* Effect.if(args.dryRun, {
+      onTrue: (): Effect.Effect<void, never> => dryRunLog(),
+      onFalse: (): Effect.Effect<void, DivbanEffectError> => writeFiles(),
+    });
   });

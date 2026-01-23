@@ -13,7 +13,7 @@
  * systemd sees updated quadlet files before starting services.
  */
 
-import { Effect, pipe } from "effect";
+import { Effect, Option, pipe } from "effect";
 import {
   ContainerError,
   ErrorCode,
@@ -223,16 +223,20 @@ export const startContainer = (
     const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    const container = stack.containers.find((c) => c.name === containerName);
-    if (!container) {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.CONTAINER_NOT_FOUND as 44,
-          message: `Container '${containerName}' not found in stack`,
-          container: containerName,
-        })
-      );
-    }
+    yield* pipe(
+      Option.fromNullable(stack.containers.find((c) => c.name === containerName)),
+      Option.match({
+        onNone: (): Effect.Effect<void, ContainerError> =>
+          Effect.fail(
+            new ContainerError({
+              code: ErrorCode.CONTAINER_NOT_FOUND as 44,
+              message: `Container '${containerName}' not found in stack`,
+              container: containerName,
+            })
+          ),
+        onSome: (): Effect.Effect<void, never> => Effect.void,
+      })
+    );
 
     yield* daemonReload(systemctlOpts);
 

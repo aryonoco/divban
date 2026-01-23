@@ -49,9 +49,6 @@ export interface DiffOptions {
   logger: Logger;
 }
 
-/**
- * Execute the diff command.
- */
 export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;
@@ -118,7 +115,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
 
           const system = yield* detectSystemCapabilities();
 
-          // Build user info for layer
           const user = pipe(
             Match.value(userInfo),
             Match.when(undefined, () => ({
@@ -164,12 +160,10 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
                 logger
               );
 
-              // Generate files
               return yield* s.generate().pipe(Effect.provide(layer));
             })
           );
 
-          // Collect all file entries
           const fileEntries: readonly { path: AbsolutePath; content: string }[] = [
             ...[...files.quadlets].map(([name, content]) => ({
               path: quadletFilePath(quadletDir, name),
@@ -193,7 +187,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
             })),
           ];
 
-          // Compute all diffs
           const diffs = yield* Effect.forEach(
             fileEntries,
             ({ path, content }) =>
@@ -204,7 +197,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
             { concurrency: 1 }
           );
 
-          // Partition diffs by status
           const newFiles = diffs.filter((d) => d.status === "new");
           const modifiedFiles = diffs.filter((d) => d.status === "modified");
           const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
@@ -259,7 +251,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
             discard: true,
           });
 
-          // Summary
           logger.info("");
           yield* pipe(
             Match.value(newFiles.length === 0 && modifiedFiles.length === 0),
@@ -278,9 +269,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
     );
   });
 
-/**
- * Compare a file with new content.
- */
 const compareFile = (
   path: AbsolutePath,
   newContent: string
@@ -305,11 +293,10 @@ const compareFile = (
               pipe(
                 Match.value(oldContent === newContent),
                 Match.when(true, () => ({ status: "unchanged" as const })),
-                Match.when(false, () => {
-                  // Generate simple line diff
-                  const diff = generateSimpleDiff(oldContent, newContent);
-                  return { status: "modified" as const, diff };
-                }),
+                Match.when(false, () => ({
+                  status: "modified" as const,
+                  diff: generateSimpleDiff(oldContent, newContent),
+                })),
                 Match.exhaustive
               ),
           });
@@ -320,31 +307,37 @@ const compareFile = (
   });
 
 /**
- * Generate a simple unified diff.
+ * Compare two lines and return diff output.
  */
-function generateSimpleDiff(oldContent: string, newContent: string): string {
+const compareLine = (oldLine: string | undefined, newLine: string | undefined): string | null =>
+  pipe(
+    Match.value({ oldLine, newLine }),
+    Match.when({ oldLine: Match.undefined, newLine: Match.undefined }, () => null),
+    Match.when(
+      { oldLine: Match.string, newLine: Match.undefined },
+      ({ oldLine: o }) => `      - ${o}`
+    ),
+    Match.when(
+      { oldLine: Match.undefined, newLine: Match.string },
+      ({ newLine: n }) => `      + ${n}`
+    ),
+    Match.when(
+      { oldLine: Match.string, newLine: Match.string },
+      ({ oldLine: o, newLine: n }): string | null => (o === n ? null : `      - ${o}\n      + ${n}`)
+    ),
+    Match.exhaustive
+  );
+
+/**
+ * Simplified line-by-line diff for quick visual comparison.
+ * Not a proper unified diff - just shows changed lines without context.
+ */
+const generateSimpleDiff = (oldContent: string, newContent: string): string => {
   const oldLines = oldContent.split("\n");
   const newLines = newContent.split("\n");
   const maxLen = Math.max(oldLines.length, newLines.length);
 
-  return Array.from({ length: maxLen }, (_, i) => {
-    const oldLine = oldLines[i]; // string | undefined with noUncheckedIndexedAccess
-    const newLine = newLines[i];
-
-    if (oldLine === newLine) {
-      return null;
-    }
-    if (oldLine !== undefined && newLine === undefined) {
-      return `      - ${oldLine}`;
-    }
-    if (oldLine === undefined && newLine !== undefined) {
-      return `      + ${newLine}`;
-    }
-    if (oldLine !== undefined && newLine !== undefined && oldLine !== newLine) {
-      return `      - ${oldLine}\n      + ${newLine}`;
-    }
-    return null;
-  })
+  return Array.from({ length: maxLen }, (_, i) => compareLine(oldLines[i], newLines[i]))
     .filter((line): line is string => line !== null)
     .join("\n");
-}
+};

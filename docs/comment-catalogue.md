@@ -19,7 +19,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ## Batch 1
 
-### `src/cli/commands/backup-config.ts`
+### `src/cli/commands/backup-config.ts` ✅
 
 **Line 50:** `/** File entry: archive path and content */`
 - Issue: Type alias comment restates the type definition without explaining purpose or usage context
@@ -62,14 +62,14 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/backup.ts`
+### `src/cli/commands/backup.ts` ✅
 
 **Line 37-39:** `/** Execute the backup command. */`
 - Issue: Restates function name
 
 ---
 
-### `src/cli/commands/diff.ts`
+### `src/cli/commands/diff.ts` ✅
 
 **Line 53-55:** `/** Execute the diff command. */`
 - Issue: Restates function name
@@ -103,7 +103,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/generate.ts`
+### `src/cli/commands/generate.ts` ✅
 
 **Line 39-41:** `/** Execute the generate command. */`
 - Issue: Restates function name
@@ -116,7 +116,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/logs.ts`
+### `src/cli/commands/logs.ts` ✅
 
 **Line 36-38:** `/** Execute the logs command. */`
 - Issue: Restates function name
@@ -137,7 +137,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ## Batch 2
 
-### `src/cli/commands/reload.ts`
+### ✅ `src/cli/commands/reload.ts`
 
 **Line 36-38:** `/** Execute the reload command. */`
 - Issue: Restates function name
@@ -162,7 +162,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/remove.ts`
+### ✅ `src/cli/commands/remove.ts`
 
 **Line 8-10:** `/** remove command - completely remove a service. */`
 - Issue: Restates module/function purpose evident from filename and context
@@ -211,7 +211,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/restart.ts`
+### ✅ `src/cli/commands/restart.ts`
 
 **Line 36-38:** `/** Execute the restart command. */`
 - Issue: Restates function name
@@ -233,7 +233,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/restore.ts`
+### ✅ `src/cli/commands/restore.ts`
 
 **Line 43-45:** `/** Context for restore operations. */`
 - Issue: Restates interface name
@@ -270,7 +270,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/secret.ts`
+### ✅ `src/cli/commands/secret.ts`
 
 **Line 57-59:** `/** Show a specific secret value. */`
 - Issue: Restates function name
@@ -294,7 +294,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ## Batch 3
 
-### `src/cli/commands/setup.ts`
+### `src/cli/commands/setup.ts` ✅
 
 **Line 54-56:** `/** Execute the setup command. */`
 - Issue: Restates function name
@@ -322,7 +322,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/start.ts`
+### `src/cli/commands/start.ts` ✅
 
 **Line 36-38:** `/** Execute the start command. */`
 - Issue: Restates function name
@@ -344,7 +344,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/status.ts`
+### `src/cli/commands/status.ts` ✅
 
 **Line 38-40:** `/** Execute the status command. */`
 - Issue: Restates function name
@@ -369,7 +369,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/stop.ts`
+### `src/cli/commands/stop.ts` ✅
 
 **Line 36-38:** `/** Execute the stop command. */`
 - Issue: Restates function name
@@ -391,7 +391,7 @@ This document catalogues comments that need rewriting because they describe **wh
 
 ---
 
-### `src/cli/commands/update.ts`
+### `src/cli/commands/update.ts` ✅
 
 **Line 31-33:** `/** Context for update operations. */`
 - Issue: Restates interface name

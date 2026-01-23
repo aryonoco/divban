@@ -34,9 +34,6 @@ export interface SecretOptions {
   logger: Logger;
 }
 
-/**
- * Execute secret command (router for subcommands).
- */
 export const executeSecret = (
   options: SecretOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
@@ -54,9 +51,6 @@ export const executeSecret = (
     )
   );
 
-/**
- * Show a specific secret value.
- */
 const executeSecretShow = (
   options: SecretOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
@@ -77,7 +71,6 @@ const executeSecretShow = (
       ),
       Match.orElse((name) =>
         Effect.gen(function* () {
-          // Get service user
           const username = yield* getServiceUsername(serviceName);
           const userResult = yield* Effect.either(getUserByName(username));
 
@@ -96,7 +89,6 @@ const executeSecretShow = (
               ),
             onRight: ({ homeDir }): ResultType =>
               Effect.gen(function* () {
-                // Get secret
                 const secretValue = yield* getServiceSecret(serviceName, name, homeDir);
                 // Output just the value (for scripting)
                 logger.raw(secretValue);
@@ -107,9 +99,6 @@ const executeSecretShow = (
     );
   });
 
-/**
- * List all available secrets for a service.
- */
 const executeSecretList = (
   options: SecretOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
@@ -117,7 +106,6 @@ const executeSecretList = (
     const { service, args, logger } = options;
     const serviceName = service.definition.name as ServiceName;
 
-    // Get service user
     const username = yield* getServiceUsername(serviceName);
     const userResult = yield* Effect.either(getUserByName(username));
 
@@ -136,7 +124,6 @@ const executeSecretList = (
         ),
       onRight: ({ homeDir }): ResultType =>
         Effect.gen(function* () {
-          // List secrets
           const secrets = yield* listServiceSecrets(serviceName, homeDir);
 
           yield* pipe(

@@ -427,11 +427,11 @@ export const containerImage = <const S extends string>(literal: S): ContainerIma
 export function pathJoin(base: AbsolutePath, ...segments: string[]): AbsolutePath;
 export function pathJoin(base: string, ...segments: string[]): string;
 export function pathJoin(base: string, ...segments: string[]): string {
-  if (segments.length === 0) {
-    return base;
-  }
-  // Normalize multiple slashes into single slashes
-  return pipe([base, ...segments].join("/"), collapseChar("/"));
+  // Short-circuit when no segments provided
+  return segments.length === 0
+    ? base
+    : // Normalize multiple slashes into single slashes
+      pipe([base, ...segments].join("/"), collapseChar("/"));
 }
 
 /**

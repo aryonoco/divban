@@ -162,12 +162,11 @@ export const recommendUserNs = (options: {
   needsHostFiles: boolean;
   needsPrivilegedPorts: boolean;
   maxIsolation: boolean;
-}): UserNamespace => {
-  if (options.maxIsolation) {
-    return createAutoNs();
-  }
-  if (options.needsHostFiles || options.needsPrivilegedPorts) {
-    return createKeepIdNs();
-  }
-  return createAutoNs();
-};
+}): UserNamespace =>
+  pipe(
+    Match.value(options),
+    Match.when({ maxIsolation: true }, () => createAutoNs()),
+    Match.when({ needsHostFiles: true }, () => createKeepIdNs()),
+    Match.when({ needsPrivilegedPorts: true }, () => createKeepIdNs()),
+    Match.orElse(() => createAutoNs())
+  );

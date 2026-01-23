@@ -40,18 +40,12 @@ export interface RestoreOptions {
   logger: Logger;
 }
 
-/**
- * Context for restore operations.
- */
 interface RestoreContext {
   readonly service: ExistentialService;
   readonly logger: Logger;
   readonly backupPath: AbsolutePath;
 }
 
-/**
- * Validate that service supports restore capability.
- */
 const validateRestoreCapability = (
   service: ExistentialService
 ): Effect.Effect<void, GeneralError> =>
@@ -69,17 +63,11 @@ const validateRestoreCapability = (
     Match.exhaustive
   );
 
-/**
- * Handle dry run mode for restore.
- */
 const handleDryRunRestore = (backupPath: string, logger: Logger): Effect.Effect<void> =>
   Effect.sync(() => {
     logger.info(`Dry run - would restore from: ${backupPath}`);
   });
 
-/**
- * Handle missing force flag for restore.
- */
 const handleMissingForce = (logger: Logger): Effect.Effect<never, GeneralError> => {
   logger.warn("This will overwrite existing data!");
   logger.warn("Use --force to skip this warning.");
@@ -91,9 +79,6 @@ const handleMissingForce = (logger: Logger): Effect.Effect<never, GeneralError> 
   );
 };
 
-/**
- * Validate backup path and force flag for non-dry-run case.
- */
 const validateForceAndPath = (
   backupPath: string,
   force: boolean,
@@ -106,9 +91,6 @@ const validateForceAndPath = (
     Match.exhaustive
   );
 
-/**
- * Process backup path based on dryRun flag.
- */
 const processBackupPath = (
   backupPath: string,
   args: ParsedArgs,
@@ -123,10 +105,7 @@ const processBackupPath = (
     Match.exhaustive
   );
 
-/**
- * Validate and prepare restore arguments. Returns AbsolutePath if valid.
- * Fails with appropriate error for dryRun or missing force.
- */
+/** Returns None for dry-run (already handled), Some(path) for real restore. */
 const validateRestoreArgs = (
   args: ParsedArgs,
   logger: Logger
@@ -148,9 +127,6 @@ const validateRestoreArgs = (
     })
   );
 
-/**
- * Format restore result based on output format.
- */
 const formatRestoreResult = (
   serviceName: string,
   format: "json" | "pretty",
@@ -170,9 +146,6 @@ const formatRestoreResult = (
     Match.exhaustive
   );
 
-/**
- * Load config for restore (optional).
- */
 const loadConfigForRestore = <C>(
   configPath: string | undefined,
   serviceName: ServiceName,
@@ -192,9 +165,6 @@ const loadConfigForRestore = <C>(
     })
   );
 
-/**
- * Build config and paths from config result.
- */
 const buildConfigAndPaths = <C extends object>(
   configResult: Either.Either<C, DivbanEffectError>,
   prereqs: Prerequisites,
@@ -219,9 +189,6 @@ const buildConfigAndPaths = <C extends object>(
   return { config, paths };
 };
 
-/**
- * Perform the actual restore operation.
- */
 const performRestore = (
   context: RestoreContext,
   args: ParsedArgs
@@ -265,9 +232,6 @@ const performRestore = (
     yield* formatRestoreResult(service.definition.name, args.format, logger);
   });
 
-/**
- * Execute the restore command (main entry point).
- */
 export const executeRestore = (options: RestoreOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, args, logger } = options;

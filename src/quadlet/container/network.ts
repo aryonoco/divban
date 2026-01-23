@@ -66,12 +66,8 @@ export const formatPortMapping = (port: PortMapping): string => {
 export const formatNetworkMode = (
   mode: "pasta" | "slirp4netns" | "host" | "none",
   mapHostLoopback?: string
-): string => {
-  if (mode !== "pasta" || !mapHostLoopback) {
-    return mode;
-  }
-  return `${mode}:--map-host-loopback=${mapHostLoopback}`;
-};
+): string =>
+  mode !== "pasta" || !mapHostLoopback ? mode : `${mode}:--map-host-loopback=${mapHostLoopback}`;
 
 export const getNetworkEntries = (config: ContainerNetworkConfig): Entries =>
   concat(

@@ -140,14 +140,10 @@ const containsAnyPattern = (msg: string, patterns: readonly string[]): boolean =
  */
 export const isTransientSystemError = (error: SystemError | GeneralError): boolean => {
   const msg = error.message.toLowerCase();
-
-  // Permanent errors take precedence - fail fast
-  if (containsAnyPattern(msg, PERMANENT_ERROR_PATTERNS)) {
-    return false;
-  }
-
-  // Check for transient patterns
-  return containsAnyPattern(msg, TRANSIENT_ERROR_PATTERNS);
+  return (
+    !containsAnyPattern(msg, PERMANENT_ERROR_PATTERNS) &&
+    containsAnyPattern(msg, TRANSIENT_ERROR_PATTERNS)
+  );
 };
 
 /**
@@ -156,16 +152,10 @@ export const isTransientSystemError = (error: SystemError | GeneralError): boole
  */
 export const isTransientServiceError = (error: ServiceError): boolean => {
   const msg = error.message.toLowerCase();
-
-  // Permanent errors take precedence
-  if (containsAnyPattern(msg, PERMANENT_ERROR_PATTERNS)) {
-    return false;
-  }
-
-  // Check transient patterns (general + service-specific)
   return (
-    containsAnyPattern(msg, TRANSIENT_ERROR_PATTERNS) ||
-    containsAnyPattern(msg, SERVICE_TRANSIENT_PATTERNS)
+    !containsAnyPattern(msg, PERMANENT_ERROR_PATTERNS) &&
+    (containsAnyPattern(msg, TRANSIENT_ERROR_PATTERNS) ||
+      containsAnyPattern(msg, SERVICE_TRANSIENT_PATTERNS))
   );
 };
 

@@ -28,9 +28,6 @@ export interface UpdateOptions {
   logger: Logger;
 }
 
-/**
- * Context for update operations.
- */
 interface UpdateContext {
   readonly username: Username;
   readonly uid: UserId;
@@ -38,24 +35,15 @@ interface UpdateContext {
   readonly serviceName: ServiceName;
 }
 
-/**
- * Discriminated union for update status.
- */
 type UpdateStatus =
   | { readonly kind: "NoUpdates" }
   | { readonly kind: "UpdatesAvailable" }
   | { readonly kind: "UpToDate" };
 
-/** Update status: no updates available */
 const NO_UPDATES: UpdateStatus = { kind: "NoUpdates" };
-/** Update status: updates are available */
 const UPDATES_AVAILABLE: UpdateStatus = { kind: "UpdatesAvailable" };
-/** Update status: all images up to date */
 const UP_TO_DATE: UpdateStatus = { kind: "UpToDate" };
 
-/**
- * Resolve service user or fail with appropriate error.
- */
 const resolveUpdateServiceUser = (
   serviceName: ServiceName
 ): Effect.Effect<
@@ -77,9 +65,6 @@ const resolveUpdateServiceUser = (
     return { username, uid: user.uid };
   });
 
-/**
- * Build podman auto-update command arguments.
- */
 const buildAutoUpdateArgs = (
   username: Username,
   uid: UserId,
@@ -96,9 +81,6 @@ const buildAutoUpdateArgs = (
   return dryRun ? [...baseArgs, "--dry-run"] : [...baseArgs];
 };
 
-/**
- * Check for available updates using podman auto-update --dry-run.
- */
 const checkForUpdates = (
   context: UpdateContext
 ): Effect.Effect<string, GeneralError | SystemError> =>
@@ -117,9 +99,6 @@ const checkForUpdates = (
     )
   );
 
-/**
- * Apply updates using podman auto-update.
- */
 const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError | SystemError> =>
   exec(buildAutoUpdateArgs(context.username, context.uid, false), {
     captureStdout: true,
@@ -151,9 +130,6 @@ const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError 
     )
   );
 
-/**
- * Parse update check output into discriminated union.
- */
 const parseUpdateStatus = (output: string): UpdateStatus =>
   pipe(
     Match.value(output),
@@ -168,9 +144,6 @@ const parseUpdateStatus = (output: string): UpdateStatus =>
     Match.orElse(() => UP_TO_DATE)
   );
 
-/**
- * Handle the update check result.
- */
 const handleUpdateResult = (
   status: UpdateStatus,
   context: UpdateContext
@@ -193,15 +166,9 @@ const handleUpdateResult = (
     Match.exhaustive
   );
 
-/**
- * Handle dry run mode.
- */
 const handleDryRun = (logger: Logger): Effect.Effect<void> =>
   Effect.sync(() => logger.info("Dry run - would check for updates and restart if needed"));
 
-/**
- * Perform the actual update check and apply.
- */
 const performUpdate = (context: UpdateContext): Effect.Effect<void, GeneralError | SystemError> =>
   Effect.gen(function* () {
     const output = yield* checkForUpdates(context);
@@ -209,9 +176,6 @@ const performUpdate = (context: UpdateContext): Effect.Effect<void, GeneralError
     yield* handleUpdateResult(status, context);
   });
 
-/**
- * Execute the update command (main entry point).
- */
 export const executeUpdate = (
   options: UpdateOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>

@@ -13,7 +13,7 @@
  * uses a state machine to handle various formats (512m, 2G, 1024).
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Option, pipe } from "effect";
 import { isDigit, isWhitespace } from "../../lib/char";
 import { ErrorCode, GeneralError } from "../../lib/errors";
 import { chars } from "../../lib/str";
@@ -200,21 +200,25 @@ export const parseMemorySize = (size: string): Effect.Effect<number, GeneralErro
     })
   );
 
+/** Memory size formatting thresholds (descending order) */
+const MEMORY_SIZE_THRESHOLDS: readonly { threshold: number; format: (b: number) => string }[] = [
+  { threshold: 1024 ** 3, format: (b): string => `${Math.floor(b / 1024 ** 3)}g` },
+  { threshold: 1024 ** 2, format: (b): string => `${Math.floor(b / 1024 ** 2)}m` },
+  { threshold: 1024, format: (b): string => `${Math.floor(b / 1024)}k` },
+];
+
 /**
  * Format bytes as a memory size string.
  */
-export const formatMemorySize = (bytes: number): string => {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${Math.floor(bytes / (1024 * 1024 * 1024))}g`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${Math.floor(bytes / (1024 * 1024))}m`;
-  }
-  if (bytes >= 1024) {
-    return `${Math.floor(bytes / 1024)}k`;
-  }
-  return `${bytes}`;
-};
+export const formatMemorySize = (bytes: number): string =>
+  pipe(
+    MEMORY_SIZE_THRESHOLDS,
+    Arr.findFirst((t) => bytes >= t.threshold),
+    Option.match({
+      onNone: (): string => `${bytes}`,
+      onSome: (t): string => t.format(bytes),
+    })
+  );
 
 /**
  * Common resource profiles.

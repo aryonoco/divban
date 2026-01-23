@@ -110,45 +110,47 @@ export const center = (text: string, width: number): string => {
   return " ".repeat(leftPadding) + text + " ".repeat(rightPadding);
 };
 
+/** Truncation state - mutable to avoid O(n^2) spread in reduce */
+interface TruncateState {
+  width: number;
+  chars: string[];
+  done: boolean;
+}
+
+/** Process single char in truncation - mutates state to avoid spread */
+const processChar = (state: TruncateState, char: string, targetWidth: number): TruncateState => {
+  const charWidth = Bun.stringWidth(char);
+  const wouldExceed = state.width + charWidth > targetWidth;
+  state.done = state.done || wouldExceed;
+  state.width = state.done ? state.width : state.width + charWidth;
+  state.done ? undefined : state.chars.push(char);
+  return state;
+};
+
+/** Build truncated string using reduce with mutable accumulator */
+const buildTruncated = (chars: readonly string[], targetWidth: number, ellipsis: string): string =>
+  chars
+    .reduce((state, char) => processChar(state, char, targetWidth), {
+      width: 0,
+      chars: [],
+      done: false,
+    } as TruncateState)
+    .chars.join("") + ellipsis;
+
 /**
  * Truncate a string to fit within a specific display width.
  * Adds ellipsis if truncated.
  */
-export const truncate = (text: string, maxWidth: number, ellipsis = "..."): string => {
-  const textWidth = Bun.stringWidth(text);
-  if (textWidth <= maxWidth) {
-    return text;
-  }
-
-  const ellipsisWidth = Bun.stringWidth(ellipsis);
-  const targetWidth = maxWidth - ellipsisWidth;
-
-  if (targetWidth <= 0) {
-    return ellipsis.slice(0, maxWidth);
-  }
-
-  const chars = Array.from(text);
-
-  /**
-   * Collect chars while width budget remains.
-   */
-  const go = (i: number, width: number, acc: string): string => {
-    if (i >= chars.length) {
-      return acc + ellipsis;
-    }
-    const char = chars[i];
-    if (char === undefined) {
-      return acc + ellipsis;
-    }
-    const charWidth = Bun.stringWidth(char);
-    if (width + charWidth > targetWidth) {
-      return acc + ellipsis;
-    }
-    return go(i + 1, width + charWidth, acc + char);
-  };
-
-  return go(0, 0, "");
-};
+export const truncate = (text: string, maxWidth: number, ellipsis = "..."): string =>
+  pipe(Bun.stringWidth(text), (textWidth) =>
+    textWidth <= maxWidth
+      ? text
+      : pipe(maxWidth - Bun.stringWidth(ellipsis), (targetWidth) =>
+          targetWidth <= 0
+            ? ellipsis.slice(0, maxWidth)
+            : buildTruncated(Array.from(text), targetWidth, ellipsis)
+        )
+  );
 
 // ============================================================================
 // Promise Inspection (Debug Utilities)
@@ -351,16 +353,11 @@ export const base64DecodeBytes = (encoded: string): Uint8Array => {
 /** Remove padding chars */
 const stripPadding = filterCharsToString((c) => c !== "=");
 
+/** URL-safe character mapping */
+const URL_SAFE_MAP: Readonly<Record<string, string>> = { "+": "-", "/": "_" };
+
 /** Convert +/ to URL-safe -_ */
-const toUrlSafe = mapCharsToString((c) => {
-  if (c === "+") {
-    return "-";
-  }
-  if (c === "/") {
-    return "_";
-  }
-  return c;
-});
+const toUrlSafe = mapCharsToString((c) => URL_SAFE_MAP[c] ?? c);
 
 /**
  * URL-safe base64 encoding.

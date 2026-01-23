@@ -81,28 +81,26 @@ export const lookupUserHomeFromPasswd = (
  * Falls back to /home/<username> if user not found.
  *
  */
-export const userHomeDir = (username: string): AbsolutePathType => {
-  const cached = homeCache.get(username);
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  const fallback = pathJoin(path("/home"), username);
-
-  let result: AbsolutePathType;
-  try {
-    const content = readFileSync("/etc/passwd", "utf-8");
-    result = pipe(
-      lookupUserHomeFromPasswd(content, username),
-      Option.getOrElse(() => fallback)
-    );
-  } catch {
-    result = fallback;
-  }
-
-  homeCache.set(username, result);
-  return result;
-};
+export const userHomeDir = (username: string): AbsolutePathType =>
+  pipe(
+    Option.fromNullable(homeCache.get(username)),
+    Option.getOrElse(() => {
+      const fallback = pathJoin(path("/home"), username);
+      const result = pipe(
+        Effect.try(() => readFileSync("/etc/passwd", "utf-8")),
+        Effect.map((content) =>
+          pipe(
+            lookupUserHomeFromPasswd(content, username),
+            Option.getOrElse(() => fallback)
+          )
+        ),
+        Effect.catchAll(() => Effect.succeed(fallback)),
+        Effect.runSync
+      );
+      homeCache.set(username, result);
+      return result;
+    })
+  );
 
 export const userQuadletDir = (homeDir: AbsolutePathType): AbsolutePathType =>
   pathJoin(homeDir, ".config/containers/systemd");

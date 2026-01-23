@@ -12,7 +12,7 @@
  * and provides useful parsed data when validation succeeds.
  */
 
-import { Array as Arr, Effect, Either, Option, ParseResult, Schema, pipe } from "effect";
+import { Effect, Either, Option, ParseResult, Schema, pipe } from "effect";
 import {
   isAlphaNum,
   isDigit,
@@ -89,20 +89,15 @@ export const decodeToEffect = <A, I = A>(
  * Parse a natural number (non-negative integer) from string.
  * Returns None for empty, non-digit, or leading zeros (except "0").
  */
-export const parseNat = (s: string): Option.Option<number> => {
-  if (s.length === 0) {
-    return Option.none();
-  }
-  if (!all(isDigit)(s)) {
-    return Option.none();
-  }
-  // Reject leading zeros except "0" itself
-  if (s.length > 1 && s.startsWith("0")) {
-    return Option.none();
-  }
-  const n = Number.parseInt(s, 10);
-  return Number.isNaN(n) ? Option.none() : Option.some(n);
-};
+export const parseNat = (s: string): Option.Option<number> =>
+  pipe(
+    Option.some(s),
+    Option.filter((str) => str.length > 0),
+    Option.filter(all(isDigit)),
+    Option.filter((str) => str.length === 1 || !str.startsWith("0")),
+    Option.map((str) => Number.parseInt(str, 10)),
+    Option.filter((n) => !Number.isNaN(n))
+  );
 
 /**
  * Parse an octet (0-255).
@@ -124,16 +119,22 @@ export type IPv4Octets = readonly [number, number, number, number];
  * Parse IPv4 into structured octets.
  * "192.168.1.1" -> Some([192, 168, 1, 1])
  */
-export const parseIPv4 = (s: string): Option.Option<IPv4Octets> => {
-  const parts = s.split(".");
-  if (parts.length !== 4) {
-    return Option.none();
-  }
-
-  const octets = pipe(parts, Arr.filterMap(parseOctet));
-
-  return octets.length === 4 ? Option.some(octets as unknown as IPv4Octets) : Option.none();
-};
+export const parseIPv4 = (s: string): Option.Option<IPv4Octets> =>
+  pipe(
+    Option.some(s.split(".")),
+    Option.filter((parts) => parts.length === 4),
+    Option.flatMap((parts) =>
+      pipe(
+        Option.all([
+          parseOctet(parts[0] ?? ""),
+          parseOctet(parts[1] ?? ""),
+          parseOctet(parts[2] ?? ""),
+          parseOctet(parts[3] ?? ""),
+        ]),
+        Option.map((octets) => octets as IPv4Octets)
+      )
+    )
+  );
 
 /** Validator derived from parser */
 export const isValidIPv4 = (s: string): boolean => Option.isSome(parseIPv4(s));
@@ -164,30 +165,35 @@ const countSubstring =
   (s: string): number =>
     sub.length === 0 ? 0 : countStep(sub, s)({ pos: 0, count: 0 }).count;
 
+/** State for IPv6 parsing */
+interface IPv6ParseState {
+  readonly groups: readonly string[];
+  readonly hasDoubleColon: boolean;
+}
+
+/** Build IPv6 parse state from input string */
+const buildIPv6State = (s: string): IPv6ParseState => ({
+  groups: s.split("::").flatMap((g) => (g === "" ? [] : g.split(":"))),
+  hasDoubleColon: s.includes("::"),
+});
+
+/** Maximum allowed groups based on compression */
+const maxGroupsFor = (state: IPv6ParseState): number => (state.hasDoubleColon ? 7 : 8);
+
 /**
  * Validate IPv6 address (allows :: compression).
  * Parser returns Option<readonly string[]> of normalized groups.
  */
-export const parseIPv6Groups = (s: string): Option.Option<readonly string[]> => {
-  if (!s.includes(":")) {
-    return Option.none();
-  }
-  if (countSubstring("::")(s) > 1) {
-    return Option.none();
-  }
-
-  const groups = s.split("::").flatMap((g) => (g === "" ? [] : g.split(":")));
-  const maxGroups = s.includes("::") ? 7 : 8;
-
-  if (groups.length > maxGroups) {
-    return Option.none();
-  }
-  if (!groups.every((g) => isHexGroup(g) || g === "")) {
-    return Option.none();
-  }
-
-  return Option.some(groups);
-};
+export const parseIPv6Groups = (s: string): Option.Option<readonly string[]> =>
+  pipe(
+    Option.some(s),
+    Option.filter((str) => str.includes(":")),
+    Option.filter((str) => countSubstring("::")(str) <= 1),
+    Option.map(buildIPv6State),
+    Option.filter((state) => state.groups.length <= maxGroupsFor(state)),
+    Option.filter((state) => state.groups.every((g) => isHexGroup(g) || g === "")),
+    Option.map((state) => state.groups)
+  );
 
 export const isValidIPv6 = (s: string): boolean => Option.isSome(parseIPv6Groups(s));
 export const isValidIP = (s: string): boolean => isValidIPv4(s) || isValidIPv6(s);
@@ -205,36 +211,41 @@ export interface ParsedEmail {
 /** Valid email character (non-whitespace, non-@) */
 const isEmailChar = (c: string): boolean => !isWhitespace(c) && c !== "@";
 
+/** State for email parsing */
+interface EmailParseState {
+  readonly local: string;
+  readonly domain: string;
+}
+
+/** Build email parse state from input string */
+const buildEmailState = (s: string): EmailParseState => {
+  const atIdx = s.indexOf("@");
+  return {
+    local: s.slice(0, Math.max(0, atIdx)),
+    domain: s.slice(atIdx + 1),
+  };
+};
+
+/** Check if domain has a dot in a valid position (not first or last) */
+const hasDotInMiddle = (domain: string): boolean => {
+  const dotIdx = domain.indexOf(".");
+  return dotIdx > 0 && dotIdx < domain.length - 1;
+};
+
 /**
  * Parse email into local@domain structure.
  */
-export const parseEmail = (s: string): Option.Option<ParsedEmail> => {
-  if (s.length === 0 || s.length > 254) {
-    return Option.none();
-  }
-
-  const atIdx = s.indexOf("@");
-  if (atIdx < 1) {
-    return Option.none();
-  }
-
-  const local = s.slice(0, atIdx);
-  const domain = s.slice(atIdx + 1);
-
-  if (!all(isEmailChar)(local)) {
-    return Option.none();
-  }
-  if (!all(isEmailChar)(domain)) {
-    return Option.none();
-  }
-
-  const dotIdx = domain.indexOf(".");
-  if (dotIdx <= 0 || dotIdx >= domain.length - 1) {
-    return Option.none();
-  }
-
-  return Option.some({ local, domain });
-};
+export const parseEmail = (s: string): Option.Option<ParsedEmail> =>
+  pipe(
+    Option.some(s),
+    Option.filter((str) => str.length > 0 && str.length <= 254),
+    Option.filter((str) => str.indexOf("@") >= 1),
+    Option.map(buildEmailState),
+    Option.filter((state) => all(isEmailChar)(state.local)),
+    Option.filter((state) => all(isEmailChar)(state.domain)),
+    Option.filter((state) => hasDotInMiddle(state.domain)),
+    Option.map((state): ParsedEmail => ({ local: state.local, domain: state.domain }))
+  );
 
 export const isValidEmail = (s: string): boolean => Option.isSome(parseEmail(s));
 
@@ -310,56 +321,75 @@ const isImageNameChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_./-")
 /** Valid tag char: [a-zA-Z0-9_.-] */
 const isTagChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_.-")(c);
 
+/** State for container image parsing */
+interface ImageParserState {
+  readonly remaining: string;
+  readonly digest: Option.Option<string>;
+  readonly tag: Option.Option<string>;
+}
+
+/** Initial state from input string */
+const initialImageState = (s: string): ImageParserState => ({
+  remaining: s,
+  digest: Option.none(),
+  tag: Option.none(),
+});
+
+/** Extract @sha256:digest if present */
+const extractDigest = (state: ImageParserState): Option.Option<ImageParserState> => {
+  const digestIdx = state.remaining.indexOf("@sha256:");
+  return digestIdx === -1
+    ? Option.some(state)
+    : pipe(
+        Option.some(state.remaining.slice(digestIdx + 8)),
+        Option.filter((digestStr) => digestStr.length > 0 && all(isLowerHex)(digestStr)),
+        Option.map((digestStr) => ({
+          remaining: state.remaining.slice(0, digestIdx),
+          digest: Option.some(digestStr),
+          tag: state.tag,
+        }))
+      );
+};
+
+/** Extract :tag if present */
+const extractTag = (state: ImageParserState): Option.Option<ImageParserState> => {
+  const colonIdx = state.remaining.indexOf(":");
+  return colonIdx === -1
+    ? Option.some(state)
+    : pipe(
+        Option.some(state.remaining.slice(colonIdx + 1)),
+        Option.filter((tagStr) => tagStr.length > 0 && all(isTagChar)(tagStr)),
+        Option.map((tagStr) => ({
+          remaining: state.remaining.slice(0, colonIdx),
+          digest: state.digest,
+          tag: Option.some(tagStr),
+        }))
+      );
+};
+
+/** Finalize image by validating name */
+const finalizeImage = (state: ImageParserState): Option.Option<ParsedContainerImage> =>
+  pipe(
+    Option.some(state),
+    Option.filter((s) => s.remaining.length > 0 && all(isImageNameChar)(s.remaining)),
+    Option.map((s) => ({
+      name: s.remaining,
+      tag: s.tag,
+      digest: s.digest,
+    }))
+  );
+
 /**
  * Parse container image: name[:tag][@sha256:digest]
  */
-export const parseContainerImage = (s: string): Option.Option<ParsedContainerImage> => {
-  let remaining = s;
-  let digest: Option.Option<string> = Option.none();
-
-  // Extract @sha256:digest if present
-  const digestIdx = s.indexOf("@sha256:");
-  if (digestIdx !== -1) {
-    const digestStr = s.slice(digestIdx + 8);
-    if (digestStr.length === 0) {
-      return Option.none();
-    }
-    if (!all(isLowerHex)(digestStr)) {
-      return Option.none();
-    }
-    digest = Option.some(digestStr);
-    remaining = s.slice(0, digestIdx);
-  }
-
-  // Extract :tag if present
-  let tag: Option.Option<string> = Option.none();
-  const colonIdx = remaining.indexOf(":");
-  let name: string;
-
-  if (colonIdx !== -1) {
-    const tagStr = remaining.slice(colonIdx + 1);
-    if (tagStr.length === 0) {
-      return Option.none();
-    }
-    if (!all(isTagChar)(tagStr)) {
-      return Option.none();
-    }
-    tag = Option.some(tagStr);
-    name = remaining.slice(0, colonIdx);
-  } else {
-    name = remaining;
-  }
-
-  // Validate name
-  if (name.length === 0) {
-    return Option.none();
-  }
-  if (!all(isImageNameChar)(name)) {
-    return Option.none();
-  }
-
-  return Option.some({ name, tag, digest });
-};
+export const parseContainerImage = (s: string): Option.Option<ParsedContainerImage> =>
+  pipe(
+    initialImageState(s),
+    Option.some,
+    Option.flatMap(extractDigest),
+    Option.flatMap(extractTag),
+    Option.flatMap(finalizeImage)
+  );
 
 export const isValidContainerImage = (s: string): boolean => Option.isSome(parseContainerImage(s));
 

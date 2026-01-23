@@ -48,16 +48,17 @@ export const generatePassword = (length = 32): string => {
    * Tail-recursive accumulator.
    * Generates random bytes, filters valid chars, recurses until done.
    */
-  const go = (needed: number, acc: string): string => {
-    if (needed <= 0) {
-      return acc;
-    }
-    const bytes = new Uint8Array(needed * 2);
-    crypto.getRandomValues(bytes);
-    const chars = charsFromBytes(bytes);
-    const taken = chars.slice(0, needed);
-    return go(needed - taken.length, acc + taken);
-  };
+  const go = (needed: number, acc: string): string =>
+    needed <= 0
+      ? acc
+      : pipe(
+          new Uint8Array(needed * 2),
+          (bytes) => {
+            crypto.getRandomValues(bytes);
+            return charsFromBytes(bytes).slice(0, needed);
+          },
+          (taken) => go(needed - taken.length, acc + taken)
+        );
 
   return go(length, "");
 };

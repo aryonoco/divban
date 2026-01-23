@@ -26,20 +26,20 @@ const QUOTE_ESCAPE_MAP: ReadonlyMap<string, string> = new Map([['"', '\\"']]);
 const escapeQuotes = escapeWith(QUOTE_ESCAPE_MAP);
 
 /**
+ * Check if a value needs quoting in Caddyfile format.
+ */
+const needsQuoting = (value: string): boolean =>
+  value.includes(" ") ||
+  value.includes('"') ||
+  value.includes("{") ||
+  value.includes("}") ||
+  value.includes("#");
+
+/**
  * Escape a value for Caddyfile format.
  */
-export const escapeValue = (value: string): string => {
-  if (
-    value.includes(" ") ||
-    value.includes('"') ||
-    value.includes("{") ||
-    value.includes("}") ||
-    value.includes("#")
-  ) {
-    return `"${escapeQuotes(value)}"`;
-  }
-  return value;
-};
+export const escapeValue = (value: string): string =>
+  needsQuoting(value) ? `"${escapeQuotes(value)}"` : value;
 
 /**
  * Create indentation string.

@@ -44,6 +44,29 @@ const execError = (command: string, e: unknown): SystemError =>
     ...extractCauseProps(e),
   });
 
+/** Validated command with guaranteed first element */
+interface ValidatedCommand {
+  readonly cmd: string;
+  readonly args: readonly string[];
+}
+
+/** Validate command array and extract cmd + args */
+const validateCommand = (
+  command: readonly string[]
+): Effect.Effect<ValidatedCommand, GeneralError> =>
+  pipe(
+    Effect.succeed(command),
+    Effect.filterOrFail(
+      (c): c is readonly [string, ...string[]] => c.length > 0 && c[0] !== undefined && c[0] !== "",
+      () =>
+        new GeneralError({
+          code: ErrorCode.INVALID_ARGS as 2,
+          message: "Command array cannot be empty",
+        })
+    ),
+    Effect.map(([cmd, ...args]): ValidatedCommand => ({ cmd, args }))
+  );
+
 /**
  * Execute a command and return the result.
  */
@@ -52,24 +75,7 @@ export const exec = (
   options: ExecOptions = {}
 ): Effect.Effect<ExecResult, SystemError | GeneralError> =>
   Effect.gen(function* () {
-    if (command.length === 0) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Command array cannot be empty",
-        })
-      );
-    }
-
-    const [cmd, ...args] = command;
-    if (!cmd) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Command cannot be empty",
-        })
-      );
-    }
+    const { cmd, args } = yield* validateCommand(command);
 
     const env = {
       ...Bun.env,
@@ -132,21 +138,19 @@ export const execSuccess = (
   command: readonly string[],
   options: ExecOptions = {}
 ): Effect.Effect<ExecResult, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const result = yield* exec(command, options);
-
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr.trim();
-      return yield* Effect.fail(
-        new SystemError({
+  pipe(
+    exec(command, options),
+    Effect.filterOrFail(
+      (result): result is ExecResult => result.exitCode === 0,
+      (result) => {
+        const stderr = result.stderr.trim();
+        return new SystemError({
           code: ErrorCode.EXEC_FAILED as 26,
           message: `Command failed with exit code ${result.exitCode}: ${command.join(" ")}${stderr ? `\n${stderr}` : ""}`,
-        })
-      );
-    }
-
-    return result;
-  });
+        });
+      }
+    )
+  );
 
 /**
  * Execute a command and return stdout on success.
@@ -199,6 +203,21 @@ const buildShellEnv = (options: ShellOptions): Record<string, string | undefined
     : {}),
 });
 
+/** Build shell command with nothrow for shell() */
+const buildShellCommandNothrow = (command: string, options: ShellOptions): ReturnType<typeof $> =>
+  pipe(
+    $`${{ raw: command }}`.nothrow().quiet(),
+    (cmd) =>
+      pipe(
+        Option.fromNullable(options.cwd),
+        Option.match({
+          onNone: (): ReturnType<typeof $> => cmd,
+          onSome: (cwd): ReturnType<typeof $> => cmd.cwd(cwd),
+        })
+      ),
+    (cmd) => cmd.env(buildShellEnv(options))
+  );
+
 /**
  * Execute a shell command with piping support using Bun Shell.
  */
@@ -208,15 +227,7 @@ export const shell = (
 ): Effect.Effect<ExecResult, SystemError> =>
   Effect.tryPromise({
     try: async (): Promise<ExecResult> => {
-      let cmd = $`${{ raw: command }}`.nothrow().quiet();
-
-      if (options.cwd) {
-        cmd = cmd.cwd(options.cwd);
-      }
-
-      cmd = cmd.env(buildShellEnv(options));
-
-      const result = await cmd;
+      const result = await buildShellCommandNothrow(command, options);
       return {
         exitCode: result.exitCode,
         stdout: result.stdout.toString(),
@@ -234,17 +245,7 @@ export const shellText = (
   options: ShellOptions = {}
 ): Effect.Effect<string, SystemError> =>
   Effect.tryPromise({
-    try: (): Promise<string> => {
-      let cmd = $`${{ raw: command }}`.quiet();
-
-      if (options.cwd) {
-        cmd = cmd.cwd(options.cwd);
-      }
-
-      cmd = cmd.env(buildShellEnv(options));
-
-      return cmd.text();
-    },
+    try: (): Promise<string> => buildShellCommand(command, options).text(),
     catch: (e): SystemError => execError(command, e),
   });
 
@@ -256,17 +257,8 @@ export const shellLines = (
   options: ShellOptions = {}
 ): Effect.Effect<readonly string[], SystemError> =>
   Effect.tryPromise({
-    try: async (): Promise<readonly string[]> => {
-      let cmd = $`${{ raw: command }}`.quiet();
-
-      if (options.cwd) {
-        cmd = cmd.cwd(options.cwd);
-      }
-
-      cmd = cmd.env(buildShellEnv(options));
-
-      return await Array.fromAsync(cmd.lines());
-    },
+    try: async (): Promise<readonly string[]> =>
+      await Array.fromAsync(buildShellCommand(command, options).lines()),
     catch: (e): SystemError => execError(command, e),
   });
 
@@ -363,16 +355,6 @@ export const shellBlob = (
   options: ShellOptions = {}
 ): Effect.Effect<Blob, SystemError> =>
   Effect.tryPromise({
-    try: async (): Promise<Blob> => {
-      let cmd = $`${{ raw: command }}`.quiet();
-
-      if (options.cwd) {
-        cmd = cmd.cwd(options.cwd);
-      }
-
-      cmd = cmd.env(buildShellEnv(options));
-
-      return await cmd.blob();
-    },
+    try: async (): Promise<Blob> => await buildShellCommand(command, options).blob(),
     catch: (e): SystemError => execError(command, e),
   });

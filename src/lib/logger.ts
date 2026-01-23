@@ -10,7 +10,7 @@
  * Uses Bun.color() for automatic terminal capability detection.
  */
 
-import { Effect, FiberRef, Option } from "effect";
+import { Effect, FiberRef, Match, Option, pipe } from "effect";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -83,18 +83,18 @@ export const createLogger = (options: LoggerOptions): Logger => {
   const applyColor = (color: ColorName, text: string): string =>
     useColor ? colorize(color, text) : text;
 
-  const formatContext = (ctx?: Record<string, unknown>): string => {
-    if (!ctx || Object.keys(ctx).length === 0) {
-      return "";
-    }
-
-    if (options.format === "json") {
-      return ` ${JSON.stringify(ctx)}`;
-    }
-
-    // Use Bun.inspect for pretty debug output
-    return ` ${Bun.inspect(ctx, { colors: useColor, depth: 3 })}`;
-  };
+  const formatContext = (ctx?: Record<string, unknown>): string =>
+    pipe(
+      Option.fromNullable(ctx),
+      Option.filter((c) => Object.keys(c).length > 0),
+      Option.match({
+        onNone: (): string => "",
+        onSome: (c): string =>
+          options.format === "json"
+            ? ` ${JSON.stringify(c)}`
+            : ` ${Bun.inspect(c, { colors: useColor, depth: 3 })}`,
+      })
+    );
 
   const formatPrefix = (level: LogLevel): string => {
     const levelColors: Record<LogLevel, ColorName> = {
@@ -122,11 +122,7 @@ export const createLogger = (options: LoggerOptions): Logger => {
       ...context,
     });
 
-  const log = (level: LogLevel, message: string, context?: Record<string, unknown>): void => {
-    if (LOG_LEVELS[level] < minLevel) {
-      return;
-    }
-
+  const writeLog = (level: LogLevel, message: string, context?: Record<string, unknown>): void => {
     const output =
       options.format === "json"
         ? formatJson(level, message, context)
@@ -135,6 +131,14 @@ export const createLogger = (options: LoggerOptions): Logger => {
     const stream = level === "error" ? process.stderr : process.stdout;
     stream.write(`${output}\n`);
   };
+
+  const log = (level: LogLevel, message: string, context?: Record<string, unknown>): void =>
+    pipe(
+      LOG_LEVELS[level] >= minLevel,
+      Match.value,
+      Match.when(true, () => writeLog(level, message, context)),
+      Match.orElse(() => undefined)
+    );
 
   return {
     debug: (message: string, context?: Record<string, unknown>): void => {
@@ -180,18 +184,16 @@ export const createLogger = (options: LoggerOptions): Logger => {
 
 /**
  * Default logger for quick access.
+ * Creates a new logger instance - prefer using LoggerFiberRef for Effect pipelines.
  */
-let defaultLogger: Option.Option<Logger> = Option.none();
+export const getLogger = (): Logger => createLogger({ level: "info", format: "pretty" });
 
-export const getLogger = (): Logger =>
-  Option.getOrElse(defaultLogger, () => {
-    const logger = createLogger({ level: "info", format: "pretty" });
-    defaultLogger = Option.some(logger);
-    return logger;
-  });
-
-export const setDefaultLogger = (logger: Logger): void => {
-  defaultLogger = Option.some(logger);
+/**
+ * @deprecated Use LoggerFiberRef.locally or withLogger instead for Effect pipelines.
+ * This function is a no-op kept for backward compatibility.
+ */
+export const setDefaultLogger = (_logger: Logger): void => {
+  // No-op: prefer using LoggerFiberRef for Effect-based logger management
 };
 
 // ─── Effect Alternative ──────────────────────────────────────────────────────

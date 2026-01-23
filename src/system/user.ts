@@ -42,6 +42,39 @@ import {
   userExists,
 } from "./uid-allocator";
 
+/** Parsed passwd entry */
+interface PasswdEntry {
+  readonly uid: string;
+  readonly homeDir: string;
+  readonly shell: string;
+}
+
+/** Parse passwd line into structured entry */
+const parsePasswdEntry = (
+  username: Username,
+  stdout: string
+): Effect.Effect<PasswdEntry, SystemError> =>
+  pipe(
+    Effect.succeed(stdout.trim().split(":")),
+    Effect.filterOrFail(
+      (parts): parts is string[] => parts.length >= 7,
+      () =>
+        new SystemError({
+          code: ErrorCode.USER_CREATE_FAILED as 20,
+          message: `Invalid passwd entry for ${username}`,
+        })
+    ),
+    Effect.map((parts) => ({
+      uid: parts[2] ?? "",
+      homeDir: parts[5] ?? "",
+      shell: parts[6] ?? "",
+    }))
+  );
+
+/** Check if shell is a nologin shell */
+const isNologinShell = (shell: string): boolean =>
+  shell.endsWith("/nologin") || shell.endsWith("/false");
+
 /**
  * Verify existing user has correct configuration.
  * Checks UID, home directory, and shell match expectations.
@@ -51,64 +84,43 @@ const verifyUserConfig = (
   expectedHome: AbsolutePath,
   expectedUid: UserId
 ): Effect.Effect<void, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    const result = yield* exec(["getent", "passwd", username], {
-      captureStdout: true,
-    });
-
-    if (result.exitCode !== 0) {
-      return yield* Effect.fail(
+  pipe(
+    exec(["getent", "passwd", username], { captureStdout: true }),
+    Effect.filterOrFail(
+      (result) => result.exitCode === 0,
+      () =>
         new SystemError({
           code: ErrorCode.USER_CREATE_FAILED as 20,
           message: `Failed to verify user ${username}`,
         })
-      );
-    }
-
-    const parts = result.stdout.trim().split(":");
-    if (parts.length < 7) {
-      return yield* Effect.fail(
+    ),
+    Effect.flatMap((result) => parsePasswdEntry(username, result.stdout)),
+    Effect.filterOrFail(
+      (entry) => Number(entry.uid) === expectedUid,
+      (entry) =>
         new SystemError({
           code: ErrorCode.USER_CREATE_FAILED as 20,
-          message: `Invalid passwd entry for ${username}`,
+          message: `User ${username} exists with UID ${entry.uid}, expected ${expectedUid}`,
         })
-      );
-    }
-
-    const passwdUid = parts[2];
-    const homeDir = parts[5];
-    const shell = parts[6];
-
-    // Verify UID matches
-    if (Number(passwdUid) !== expectedUid) {
-      return yield* Effect.fail(
+    ),
+    Effect.filterOrFail(
+      (entry) => entry.homeDir === expectedHome,
+      (entry) =>
         new SystemError({
           code: ErrorCode.USER_CREATE_FAILED as 20,
-          message: `User ${username} exists with UID ${passwdUid}, expected ${expectedUid}`,
+          message: `User ${username} has home ${entry.homeDir}, expected ${expectedHome}`,
         })
-      );
-    }
-
-    // Verify home directory matches
-    if (homeDir !== expectedHome) {
-      return yield* Effect.fail(
+    ),
+    Effect.filterOrFail(
+      (entry) => isNologinShell(entry.shell),
+      (entry) =>
         new SystemError({
           code: ErrorCode.USER_CREATE_FAILED as 20,
-          message: `User ${username} has home ${homeDir}, expected ${expectedHome}`,
+          message: `User ${username} has interactive shell ${entry.shell}, expected nologin`,
         })
-      );
-    }
-
-    // Verify shell is nologin (security requirement)
-    if (!(shell?.endsWith("/nologin") || shell?.endsWith("/false"))) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
-          message: `User ${username} has interactive shell ${shell}, expected nologin`,
-        })
-      );
-    }
-  });
+    ),
+    Effect.asVoid
+  );
 
 export interface ServiceUser {
   username: Username;
@@ -254,34 +266,37 @@ export const deleteServiceUser = (
 ): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-
     const exists = yield* userExists(username);
-    if (!exists) {
-      // User doesn't exist, but still clean up any orphaned subuid/subgid entries
-      yield* cleanupWithWarning(
-        removeSubordinateIds(username),
-        `Failed to clean orphaned subuid/subgid for ${username}`
-      );
-      return;
-    }
 
-    // Delete the user account and home directory
-    yield* execSuccess(["userdel", "--remove", username]).pipe(
-      Effect.mapError(
-        (err) =>
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Failed to delete user ${username}: ${err.message}`,
-            ...extractCauseProps(err),
-          })
-      )
-    );
-
-    // Remove from subuid/subgid (userdel does NOT do this on all distros)
-    yield* cleanupWithWarning(
-      removeSubordinateIds(username),
-      `User ${username} deleted, but failed to clean subuid/subgid`
-    );
+    yield* Effect.if(exists, {
+      onTrue: (): Effect.Effect<void, SystemError | GeneralError> =>
+        pipe(
+          // Delete the user account and home directory
+          execSuccess(["userdel", "--remove", username]).pipe(
+            Effect.mapError(
+              (err) =>
+                new GeneralError({
+                  code: ErrorCode.GENERAL_ERROR as 1,
+                  message: `Failed to delete user ${username}: ${err.message}`,
+                  ...extractCauseProps(err),
+                })
+            )
+          ),
+          // Remove from subuid/subgid (userdel does NOT do this on all distros)
+          Effect.flatMap(() =>
+            cleanupWithWarning(
+              removeSubordinateIds(username),
+              `User ${username} deleted, but failed to clean subuid/subgid`
+            )
+          )
+        ),
+      onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
+        // User doesn't exist, but still clean up any orphaned subuid/subgid entries
+        cleanupWithWarning(
+          removeSubordinateIds(username),
+          `Failed to clean orphaned subuid/subgid for ${username}`
+        ),
+    });
   });
 
 /**
@@ -319,6 +334,26 @@ const createUserWithUid = (
     )
   );
 
+/** Get existing service user details if user exists */
+const getExistingServiceUser = (
+  username: Username,
+  homeDir: AbsolutePath
+): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
+  Effect.gen(function* () {
+    const uid = yield* getUidByUsername(username);
+    yield* verifyUserConfig(username, homeDir, uid);
+    const subuidStart = yield* getExistingSubuidStart(username);
+
+    return {
+      username,
+      uid,
+      gid: userIdToGroupId(uid),
+      subuidStart,
+      subuidSize: SUBUID_RANGE.size,
+      homeDir,
+    };
+  });
+
 /**
  * Create a service user with dynamically allocated UID.
  * Username is derived from service name: divban-<service>
@@ -336,24 +371,23 @@ export const createServiceUser = (
 
     // 1. Check if user already exists (idempotent with verification)
     const exists = yield* userExists(username);
-    if (exists) {
-      const uid = yield* getUidByUsername(username);
 
-      // Verify existing user configuration is correct
-      yield* verifyUserConfig(username, homeDir, uid);
+    return yield* Effect.if(exists, {
+      onTrue: (): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
+        getExistingServiceUser(username, homeDir),
+      onFalse: (): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
+        doCreateServiceUser(serviceName, username, homeDir, settings),
+    });
+  });
 
-      const subuidStart = yield* getExistingSubuidStart(username);
-
-      return {
-        username,
-        uid,
-        gid: userIdToGroupId(uid),
-        subuidStart,
-        subuidSize: SUBUID_RANGE.size,
-        homeDir,
-      };
-    }
-
+/** Create a new service user (internal implementation) */
+const doCreateServiceUser = (
+  serviceName: ServiceName,
+  username: Username,
+  homeDir: AbsolutePath,
+  settings?: UidAllocationSettings
+): Effect.Effect<ServiceUser, SystemError | GeneralError> =>
+  Effect.gen(function* () {
     // 2. Get nologin shell (auto-detected per distro)
     const shell = yield* getNologinShell();
 
@@ -417,22 +451,28 @@ export const getServiceUser = (
 ): Effect.Effect<Option.Option<ServiceUser>, SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-
     const exists = yield* userExists(username);
-    if (!exists) {
-      return Option.none();
-    }
 
-    const uid = yield* getUidByUsername(username);
-    const subuidStart = yield* getExistingSubuidStart(username);
+    type GetServiceUserResult = Effect.Effect<
+      Option.Option<ServiceUser>,
+      SystemError | GeneralError
+    >;
+    return yield* Effect.if(exists, {
+      onTrue: (): GetServiceUserResult =>
+        Effect.gen(function* () {
+          const uid = yield* getUidByUsername(username);
+          const subuidStart = yield* getExistingSubuidStart(username);
 
-    return Option.some({
-      username,
-      uid,
-      gid: userIdToGroupId(uid),
-      subuidStart,
-      subuidSize: SUBUID_RANGE.size,
-      homeDir: userHomeDir(username),
+          return Option.some({
+            username,
+            uid,
+            gid: userIdToGroupId(uid),
+            subuidStart,
+            subuidSize: SUBUID_RANGE.size,
+            homeDir: userHomeDir(username),
+          });
+        }),
+      onFalse: (): GetServiceUserResult => Effect.succeed(Option.none<ServiceUser>()),
     });
   });
 
@@ -450,27 +490,24 @@ export interface UserInfo {
 export const getUserByName = (
   username: Username
 ): Effect.Effect<UserInfo, SystemError | GeneralError | ServiceError> =>
-  Effect.gen(function* () {
-    const exists = yield* userExists(username);
-    if (!exists) {
-      return yield* Effect.fail(
+  pipe(
+    userExists(username),
+    Effect.filterOrFail(
+      (exists): exists is true => exists === true,
+      () =>
         new ServiceError({
           code: ErrorCode.SERVICE_NOT_FOUND as 30,
           message: `User not found: ${username}`,
         })
-      );
-    }
-
-    const uid = yield* getUidByUsername(username);
-    const homeDir = userHomeDir(username);
-
-    return {
+    ),
+    Effect.flatMap(() => getUidByUsername(username)),
+    Effect.map((uid) => ({
       username,
       uid,
       gid: userIdToGroupId(uid),
-      homeDir,
-    };
-  });
+      homeDir: userHomeDir(username),
+    }))
+  );
 
 /**
  * Check if current process is running as root.
@@ -482,17 +519,19 @@ export const isRoot = (): boolean => {
 /**
  * Require root privileges, returning an error if not root.
  */
-export const requireRoot = (): Effect.Effect<void, GeneralError> => {
-  if (!isRoot()) {
-    return Effect.fail(
-      new GeneralError({
-        code: ErrorCode.ROOT_REQUIRED as 3,
-        message: "This operation requires root privileges. Please run with sudo.",
-      })
-    );
-  }
-  return Effect.void;
-};
+export const requireRoot = (): Effect.Effect<void, GeneralError> =>
+  pipe(
+    Effect.succeed(isRoot()),
+    Effect.filterOrFail(
+      (root): root is true => root === true,
+      () =>
+        new GeneralError({
+          code: ErrorCode.ROOT_REQUIRED as 3,
+          message: "This operation requires root privileges. Please run with sudo.",
+        })
+    ),
+    Effect.asVoid
+  );
 
 // ============================================================================
 // Tracked User Operations
@@ -509,31 +548,36 @@ export const acquireServiceUser = (
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
     const homeDir = userHomeDir(username);
-
     const exists = yield* userExists(username);
 
-    if (exists) {
-      // User exists - verify and return with wasCreated: false
-      const uid = yield* getUidByUsername(username);
-      yield* verifyUserConfig(username, homeDir, uid);
-      const subuidStart = yield* getExistingSubuidStart(username);
+    type AcquireResult = Effect.Effect<Acquired<ServiceUser>, SystemError | GeneralError>;
+    return yield* Effect.if(exists, {
+      onTrue: (): AcquireResult =>
+        // User exists - verify and return with wasCreated: false
+        Effect.gen(function* () {
+          const uid = yield* getUidByUsername(username);
+          yield* verifyUserConfig(username, homeDir, uid);
+          const subuidStart = yield* getExistingSubuidStart(username);
 
-      return {
-        value: {
-          username,
-          uid,
-          gid: userIdToGroupId(uid),
-          subuidStart,
-          subuidSize: SUBUID_RANGE.size,
-          homeDir,
-        },
-        wasCreated: false,
-      };
-    }
-
-    // Create new user
-    const user = yield* createServiceUser(serviceName, settings);
-    return { value: user, wasCreated: true };
+          return {
+            value: {
+              username,
+              uid,
+              gid: userIdToGroupId(uid),
+              subuidStart,
+              subuidSize: SUBUID_RANGE.size,
+              homeDir,
+            },
+            wasCreated: false,
+          } as Acquired<ServiceUser>;
+        }),
+      onFalse: (): AcquireResult =>
+        // Create new user
+        pipe(
+          createServiceUser(serviceName, settings),
+          Effect.map((user): Acquired<ServiceUser> => ({ value: user, wasCreated: true }))
+        ),
+    });
   });
 
 /**

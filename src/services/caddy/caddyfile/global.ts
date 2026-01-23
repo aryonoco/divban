@@ -78,15 +78,16 @@ const logBlockOps = (options: GlobalOptions): CaddyOp =>
 /**
  * Admin block operations - uses pattern matching style.
  */
-const adminBlockOps = (options: GlobalOptions): CaddyOp => {
-  if (options.adminOff === true) {
-    return Caddy.directive("admin", ["off"]);
-  }
-  if (options.adminEnforceOrigin === true) {
-    return Caddy.seq(Caddy.open("admin"), Caddy.directive("enforce_origin"), Caddy.close);
-  }
-  return Caddy.id;
-};
+const adminBlockOps = (options: GlobalOptions): CaddyOp =>
+  pipe(
+    Match.value(options),
+    Match.when({ adminOff: true }, (): CaddyOp => Caddy.directive("admin", ["off"])),
+    Match.when(
+      { adminEnforceOrigin: true },
+      (): CaddyOp => Caddy.seq(Caddy.open("admin"), Caddy.directive("enforce_origin"), Caddy.close)
+    ),
+    Match.orElse((): CaddyOp => Caddy.id)
+  );
 
 // ============================================================================
 // Main Functions

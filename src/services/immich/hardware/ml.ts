@@ -109,26 +109,24 @@ export const getMlDevices = (config: MlConfig): MlDevices =>
   );
 
 /**
+ * Insert suffix before tag in an image reference.
+ * e.g., ghcr.io/immich-app/immich-machine-learning:release
+ * becomes ghcr.io/immich-app/immich-machine-learning:release-cuda
+ */
+const insertSuffix = (baseImage: string, suffix: string): string => {
+  const colonIndex = baseImage.lastIndexOf(":");
+  return colonIndex === -1
+    ? `${baseImage}${suffix}`
+    : `${baseImage.slice(0, colonIndex)}:${baseImage.slice(colonIndex + 1)}${suffix}`;
+};
+
+/**
  * Get the full ML container image with suffix.
  */
-export const getMlImage = (baseImage: string, config: MlConfig): string => {
-  const devices = getMlDevices(config);
-  if (!devices.imageSuffix) {
-    return baseImage;
-  }
-
-  // Insert suffix before tag
-  // e.g., ghcr.io/immich-app/immich-machine-learning:release
-  // becomes ghcr.io/immich-app/immich-machine-learning:release-cuda
-  const colonIndex = baseImage.lastIndexOf(":");
-  if (colonIndex === -1) {
-    return `${baseImage}${devices.imageSuffix}`;
-  }
-
-  const imagePart = baseImage.slice(0, colonIndex);
-  const tagPart = baseImage.slice(colonIndex + 1);
-  return `${imagePart}:${tagPart}${devices.imageSuffix}`;
-};
+export const getMlImage = (baseImage: string, config: MlConfig): string =>
+  pipe(getMlDevices(config).imageSuffix, (suffix) =>
+    suffix ? insertSuffix(baseImage, suffix) : baseImage
+  );
 
 /**
  * Check if ML config requires special devices.

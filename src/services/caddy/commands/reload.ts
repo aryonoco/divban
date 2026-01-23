@@ -10,7 +10,7 @@
  * Uses the Caddy admin API for graceful configuration reload.
  */
 
-import { Effect } from "effect";
+import { Effect, pipe } from "effect";
 import { DEFAULT_TIMEOUTS } from "../../../config/schema";
 import {
   ConfigError,
@@ -67,14 +67,17 @@ export const reloadCaddy = (
       })
     );
 
-    if (validateResult.exitCode !== 0) {
-      return yield* Effect.fail(
-        new ConfigError({
-          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
-          message: `Caddyfile validation failed: ${validateResult.stderr}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(validateResult),
+      Effect.filterOrFail(
+        (r) => r.exitCode === 0,
+        (r) =>
+          new ConfigError({
+            code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+            message: `Caddyfile validation failed: ${r.stderr}`,
+          })
+      )
+    );
 
     logger.info("Caddyfile is valid, reloading...");
 
@@ -95,14 +98,17 @@ export const reloadCaddy = (
       })
     );
 
-    if (reloadResult.exitCode !== 0) {
-      return yield* Effect.fail(
-        new ServiceError({
-          code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
-          message: `Caddy reload failed: ${reloadResult.stderr}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(reloadResult),
+      Effect.filterOrFail(
+        (r) => r.exitCode === 0,
+        (r) =>
+          new ServiceError({
+            code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
+            message: `Caddy reload failed: ${r.stderr}`,
+          })
+      )
+    );
 
     logger.success("Caddy configuration reloaded successfully");
   });
@@ -134,14 +140,17 @@ export const validateCaddyfile = (
       })
     );
 
-    if (result.exitCode !== 0) {
-      return yield* Effect.fail(
-        new ConfigError({
-          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
-          message: `Caddyfile validation failed: ${result.stderr}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(result),
+      Effect.filterOrFail(
+        (r) => r.exitCode === 0,
+        (r) =>
+          new ConfigError({
+            code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+            message: `Caddyfile validation failed: ${r.stderr}`,
+          })
+      )
+    );
   });
 
 /**
@@ -172,14 +181,17 @@ export const formatCaddyfile = (
       })
     );
 
-    if (result.exitCode !== 0) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
-          message: `Failed to format Caddyfile: ${result.stderr}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(result),
+      Effect.filterOrFail(
+        (r) => r.exitCode === 0,
+        (r) =>
+          new SystemError({
+            code: ErrorCode.EXEC_FAILED as 26,
+            message: `Failed to format Caddyfile: ${r.stderr}`,
+          })
+      )
+    );
 
     return result.stdout;
   });

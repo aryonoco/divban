@@ -56,14 +56,17 @@ const checkUserSessionSocket = (uid: UserId): Effect.Effect<void, SystemError> =
   Effect.gen(function* () {
     const { existsSync } = yield* Effect.promise(() => import("node:fs"));
     const socketPath = `/run/user/${uid}/bus`;
-    if (!existsSync(socketPath)) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
-          message: `User session socket not ready at ${socketPath}`,
-        })
-      );
-    }
+    yield* pipe(
+      Effect.succeed(existsSync(socketPath)),
+      Effect.filterOrFail(
+        (exists): exists is true => exists === true,
+        () =>
+          new SystemError({
+            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+            message: `User session socket not ready at ${socketPath}`,
+          })
+      )
+    );
   });
 
 /**
@@ -87,34 +90,32 @@ const waitForUserSession = (
 export const isLingerEnabled = (username: Username): Effect.Effect<boolean, never> =>
   fileExists(lingerFile(username));
 
-/**
- * Enable linger for a user.
- * This allows their systemd user services to run without an active login session.
- */
-export const enableLinger = (
+/** Ensure session is ready, fail if not */
+const ensureSessionReady = (
   username: Username,
   uid: UserId
 ): Effect.Effect<void, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    // Check if already enabled
-    const alreadyEnabled = yield* isLingerEnabled(username);
+  pipe(
+    startUserService(uid),
+    Effect.flatMap(() => waitForUserSession(uid)),
+    Effect.filterOrFail(
+      (ready): ready is true => ready === true,
+      () =>
+        new SystemError({
+          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          message: `User session not ready for ${username} after enabling linger`,
+        })
+    ),
+    Effect.asVoid
+  );
 
-    if (alreadyEnabled) {
-      // Still need to ensure user service is running and session is ready
-      yield* startUserService(uid);
-      const sessionReady = yield* waitForUserSession(uid);
-      if (!sessionReady) {
-        return yield* Effect.fail(
-          new SystemError({
-            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
-            message: `User session not ready for ${username} after enabling linger`,
-          })
-        );
-      }
-      return;
-    }
-
-    yield* execSuccess(["loginctl", "enable-linger", username]).pipe(
+/** Perform the actual linger enable and verify */
+const doEnableLinger = (
+  username: Username,
+  uid: UserId
+): Effect.Effect<void, SystemError | GeneralError> =>
+  pipe(
+    execSuccess(["loginctl", "enable-linger", username]).pipe(
       Effect.retry({
         schedule: heavyRetrySchedule,
         while: (err): boolean => isTransientSystemError(err),
@@ -127,33 +128,44 @@ export const enableLinger = (
             ...extractCauseProps(err),
           })
       )
-    );
-
+    ),
     // Verify it was enabled
-    const enabled = yield* isLingerEnabled(username);
-    if (!enabled) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
-          message: `Linger was not enabled for ${username} despite successful command`,
-        })
-      );
-    }
+    Effect.flatMap(() =>
+      pipe(
+        isLingerEnabled(username),
+        Effect.filterOrFail(
+          (enabled): enabled is true => enabled === true,
+          () =>
+            new SystemError({
+              code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+              message: `Linger was not enabled for ${username} despite successful command`,
+            })
+        )
+      )
+    ),
+    // Start user service and wait for session
+    Effect.flatMap(() => ensureSessionReady(username, uid))
+  );
 
-    // Explicitly start the user service (idempotent, needed on some systems like WSL)
-    yield* startUserService(uid);
-
-    // Wait for user session to be ready
-    const sessionReady = yield* waitForUserSession(uid);
-    if (!sessionReady) {
-      return yield* Effect.fail(
-        new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
-          message: `User session not ready for ${username} after enabling linger`,
-        })
-      );
-    }
-  });
+/**
+ * Enable linger for a user.
+ * This allows their systemd user services to run without an active login session.
+ */
+export const enableLinger = (
+  username: Username,
+  uid: UserId
+): Effect.Effect<void, SystemError | GeneralError> =>
+  pipe(
+    isLingerEnabled(username),
+    Effect.flatMap((alreadyEnabled) =>
+      Effect.if(alreadyEnabled, {
+        onTrue: (): Effect.Effect<void, SystemError | GeneralError> =>
+          ensureSessionReady(username, uid),
+        onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
+          doEnableLinger(username, uid),
+      })
+    )
+  );
 
 /**
  * Disable linger for a user.
@@ -161,28 +173,30 @@ export const enableLinger = (
 export const disableLinger = (
   username: Username
 ): Effect.Effect<void, SystemError | GeneralError> =>
-  Effect.gen(function* () {
-    // Check if already disabled
-    const enabled = yield* isLingerEnabled(username);
-    if (!enabled) {
-      return;
-    }
-
-    yield* execSuccess(["loginctl", "disable-linger", username]).pipe(
-      Effect.retry({
-        schedule: systemRetrySchedule,
-        while: (err): boolean => isTransientSystemError(err),
-      }),
-      Effect.mapError(
-        (err) =>
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Failed to disable linger for ${username}: ${err.message}`,
-            ...extractCauseProps(err),
-          })
-      )
-    );
-  });
+  pipe(
+    isLingerEnabled(username),
+    Effect.flatMap((enabled) =>
+      Effect.if(enabled, {
+        onTrue: (): Effect.Effect<void, SystemError | GeneralError> =>
+          execSuccess(["loginctl", "disable-linger", username]).pipe(
+            Effect.retry({
+              schedule: systemRetrySchedule,
+              while: (err): boolean => isTransientSystemError(err),
+            }),
+            Effect.mapError(
+              (err) =>
+                new GeneralError({
+                  code: ErrorCode.GENERAL_ERROR as 1,
+                  message: `Failed to disable linger for ${username}: ${err.message}`,
+                  ...extractCauseProps(err),
+                })
+            ),
+            Effect.asVoid
+          ),
+        onFalse: (): Effect.Effect<void, SystemError | GeneralError> => Effect.void,
+      })
+    )
+  );
 
 /**
  * Get list of users with linger enabled.

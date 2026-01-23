@@ -10,7 +10,7 @@
  */
 
 import type { Context } from "effect";
-import { Effect } from "effect";
+import { Effect, Option, pipe } from "effect";
 import { ErrorCode, ServiceError } from "../lib/errors";
 import {
   type ExistentialService,
@@ -34,19 +34,22 @@ export const registerService = <C, I, Tag extends Context.Tag<I, C>>(
 /**
  * Get a service by name.
  */
-export const getService = (name: string): Effect.Effect<ExistentialService, ServiceError> => {
-  const service = services.get(name);
-  if (service === undefined) {
-    const available = [...services.keys()].join(", ");
-    return Effect.fail(
-      new ServiceError({
-        code: ErrorCode.SERVICE_NOT_FOUND as 30,
-        message: `Unknown service: '${name}'. Available services: ${available || "none"}`,
-      })
-    );
-  }
-  return Effect.succeed(service);
-};
+export const getService = (name: string): Effect.Effect<ExistentialService, ServiceError> =>
+  pipe(
+    Option.fromNullable(services.get(name)),
+    Option.match({
+      onNone: (): Effect.Effect<ExistentialService, ServiceError> => {
+        const available = [...services.keys()].join(", ");
+        return Effect.fail(
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Unknown service: '${name}'. Available services: ${available || "none"}`,
+          })
+        );
+      },
+      onSome: (service): Effect.Effect<ExistentialService, never> => Effect.succeed(service),
+    })
+  );
 
 /**
  * List all registered services.
