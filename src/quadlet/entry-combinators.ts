@@ -5,6 +5,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+/**
+ * Composable entry builders for quadlet configuration. These combinators
+ * lift values into Entries while handling Option semantics - undefined
+ * values produce empty arrays rather than errors. This enables declarative
+ * config construction via concat(fromValue(...), fromArray(...), ...).
+ */
+
 import { Array as Arr, Match, Option, pipe } from "effect";
 import type { Entries, Entry } from "./entry";
 import { empty } from "./entry";
@@ -35,7 +42,7 @@ const formatPrimitive = (value: string | number | boolean): string =>
 
 /**
  * Create an entry with custom formatting, only if value is defined.
- * Fundamental combinator that fromValue delegates to.
+ * Base function that fromValue uses internally.
  */
 export const fromMaybe = <A>(key: string, value: A | undefined, f: (a: A) => string): Entries =>
   pipe(
@@ -52,7 +59,7 @@ export const fromValue = (key: string, value: string | number | boolean | undefi
   fromMaybe(key, value, formatPrimitive);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Array Combinators
+// Array Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -80,7 +87,7 @@ export const fromArrayWith = <A>(
   );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Record Combinators
+// Record Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

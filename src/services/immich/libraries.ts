@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * External library mount handling for Immich.
+ * External library imports for existing photo collections. Users
+ * often have years of photos on NAS drives. External libraries let
+ * Immich index these in-place without copying gigabytes of data.
+ * Mounts are read-only by default to protect source files.
  */
 
 import { Option } from "effect";
@@ -49,15 +52,13 @@ export const librariesToVolumeMounts = (
  */
 export const getLibraryEnvironment = (
   libraries: readonly ExternalLibrary[] | undefined
-): Record<string, string> => {
-  const libs = nonEmpty(libraries);
-  if (!Option.isSome(libs)) {
-    return {};
-  }
-  return {
-    IMMICH_EXTERNAL_LIBRARY_PATHS: libs.value.map(getLibraryMountPath).join(","),
-  };
-};
+): Record<string, string> =>
+  Option.match(nonEmpty(libraries), {
+    onNone: (): Record<string, string> => ({}),
+    onSome: (libs): Record<string, string> => ({
+      IMMICH_EXTERNAL_LIBRARY_PATHS: libs.map(getLibraryMountPath).join(","),
+    }),
+  });
 
 /**
  * Validate external library paths exist.
@@ -65,19 +66,18 @@ export const getLibraryEnvironment = (
  */
 export const validateLibraryPaths = async (
   libraries: readonly ExternalLibrary[] | undefined
-): Promise<Option.Option<readonly AbsolutePath[]>> => {
-  const libs = nonEmpty(libraries);
-  if (!Option.isSome(libs)) {
-    return Option.none();
-  }
+): Promise<Option.Option<readonly AbsolutePath[]>> =>
+  Option.match(nonEmpty(libraries), {
+    onNone: (): Promise<Option.Option<readonly AbsolutePath[]>> => Promise.resolve(Option.none()),
+    onSome: async (libs): Promise<Option.Option<readonly AbsolutePath[]>> => {
+      const checks = await Promise.all(
+        libs.map(async (lib) => {
+          const exists = await Bun.file(lib.path).exists();
+          return exists ? null : lib.path;
+        })
+      );
 
-  const checks = await Promise.all(
-    libs.value.map(async (lib) => {
-      const exists = await Bun.file(lib.path).exists();
-      return exists ? null : lib.path;
-    })
-  );
-
-  const missing = checks.filter((path): path is AbsolutePath => path !== null);
-  return nonEmpty(missing);
-};
+      const missing = checks.filter((path): path is AbsolutePath => path !== null);
+      return nonEmpty(missing);
+    },
+  });

@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based diff command - show differences between generated and installed files.
+ * Preview changes before setup. Compares newly generated quadlet files
+ * against installed versions, showing what would change. Essential for
+ * reviewing config updates before applying - prevents unexpected
+ * service behavior from silent configuration drift.
  */
 
-import { Effect, pipe } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -54,169 +57,225 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
     const { service, args, logger } = options;
     const configPath = args.configPath;
 
-    if (!configPath) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Config path is required for diff command",
-        })
-      );
-    }
+    return yield* pipe(
+      Match.value(configPath),
+      Match.when(undefined, () =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.INVALID_ARGS as 2,
+            message: "Config path is required for diff command",
+          })
+        )
+      ),
+      Match.orElse((cfgPath) =>
+        Effect.gen(function* () {
+          const validPath = yield* toAbsolutePathEffect(cfgPath);
+          logger.info(`Comparing configuration for ${service.definition.name}...`);
 
-    const validPath = yield* toAbsolutePathEffect(configPath);
-    logger.info(`Comparing configuration for ${service.definition.name}...`);
+          // Get service username
+          const username = yield* getServiceUsername(service.definition.name);
 
-    // Get service username
-    const username = yield* getServiceUsername(service.definition.name);
+          // Check if user exists and get paths
+          const userResult = yield* Effect.either(getUserByName(username));
 
-    // Check if user exists and get paths
-    const userResult = yield* Effect.either(getUserByName(username));
-    let quadletDir: AbsolutePath;
-    let configDir: AbsolutePath;
-    let userInfo:
-      | { homeDir: AbsolutePath; uid: UserIdType; gid: GroupIdType; username: UsernameType }
-      | undefined;
+          type UserInfoType =
+            | {
+                homeDir: AbsolutePath;
+                uid: UserIdType;
+                gid: GroupIdType;
+                username: UsernameType;
+              }
+            | undefined;
+          type PathInfoType = {
+            quadletDir: AbsolutePath;
+            configDir: AbsolutePath;
+            userInfo: UserInfoType;
+          };
+          const { quadletDir, configDir, userInfo } = Either.match(userResult, {
+            onRight: (user): PathInfoType => ({
+              quadletDir: userQuadletDir(user.homeDir),
+              configDir: userConfigDir(user.homeDir),
+              userInfo: {
+                homeDir: user.homeDir,
+                uid: user.uid,
+                gid: user.gid,
+                username: user.username,
+              },
+            }),
+            onLeft: (): PathInfoType => {
+              logger.warn("Service user does not exist. Showing generated files only.");
+              return {
+                quadletDir: TEMP_PATHS.nonexistent as AbsolutePath,
+                configDir: TEMP_PATHS.nonexistent as AbsolutePath,
+                userInfo: undefined,
+              };
+            },
+          });
 
-    if (userResult._tag === "Right") {
-      const user = userResult.right;
-      userInfo = {
-        homeDir: user.homeDir,
-        uid: user.uid,
-        gid: user.gid,
-        username: user.username,
-      };
-      quadletDir = userQuadletDir(user.homeDir);
-      configDir = userConfigDir(user.homeDir);
-    } else {
-      logger.warn("Service user does not exist. Showing generated files only.");
-      quadletDir = TEMP_PATHS.nonexistent;
-      configDir = TEMP_PATHS.nonexistent;
-    }
+          // Create fallback user IDs for when user doesn't exist (known-valid literals)
+          const fallbackUid = UserIdSchema.make(0);
+          const fallbackGid = GroupIdSchema.make(0);
 
-    // Create fallback user IDs for when user doesn't exist (known-valid literals)
-    const fallbackUid = UserIdSchema.make(0);
-    const fallbackGid = GroupIdSchema.make(0);
+          const system = yield* detectSystemCapabilities();
 
-    const system = yield* detectSystemCapabilities();
+          // Build user info for layer
+          const user = pipe(
+            Match.value(userInfo),
+            Match.when(undefined, () => ({
+              name: username,
+              uid: fallbackUid,
+              gid: fallbackGid,
+              homeDir: TEMP_PATHS.nonexistent,
+            })),
+            Match.orElse((info) => ({
+              name: info.username,
+              uid: info.uid,
+              gid: info.gid,
+              homeDir: info.homeDir,
+            }))
+          );
 
-    // Build user info for layer
-    const user = userInfo
-      ? {
-          name: userInfo.username,
-          uid: userInfo.uid,
-          gid: userInfo.gid,
-          homeDir: userInfo.homeDir,
-        }
-      : {
-          name: username,
-          uid: fallbackUid,
-          gid: fallbackGid,
-          homeDir: TEMP_PATHS.nonexistent,
-        };
+          // Access service methods with proper config typing
+          const files: GeneratedFiles = yield* service.apply((s) =>
+            Effect.gen(function* () {
+              const config = yield* loadServiceConfig(validPath, s.configSchema);
 
-    // Enter existential for typed config loading
-    const files: GeneratedFiles = yield* service.apply((s) =>
-      Effect.gen(function* () {
-        const config = yield* loadServiceConfig(validPath, s.configSchema);
+              // Build prerequisites for layer creation
+              const prereqs = {
+                user,
+                system,
+                paths: {
+                  dataDir: TEMP_PATHS.diffDataDir,
+                  quadletDir,
+                  configDir,
+                  homeDir: pipe(
+                    Match.value(userInfo),
+                    Match.when(undefined, () => TEMP_PATHS.nonexistent),
+                    Match.orElse((info) => info.homeDir)
+                  ),
+                },
+              };
 
-        // Build prerequisites for layer creation
-        const prereqs = {
-          user,
-          system,
-          paths: {
-            dataDir: TEMP_PATHS.diffDataDir,
-            quadletDir,
-            configDir,
-            homeDir: userInfo ? userInfo.homeDir : TEMP_PATHS.nonexistent,
-          },
-        };
+              const layer = createServiceLayer(
+                config,
+                s.configTag,
+                prereqs,
+                getContextOptions(args),
+                logger
+              );
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          prereqs,
-          getContextOptions(args),
-          logger
-        );
+              // Generate files
+              return yield* s.generate().pipe(Effect.provide(layer));
+            })
+          );
 
-        // Generate files
-        return yield* s.generate().pipe(Effect.provide(layer));
-      })
-    );
+          // Collect all file entries
+          const fileEntries: readonly { path: AbsolutePath; content: string }[] = [
+            ...[...files.quadlets].map(([name, content]) => ({
+              path: quadletFilePath(quadletDir, name),
+              content,
+            })),
+            ...[...files.networks].map(([name, content]) => ({
+              path: quadletFilePath(quadletDir, name),
+              content,
+            })),
+            ...[...files.volumes].map(([name, content]) => ({
+              path: quadletFilePath(quadletDir, name),
+              content,
+            })),
+            ...[...files.environment].map(([name, content]) => ({
+              path: configFilePath(configDir, name),
+              content,
+            })),
+            ...[...files.other].map(([name, content]) => ({
+              path: configFilePath(configDir, name),
+              content,
+            })),
+          ];
 
-    // Collect all file entries
-    const fileEntries: readonly { path: AbsolutePath; content: string }[] = [
-      ...[...files.quadlets].map(([name, content]) => ({
-        path: quadletFilePath(quadletDir, name),
-        content,
-      })),
-      ...[...files.networks].map(([name, content]) => ({
-        path: quadletFilePath(quadletDir, name),
-        content,
-      })),
-      ...[...files.volumes].map(([name, content]) => ({
-        path: quadletFilePath(quadletDir, name),
-        content,
-      })),
-      ...[...files.environment].map(([name, content]) => ({
-        path: configFilePath(configDir, name),
-        content,
-      })),
-      ...[...files.other].map(([name, content]) => ({
-        path: configFilePath(configDir, name),
-        content,
-      })),
-    ];
+          // Compute all diffs
+          const diffs = yield* Effect.forEach(
+            fileEntries,
+            ({ path, content }) =>
+              pipe(
+                compareFile(path, content),
+                Effect.map((result) => ({ path, ...result }))
+              ),
+            { concurrency: 1 }
+          );
 
-    // Compute all diffs
-    const diffs = yield* Effect.forEach(
-      fileEntries,
-      ({ path, content }) =>
-        pipe(
-          compareFile(path, content),
-          Effect.map((result) => ({ path, ...result }))
-        ),
-      { concurrency: 1 }
-    );
+          // Partition diffs by status
+          const newFiles = diffs.filter((d) => d.status === "new");
+          const modifiedFiles = diffs.filter((d) => d.status === "modified");
+          const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
 
-    // Partition diffs by status
-    const newFiles = diffs.filter((d) => d.status === "new");
-    const modifiedFiles = diffs.filter((d) => d.status === "modified");
-    const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
-
-    // Format diff results as lines
-    const formatLines: readonly string[] = [
-      ...(newFiles.length > 0
-        ? ["\nNew files (would be created):", ...newFiles.map((f) => `  + ${f.path}`)]
-        : []),
-      ...(modifiedFiles.length > 0
-        ? [
-            "\nModified files:",
-            ...modifiedFiles.flatMap((f) => [
-              `  ~ ${f.path}`,
-              ...(args.verbose && f.diff !== undefined ? [f.diff] : []),
+          // Format diff results as lines - use concat instead of ternaries
+          const newFileLines = pipe(
+            Match.value(newFiles.length > 0),
+            Match.when(true, () => [
+              "\nNew files (would be created):",
+              ...newFiles.map((f) => `  + ${f.path}`),
             ]),
-          ]
-        : []),
-      ...(unchangedFiles.length > 0 && args.verbose
-        ? ["\nUnchanged files:", ...unchangedFiles.map((f) => `    ${f.path}`)]
-        : []),
-    ];
+            Match.when(false, (): string[] => []),
+            Match.exhaustive
+          );
 
-    // Single side effect: log all lines
-    yield* Effect.forEach(formatLines, (line) => Effect.sync(() => logger.info(line)), {
-      discard: true,
-    });
+          const modifiedFileLines = pipe(
+            Match.value(modifiedFiles.length > 0),
+            Match.when(true, () => [
+              "\nModified files:",
+              ...modifiedFiles.flatMap((f) => [
+                `  ~ ${f.path}`,
+                ...pipe(
+                  Match.value(args.verbose && f.diff !== undefined),
+                  Match.when(true, () => [f.diff as string]),
+                  Match.when(false, (): string[] => []),
+                  Match.exhaustive
+                ),
+              ]),
+            ]),
+            Match.when(false, (): string[] => []),
+            Match.exhaustive
+          );
 
-    // Summary
-    logger.info("");
-    if (newFiles.length === 0 && modifiedFiles.length === 0) {
-      logger.success("No changes detected");
-    } else {
-      logger.info(
-        `Summary: ${newFiles.length} new, ${modifiedFiles.length} modified, ${unchangedFiles.length} unchanged`
-      );
-    }
+          const unchangedFileLines = pipe(
+            Match.value(unchangedFiles.length > 0 && args.verbose),
+            Match.when(true, () => [
+              "\nUnchanged files:",
+              ...unchangedFiles.map((f) => `    ${f.path}`),
+            ]),
+            Match.when(false, (): string[] => []),
+            Match.exhaustive
+          );
+
+          const formatLines: readonly string[] = [
+            ...newFileLines,
+            ...modifiedFileLines,
+            ...unchangedFileLines,
+          ];
+
+          // Single side effect: log all lines
+          yield* Effect.forEach(formatLines, (line) => Effect.sync(() => logger.info(line)), {
+            discard: true,
+          });
+
+          // Summary
+          logger.info("");
+          yield* pipe(
+            Match.value(newFiles.length === 0 && modifiedFiles.length === 0),
+            Match.when(true, () => Effect.sync(() => logger.success("No changes detected"))),
+            Match.when(false, () =>
+              Effect.sync(() =>
+                logger.info(
+                  `Summary: ${newFiles.length} new, ${modifiedFiles.length} modified, ${unchangedFiles.length} unchanged`
+                )
+              )
+            ),
+            Match.exhaustive
+          );
+        })
+      )
+    );
   });
 
 /**
@@ -232,25 +291,32 @@ const compareFile = (
   Effect.gen(function* () {
     const exists = yield* fileExists(path);
 
-    if (!exists) {
-      return { status: "new" as const };
-    }
+    return yield* pipe(
+      Match.value(exists),
+      Match.when(false, () => Effect.succeed({ status: "new" as const })),
+      Match.when(true, () =>
+        Effect.gen(function* () {
+          const oldResult = yield* Effect.either(readFile(path));
 
-    const oldResult = yield* Effect.either(readFile(path));
-    if (oldResult._tag === "Left") {
-      return { status: "new" as const };
-    }
-
-    const oldContent = oldResult.right;
-
-    if (oldContent === newContent) {
-      return { status: "unchanged" as const };
-    }
-
-    // Generate simple line diff
-    const diff = generateSimpleDiff(oldContent, newContent);
-
-    return { status: "modified" as const, diff };
+          type DiffResultType = { status: "new" | "modified" | "unchanged"; diff?: string };
+          return Either.match(oldResult, {
+            onLeft: (): DiffResultType => ({ status: "new" as const }),
+            onRight: (oldContent): DiffResultType =>
+              pipe(
+                Match.value(oldContent === newContent),
+                Match.when(true, () => ({ status: "unchanged" as const })),
+                Match.when(false, () => {
+                  // Generate simple line diff
+                  const diff = generateSimpleDiff(oldContent, newContent);
+                  return { status: "modified" as const, diff };
+                }),
+                Match.exhaustive
+              ),
+          });
+        })
+      ),
+      Match.exhaustive
+    );
   });
 
 /**

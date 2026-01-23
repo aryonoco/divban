@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Secret management using Effect for error handling.
- * Handles generation, podman secret creation, and encrypted backup.
+ * Secrets workflow: generate → store in Podman → backup encrypted.
+ * Podman secrets are injected into containers as files at runtime.
+ * Age-encrypted backups allow secret recovery after container reset.
+ * Idempotent: existing secrets are reused, not overwritten.
  */
 
 import { Array as Arr, Effect, Either, Option, pipe } from "effect";
@@ -226,32 +228,32 @@ export const getServiceSecret = (
 
     // Read secret key
     const keypairResult = yield* Effect.either(ensureKeypair(paths.ageKeyPath));
-    if (keypairResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.SECRET_NOT_FOUND as 46,
-          message: `No secrets found for ${serviceName}`,
-        })
-      );
-    }
+    type SecretResult = Effect.Effect<string, SystemError | GeneralError | ContainerError>;
+    return yield* Either.match(keypairResult, {
+      onLeft: (): SecretResult =>
+        Effect.fail(
+          new ContainerError({
+            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            message: `No secrets found for ${serviceName}`,
+          })
+        ),
+      onRight: (keypair): SecretResult =>
+        Effect.gen(function* () {
+          // Decrypt secrets
+          const secrets = yield* decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey);
 
-    // Decrypt secrets
-    const secrets = yield* decryptSecretsFromFile(
-      paths.secretsBackupPath,
-      keypairResult.right.secretKey
-    );
-
-    const value = secrets[secretName];
-    if (value === undefined) {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.SECRET_NOT_FOUND as 46,
-          message: `Secret '${secretName}' not found`,
-        })
-      );
-    }
-
-    return value;
+          return yield* Option.match(Option.fromNullable(secrets[secretName]), {
+            onNone: (): SecretResult =>
+              Effect.fail(
+                new ContainerError({
+                  code: ErrorCode.SECRET_NOT_FOUND as 46,
+                  message: `Secret '${secretName}' not found`,
+                })
+              ),
+            onSome: (value): SecretResult => Effect.succeed(value),
+          });
+        }),
+    });
   });
 
 /**
@@ -265,21 +267,21 @@ export const listServiceSecrets = (
     const paths = getSecretPaths(homeDir, serviceName);
 
     const keypairResult = yield* Effect.either(ensureKeypair(paths.ageKeyPath));
-    if (keypairResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.SECRET_NOT_FOUND as 46,
-          message: `No secrets found for ${serviceName}`,
-        })
-      );
-    }
-
-    const secrets = yield* decryptSecretsFromFile(
-      paths.secretsBackupPath,
-      keypairResult.right.secretKey
-    );
-
-    return Object.keys(secrets);
+    type ListResult = Effect.Effect<string[], SystemError | GeneralError | ContainerError>;
+    return yield* Either.match(keypairResult, {
+      onLeft: (): ListResult =>
+        Effect.fail(
+          new ContainerError({
+            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            message: `No secrets found for ${serviceName}`,
+          })
+        ),
+      onRight: (keypair): ListResult =>
+        Effect.gen(function* () {
+          const secrets = yield* decryptSecretsFromFile(paths.secretsBackupPath, keypair.secretKey);
+          return Object.keys(secrets);
+        }),
+    });
   });
 
 // ============================================================================

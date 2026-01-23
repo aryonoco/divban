@@ -66,8 +66,7 @@ export interface CompressService {
 }
 
 /**
- * Compress tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Compress service identifier for Effect dependency injection.
  */
 export interface Compress {
   readonly _tag: "Compress";

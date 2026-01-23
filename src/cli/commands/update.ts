@@ -6,19 +6,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based update command - update container images.
+ * Container image updates via podman auto-update. Checks registries
+ * for newer images matching the configured tags, pulls updates, and
+ * restarts containers with new images. Only affects containers with
+ * AutoUpdate label set in their quadlet definitions.
  */
 
-import { Effect, Either } from "effect";
+import { Effect, Match, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
-import {
-  type ConfigError,
-  ErrorCode,
-  GeneralError,
-  ServiceError,
-  type SystemError,
-} from "../../lib/errors";
+import { ErrorCode, GeneralError, ServiceError, type SystemError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
+import type { ServiceName, UserId, Username } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { exec } from "../../system/exec";
 import { getUserByName } from "../../system/user";
@@ -31,109 +29,204 @@ export interface UpdateOptions {
 }
 
 /**
- * Execute the update command.
+ * Context for update operations.
  */
-export const executeUpdate = (
-  options: UpdateOptions
-): Effect.Effect<void, GeneralError | ServiceError | ConfigError | SystemError> =>
+interface UpdateContext {
+  readonly username: Username;
+  readonly uid: UserId;
+  readonly logger: Logger;
+  readonly serviceName: ServiceName;
+}
+
+/**
+ * Discriminated union for update status.
+ */
+type UpdateStatus =
+  | { readonly kind: "NoUpdates" }
+  | { readonly kind: "UpdatesAvailable" }
+  | { readonly kind: "UpToDate" };
+
+/** Update status: no updates available */
+const NO_UPDATES: UpdateStatus = { kind: "NoUpdates" };
+/** Update status: updates are available */
+const UPDATES_AVAILABLE: UpdateStatus = { kind: "UpdatesAvailable" };
+/** Update status: all images up to date */
+const UP_TO_DATE: UpdateStatus = { kind: "UpToDate" };
+
+/**
+ * Resolve service user or fail with appropriate error.
+ */
+const resolveUpdateServiceUser = (
+  serviceName: ServiceName
+): Effect.Effect<
+  { readonly username: Username; readonly uid: UserId },
+  GeneralError | ServiceError | SystemError
+> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
-
-    // Get service user
-    const username = yield* getServiceUsername(service.definition.name);
-
-    const userResult = yield* Effect.either(getUserByName(username));
-    if (userResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
-          message: `Service user '${username}' not found. Run 'divban ${service.definition.name} setup' first.`,
-          service: service.definition.name,
-        })
-      );
-    }
-
-    const { uid } = userResult.right;
-
-    logger.info(`Updating ${service.definition.name} containers...`);
-
-    if (args.dryRun) {
-      logger.info("Dry run - would check for updates and restart if needed");
-      return;
-    }
-
-    // Use systemctl to trigger auto-update
-    const updateResult = yield* Effect.either(
-      exec(
-        [
-          "sudo",
-          "-u",
-          username as unknown as string,
-          `XDG_RUNTIME_DIR=/run/user/${uid}`,
-          "podman",
-          "auto-update",
-          "--dry-run",
-        ],
-        { captureStdout: true, captureStderr: true }
+    const username = yield* getServiceUsername(serviceName);
+    const user = yield* getUserByName(username).pipe(
+      Effect.mapError(
+        () =>
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Service user '${username}' not found. Run 'divban ${serviceName}' setup first.`,
+            service: serviceName,
+          })
       )
     );
+    return { username, uid: user.uid };
+  });
 
-    if (updateResult._tag === "Left") {
-      return yield* Effect.fail(
+/**
+ * Build podman auto-update command arguments.
+ */
+const buildAutoUpdateArgs = (
+  username: Username,
+  uid: UserId,
+  dryRun: boolean
+): readonly string[] => {
+  const baseArgs = [
+    "sudo",
+    "-u",
+    username as unknown as string,
+    `XDG_RUNTIME_DIR=/run/user/${uid}`,
+    "podman",
+    "auto-update",
+  ] as const;
+  return dryRun ? [...baseArgs, "--dry-run"] : [...baseArgs];
+};
+
+/**
+ * Check for available updates using podman auto-update --dry-run.
+ */
+const checkForUpdates = (
+  context: UpdateContext
+): Effect.Effect<string, GeneralError | SystemError> =>
+  exec(buildAutoUpdateArgs(context.username, context.uid, true), {
+    captureStdout: true,
+    captureStderr: true,
+  }).pipe(
+    Effect.map((result) => result.stdout),
+    Effect.mapError(
+      (err) =>
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
           message: "Failed to check for updates",
-          cause: updateResult.left,
+          cause: err,
         })
-      );
-    }
+    )
+  );
 
-    const output = updateResult.right.stdout;
-
-    if (output.includes("false")) {
-      logger.info("No updates available");
-      return;
-    }
-
-    if (output.includes("true") || output.includes("pending")) {
-      logger.info("Updates available. Applying...");
-
-      // Apply updates
-      const applyResult = yield* Effect.either(
-        exec(
-          [
-            "sudo",
-            "-u",
-            username as unknown as string,
-            `XDG_RUNTIME_DIR=/run/user/${uid}`,
-            "podman",
-            "auto-update",
-          ],
-          { captureStdout: true, captureStderr: true }
-        )
-      );
-
-      yield* Either.match(applyResult, {
-        onLeft: (): Effect.Effect<void, GeneralError> =>
+/**
+ * Apply updates using podman auto-update.
+ */
+const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError | SystemError> =>
+  exec(buildAutoUpdateArgs(context.username, context.uid, false), {
+    captureStdout: true,
+    captureStderr: true,
+  }).pipe(
+    Effect.flatMap((result) =>
+      pipe(
+        Match.value(result.exitCode !== 0),
+        Match.when(true, () =>
           Effect.fail(
             new GeneralError({
               code: ErrorCode.GENERAL_ERROR as 1,
-              message: "Failed to apply updates",
+              message: `Failed to apply updates: ${result.stderr}`,
             })
-          ),
-        onRight: (result): Effect.Effect<void, GeneralError> =>
-          result.exitCode !== 0
-            ? Effect.fail(
-                new GeneralError({
-                  code: ErrorCode.GENERAL_ERROR as 1,
-                  message: `Failed to apply updates: ${result.stderr}`,
-                })
-              )
-            : Effect.void,
-      });
+          )
+        ),
+        Match.when(false, () => Effect.void),
+        Match.exhaustive
+      )
+    ),
+    Effect.mapError((err) =>
+      err instanceof GeneralError
+        ? err
+        : new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: "Failed to apply updates",
+            cause: err,
+          })
+    )
+  );
 
-      logger.success("Updates applied successfully");
-    } else {
-      logger.info("All images are up to date");
-    }
+/**
+ * Parse update check output into discriminated union.
+ */
+const parseUpdateStatus = (output: string): UpdateStatus =>
+  pipe(
+    Match.value(output),
+    Match.when(
+      (o) => o.includes("false"),
+      () => NO_UPDATES
+    ),
+    Match.when(
+      (o) => o.includes("true") || o.includes("pending"),
+      () => UPDATES_AVAILABLE
+    ),
+    Match.orElse(() => UP_TO_DATE)
+  );
+
+/**
+ * Handle the update check result.
+ */
+const handleUpdateResult = (
+  status: UpdateStatus,
+  context: UpdateContext
+): Effect.Effect<void, GeneralError | SystemError> =>
+  pipe(
+    Match.value(status),
+    Match.when({ kind: "NoUpdates" }, () =>
+      Effect.sync(() => context.logger.info("No updates available"))
+    ),
+    Match.when({ kind: "UpToDate" }, () =>
+      Effect.sync(() => context.logger.info("All images are up to date"))
+    ),
+    Match.when({ kind: "UpdatesAvailable" }, () =>
+      Effect.gen(function* () {
+        context.logger.info("Updates available. Applying...");
+        yield* applyUpdates(context);
+        context.logger.success("Updates applied successfully");
+      })
+    ),
+    Match.exhaustive
+  );
+
+/**
+ * Handle dry run mode.
+ */
+const handleDryRun = (logger: Logger): Effect.Effect<void> =>
+  Effect.sync(() => logger.info("Dry run - would check for updates and restart if needed"));
+
+/**
+ * Perform the actual update check and apply.
+ */
+const performUpdate = (context: UpdateContext): Effect.Effect<void, GeneralError | SystemError> =>
+  Effect.gen(function* () {
+    const output = yield* checkForUpdates(context);
+    const status = parseUpdateStatus(output);
+    yield* handleUpdateResult(status, context);
+  });
+
+/**
+ * Execute the update command (main entry point).
+ */
+export const executeUpdate = (
+  options: UpdateOptions
+): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
+  Effect.gen(function* () {
+    const { service, args, logger } = options;
+
+    const { username, uid } = yield* resolveUpdateServiceUser(service.definition.name);
+    logger.info(`Updating ${service.definition.name} containers...`);
+
+    yield* pipe(
+      Match.value(args.dryRun),
+      Match.when(true, () => handleDryRun(logger)),
+      Match.when(false, () =>
+        performUpdate({ username, uid, logger, serviceName: service.definition.name })
+      ),
+      Match.exhaustive
+    );
   });

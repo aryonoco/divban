@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Directive rendering for Caddyfile.
- * Handles recursive directive blocks.
+ * Recursive directive tree rendering. Directives can nest arbitrarily
+ * deep (handle { reverse_proxy { ... } }). This module handles both
+ * simple directives and nested blocks, tracking indent level for
+ * readable output.
  */
 
 import type { Directive } from "../schema";

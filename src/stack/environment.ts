@@ -6,8 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Environment file generation for multi-container stacks.
- * Generates grouped environment files with comments.
+ * Environment file generation with proper shell escaping. Values
+ * containing spaces, quotes, or dollar signs are escaped and quoted.
+ * The state machine handles bidirectional escape/unescape correctly,
+ * preserving newlines and special characters through round-trips.
+ * Groups organize variables by purpose (database, redis, server).
  */
 
 import { Array as Arr, Match, Option, Predicate, pipe } from "effect";
@@ -17,7 +20,7 @@ import { chars } from "../lib/str";
 const ENV_SPECIAL_CHARS = [" ", '"', "'", "$", "`", "\\", "\n"] as const;
 
 // ============================================================================
-// Escape/Unescape via Fold (State Machine Pattern)
+// Escape/Unescape State Machine
 // ============================================================================
 
 /** Escape mapping: char -> escaped representation */
@@ -42,7 +45,7 @@ const UNESCAPE_MAP: ReadonlyMap<string, string> = new Map([
 const escapeChar = (c: string): string => ESCAPE_MAP.get(c) ?? c;
 
 /**
- * State for unescape fold.
+ * State for unescape processing.
  * - escaped: true if previous char was backslash
  * - result: accumulated output characters
  */
@@ -52,7 +55,7 @@ type UnescapeState = {
 };
 
 /**
- * Step function for unescape fold (state machine transition).
+ * Step function for unescape state machine.
  */
 const unescapeStep = (state: UnescapeState, c: string): UnescapeState => {
   if (state.escaped) {
@@ -69,7 +72,7 @@ const unescapeStep = (state: UnescapeState, c: string): UnescapeState => {
 };
 
 /**
- * Unescape string using fold-based state machine.
+ * Unescape string using state machine.
  * Handles: \n -> newline, \" -> ", \$ -> $, \` -> `, \\ -> \
  */
 const unescapeString = (s: string): string => {
@@ -122,7 +125,7 @@ const unquoteAndUnescape = (value: string): string => {
 
 /**
  * Escape a value for environment file format.
- * Uses fold to map chars through ESCAPE_MAP.
+ * Maps each character through ESCAPE_MAP.
  */
 export const escapeEnvValue = (value: string): string => {
   // Early exit: no special chars -> return as-is

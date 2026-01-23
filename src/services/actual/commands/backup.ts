@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Actual Budget backup command.
+ * Actual Budget backup as single tar archive. The data directory
+ * contains SQLite databases for each budget - all must be captured
+ * together for consistency. Archives include metadata for restore
+ * validation (service version, file list, timestamp).
  */
 
 import { Effect, Option, pipe } from "effect";
@@ -81,7 +84,7 @@ export const backupActual = (
     // Ensure backup directory exists
     yield* ensureDirectory(backupsDir);
 
-    // Collect files to archive using FP-style utility
+    // Collect files to archive
     // Excludes the backups directory to avoid recursion
     const { files, fileList } = yield* collectFilesWithContent(dataDir, ["backups/", "backups"]);
 

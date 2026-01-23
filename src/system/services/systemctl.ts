@@ -55,8 +55,7 @@ export interface SystemCtlService {
 }
 
 /**
- * SystemCtl tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * SystemCtl service identifier for Effect dependency injection.
  */
 export interface SystemCtl {
   readonly _tag: "SystemCtl";

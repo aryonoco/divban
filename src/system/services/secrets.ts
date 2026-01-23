@@ -38,8 +38,7 @@ export interface SecretsService {
 }
 
 /**
- * Secrets tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Secrets service identifier for Effect dependency injection.
  */
 export interface Secrets {
   readonly _tag: "Secrets";

@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based CLI command router and main entry point.
+ * CLI entry point and command dispatch. Parses args, resolves the
+ * target service from the registry, and routes to the appropriate
+ * command handler. All commands return Effect, enabling consistent
+ * error handling and clean process exit codes.
  */
 
-import { Effect, Match, Option, pipe } from "effect";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from "../config/env";
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
@@ -25,6 +28,7 @@ import {
 } from "../lib/errors";
 import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
+import type { AbsolutePath } from "../lib/types";
 import { getService, initializeServices, listServices } from "../services";
 import type { ExistentialService, ServiceDefinition } from "../services/types";
 import { type Command, type ParsedArgs, parseArgs, validateArgs } from "./parser";
@@ -77,9 +81,11 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
     }
 
     // Validate global config path if provided
-    const validatedPath = Option.isSome(Option.fromNullable(args.globalConfigPath))
-      ? yield* toAbsolutePathEffect(args.globalConfigPath as string)
-      : undefined;
+    type ValidatedPathResult = Effect.Effect<AbsolutePath | undefined, ConfigError>;
+    const validatedPath = yield* Option.match(Option.fromNullable(args.globalConfigPath), {
+      onNone: (): ValidatedPathResult => Effect.succeed(undefined),
+      onSome: (path): ValidatedPathResult => toAbsolutePathEffect(path),
+    });
 
     // Load global configuration (always loads, returns defaults if no file)
     const globalConfig = yield* loadGlobalConfig(validatedPath);
@@ -128,21 +134,29 @@ export const program = (argv: readonly string[]): Effect.Effect<number, unknown>
     // Execute command
     const result = yield* Effect.either(executeCommand(service, args, logger, globalConfig));
 
-    if (result._tag === "Left") {
-      if (args.format === "json") {
-        logger.raw(
-          JSON.stringify({
-            error: result.left.message,
-            code: (result.left as DivbanEffectError & { code: number }).code,
-          })
+    return Either.match(result, {
+      onLeft: (err): number => {
+        const typedErr = err as DivbanEffectError & { code: number };
+        return pipe(
+          Match.value(args.format),
+          Match.when("json", () => {
+            logger.raw(
+              JSON.stringify({
+                error: typedErr.message,
+                code: typedErr.code,
+              })
+            );
+            return typedErr.code;
+          }),
+          Match.when("pretty", () => {
+            logger.fail(typedErr.message);
+            return typedErr.code;
+          }),
+          Match.exhaustive
         );
-      } else {
-        logger.fail(result.left.message);
-      }
-      return (result.left as DivbanEffectError & { code: number }).code;
-    }
-
-    return 0;
+      },
+      onRight: (): number => 0,
+    });
   });
 
 /**
@@ -186,23 +200,27 @@ const runServiceCommand = (
   globalConfig: GlobalConfig
 ): Effect.Effect<Option.Option<number>, never> =>
   Effect.gen(function* () {
+    type ServiceCommandResult = Effect.Effect<Option.Option<number>, never>;
     const serviceResult = yield* Effect.either(getService(serviceDef.name));
-    if (serviceResult._tag === "Left") {
-      logger.warn(`Skipping ${serviceDef.name}: ${serviceResult.left.message}`);
-      return Option.none(); // Skip doesn't count as error
-    }
+    return yield* Either.match(serviceResult, {
+      onLeft: (err): ServiceCommandResult => {
+        logger.warn(`Skipping ${serviceDef.name}: ${err.message}`);
+        return Effect.succeed(Option.none<number>()); // Skip doesn't count as error
+      },
+      onRight: (service): ServiceCommandResult =>
+        Effect.gen(function* () {
+          logger.info(`\n=== ${serviceDef.name} ===`);
+          const result = yield* Effect.either(executeCommand(service, args, logger, globalConfig));
 
-    logger.info(`\n=== ${serviceDef.name} ===`);
-    const result = yield* Effect.either(
-      executeCommand(serviceResult.right, args, logger, globalConfig)
-    );
-
-    if (result._tag === "Left") {
-      logger.fail(`${serviceDef.name}: ${result.left.message}`);
-      return Option.some((result.left as DivbanEffectError & { code: number }).code);
-    }
-
-    return Option.none();
+          return Either.match(result, {
+            onLeft: (err): Option.Option<number> => {
+              logger.fail(`${serviceDef.name}: ${err.message}`);
+              return Option.some((err as DivbanEffectError & { code: number }).code);
+            },
+            onRight: (): Option.Option<number> => Option.none<number>(),
+          });
+        }),
+    });
   });
 
 /**
@@ -237,8 +255,7 @@ const validateAllServicesCommand = (command: Command): Effect.Effect<void, Gener
       );
 
 /**
- * Run a command on all services, preserving first error code.
- * Uses Effect.reduce (foldlM pattern) instead of mutable loop.
+ * Run command on each service, collecting first error if any.
  */
 const runAllServices = (
   args: ParsedArgs,
@@ -261,7 +278,10 @@ const runAllServices = (
         runServiceCommand(serviceDef, args, logger, globalConfig),
         Effect.map((errorOpt) =>
           // Keep first error only
-          Option.isNone(acc) && Option.isSome(errorOpt) ? errorOpt : acc
+          Option.match(acc, {
+            onSome: (): Option.Option<number> => acc,
+            onNone: (): Option.Option<number> => errorOpt,
+          })
         )
       )
     );

@@ -6,10 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Caddyfile formatting utilities.
- *
- * CaddyOp is a state transformer that builds Caddyfile content.
- * Operations compose via function composition.
+ * Type-safe Caddyfile DSL using state transformer pattern. CaddyOp
+ * operations track indent level and accumulate lines, preventing
+ * malformed output (unmatched braces, wrong indentation). Composition
+ * via pipe() mirrors Caddyfile's hierarchical structure in code.
  */
 
 import { Chunk, Option, pipe } from "effect";
@@ -133,7 +133,7 @@ const compose =
 /**
  * Combine multiple CaddyOps into one.
  */
-const fold = (ops: readonly CaddyOp[]): CaddyOp => ops.reduce(compose, identity);
+const combine = (ops: readonly CaddyOp[]): CaddyOp => ops.reduce(compose, identity);
 
 // ============================================================================
 // DSL Operations
@@ -164,7 +164,7 @@ export const Caddy = {
     appendLine(formatLine(name, args)),
 
   /** Add raw content (splits on newlines, each line indented) */
-  raw: (content: string): CaddyOp => fold(content.split("\n").map(appendLine)),
+  raw: (content: string): CaddyOp => combine(content.split("\n").map(appendLine)),
 
   /**
    * Conditional operation (LAZY).
@@ -205,26 +205,25 @@ export const Caddy = {
    * Sequence operations (variadic).
    * seq(a, b, c) applies a, then b, then c.
    */
-  seq: (...ops: readonly CaddyOp[]): CaddyOp => fold(ops),
+  seq: (...ops: readonly CaddyOp[]): CaddyOp => combine(ops),
 
   /**
    * Sequence operations from array.
    * Useful for dynamic operation lists.
    */
-  all: (ops: readonly CaddyOp[]): CaddyOp => fold(ops),
+  all: (ops: readonly CaddyOp[]): CaddyOp => combine(ops),
 
   /**
-   * Map over array and sequence results.
-   * `traverse` for the CaddyOp "applicative".
+   * Apply function to each item and combine results.
    */
-  forEach: <A>(items: readonly A[], f: (item: A) => CaddyOp): CaddyOp => fold(items.map(f)),
+  forEach: <A>(items: readonly A[], f: (item: A) => CaddyOp): CaddyOp => combine(items.map(f)),
 
   /**
    * FlatMap over array and sequence results.
    * Each item can produce multiple operations.
    */
   flatForEach: <A>(items: readonly A[], f: (item: A) => readonly CaddyOp[]): CaddyOp =>
-    fold(items.flatMap(f)),
+    combine(items.flatMap(f)),
 } as const;
 
 // ============================================================================
@@ -233,7 +232,7 @@ export const Caddy = {
 
 /**
  * Build a Caddyfile from a sequence of operations.
- * This is the "runState" that evaluates the composed operations.
+ * Execute the composed operations to produce output.
  *
  * @example
  * const content = caddyfile(
@@ -244,4 +243,4 @@ export const Caddy = {
  *   Caddy.close
  * );
  */
-export const caddyfile = (...ops: readonly CaddyOp[]): string => render(fold(ops)(emptyState));
+export const caddyfile = (...ops: readonly CaddyOp[]): string => render(combine(ops)(emptyState));

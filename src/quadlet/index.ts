@@ -6,14 +6,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Quadlet file generation module exports.
+ * Quadlet generation API - public interface for building Podman
+ * systemd unit files. Re-exports composable entry builders,
+ * section generators, and type definitions. Consumers build
+ * quadlets declaratively by combining entries rather than
+ * string-templating INI files manually.
  */
 
-// Entry types (FP core)
+// Entry types
 export type { Entries, Entry } from "./entry";
 export { empty } from "./entry";
 
-// Entry combinators (FP building blocks)
+// Entry builders
 export {
   concat,
   fromArray,
@@ -24,7 +28,7 @@ export {
   when,
 } from "./entry-combinators";
 
-// Factories (higher-order section/quadlet builders)
+// Section and quadlet generators
 export { makeSection } from "./section-factory";
 export { makeSimpleQuadletGenerator } from "./factory";
 

@@ -6,11 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Directory management using Effect for error handling.
+ * Directory creation with ownership and mode for rootless Podman setup.
+ * Uses `install -d` for atomic mkdir+chown+chmod. Tracked operations
+ * record which directories were created for precise rollback.
  */
 
 import { Array as Arr, Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
@@ -51,7 +54,7 @@ export const ensureDirectory = (
         new SystemError({
           code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
           message: `Failed to create directory ${path}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -95,7 +98,7 @@ export const chown = (
         new SystemError({
           code: ErrorCode.EXEC_FAILED as 26,
           message: `Failed to change ownership of ${path}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -122,7 +125,7 @@ export const chmod = (
         new SystemError({
           code: ErrorCode.EXEC_FAILED as 26,
           message: `Failed to change permissions of ${path}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -191,7 +194,7 @@ export const removeDirectory = (
         new SystemError({
           code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
           message: `Failed to remove directory ${path}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );

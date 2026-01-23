@@ -13,7 +13,7 @@ import { Effect, Option } from "effect";
 import { ErrorCode, GeneralError, type GeneralErrorCode } from "./errors";
 
 /**
- * Total: returns Effect with typed error channel.
+ * Returns Effect that fails if condition is false.
  */
 export const assertEffect = (
   condition: boolean,
@@ -78,7 +78,7 @@ export const assertNonEmptyEffect = <T>(
     : Effect.fail(new GeneralError({ code: ErrorCode.GENERAL_ERROR as 1, message }));
 
 /**
- * Total: pure Option-based for non-Effect contexts.
+ * Returns None if array is empty.
  * Returns Some(arr) if non-empty, None otherwise.
  */
 export const toNonEmpty = <T>(arr: readonly T[]): Option.Option<NonEmptyArray<T>> =>

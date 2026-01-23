@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * CLI help text generation.
+ * Help text generation from registered services. Dynamically builds
+ * command list and service descriptions from the service registry,
+ * ensuring help always reflects available capabilities. Per-command
+ * help explains options and requirements specific to each operation.
  */
 
-import { Option } from "effect";
+import { Match, Option, pipe } from "effect";
 import { listServices } from "../services";
 import { COMMANDS, type Command } from "./parser";
 
@@ -91,39 +94,38 @@ export const getServiceHelp = (serviceName: string): string => {
   const services = listServices();
   const serviceOpt = Option.fromNullable(services.find((s) => s.name === serviceName));
 
-  if (Option.isNone(serviceOpt)) {
-    return `Unknown service: ${serviceName}\n\nAvailable services: ${services.map((s) => s.name).join(", ")}`;
-  }
-  const service = serviceOpt.value;
+  return Option.match(serviceOpt, {
+    onNone: (): string =>
+      `Unknown service: ${serviceName}\n\nAvailable services: ${services.map((s) => s.name).join(", ")}`,
+    onSome: (service): string => {
+      // Capabilities as data-driven derivation
+      const CAPABILITY_MAP = [
+        ["multiContainer", "multi-container"],
+        ["hasReload", "reload"],
+        ["hasBackup", "backup"],
+        ["hasRestore", "restore"],
+        ["hardwareAcceleration", "hardware-acceleration"],
+      ] as const satisfies readonly (readonly [keyof typeof service.capabilities, string])[];
 
-  // Capabilities as data-driven derivation
-  const CAPABILITY_MAP = [
-    ["multiContainer", "multi-container"],
-    ["hasReload", "reload"],
-    ["hasBackup", "backup"],
-    ["hasRestore", "restore"],
-    ["hardwareAcceleration", "hardware-acceleration"],
-  ] as const satisfies readonly (readonly [keyof typeof service.capabilities, string])[];
+      const capabilities = CAPABILITY_MAP.filter(([key]) => service.capabilities[key]).map(
+        ([, label]) => label
+      );
 
-  const capabilities = CAPABILITY_MAP.filter(([key]) => service.capabilities[key]).map(
-    ([, label]) => label
-  );
+      // Command availability as data-driven predicate
+      const COMMAND_CAPABILITY_REQUIREMENTS: Partial<
+        Record<Command, keyof typeof service.capabilities>
+      > = {
+        reload: "hasReload",
+        backup: "hasBackup",
+        restore: "hasRestore",
+      };
 
-  // Command availability as data-driven predicate
-  const COMMAND_CAPABILITY_REQUIREMENTS: Partial<
-    Record<Command, keyof typeof service.capabilities>
-  > = {
-    reload: "hasReload",
-    backup: "hasBackup",
-    restore: "hasRestore",
-  };
+      const availableCommands = COMMANDS.filter((cmd) => {
+        const required = COMMAND_CAPABILITY_REQUIREMENTS[cmd];
+        return required === undefined || service.capabilities[required] === true;
+      });
 
-  const availableCommands = COMMANDS.filter((cmd) => {
-    const required = COMMAND_CAPABILITY_REQUIREMENTS[cmd];
-    return required === undefined || service.capabilities[required] === true;
-  });
-
-  return `
+      return `
 ${service.name} - ${service.description}
 
 VERSION: ${service.version}
@@ -144,15 +146,18 @@ EXAMPLES:
   divban ${service.name} status
   divban ${service.name} logs --follow
 `.trim();
+    },
+  });
 };
 
 /**
  * Get help for a specific command.
  */
-export const getCommandHelp = (command: string): string => {
-  switch (command) {
-    case "validate":
-      return `
+export const getCommandHelp = (command: string): string =>
+  pipe(
+    Match.value(command),
+    Match.when("validate", () =>
+      `
 validate - Validate a configuration file
 
 USAGE:
@@ -165,10 +170,10 @@ DESCRIPTION:
 EXAMPLES:
   divban caddy validate divban-caddy.toml
   divban immich validate /etc/divban/immich.toml
-`.trim();
-
-    case "generate":
-      return `
+`.trim()
+    ),
+    Match.when("generate", () =>
+      `
 generate - Generate quadlet files
 
 USAGE:
@@ -184,10 +189,10 @@ OPTIONS:
 EXAMPLES:
   divban caddy generate divban-caddy.toml
   divban caddy generate divban-caddy.toml -o ./output
-`.trim();
-
-    case "setup":
-      return `
+`.trim()
+    ),
+    Match.when("setup", () =>
+      `
 setup - Full service setup
 
 USAGE:
@@ -208,10 +213,10 @@ OPTIONS:
 EXAMPLES:
   divban caddy setup divban-caddy.toml
   divban immich setup divban-immich.toml --dry-run
-`.trim();
-
-    case "backup":
-      return `
+`.trim()
+    ),
+    Match.when("backup", () =>
+      `
 backup - Create a backup
 
 USAGE:
@@ -228,10 +233,10 @@ The backup is stored in the service's data directory under 'backups/'.
 EXAMPLES:
   divban immich backup
   divban actual backup
-`.trim();
-
-    case "restore":
-      return `
+`.trim()
+    ),
+    Match.when("restore", () =>
+      `
 restore - Restore from a backup
 
 USAGE:
@@ -247,10 +252,10 @@ OPTIONS:
 EXAMPLES:
   divban immich restore /srv/divban-immich/backups/immich-db-backup-2024-01-15.sql.gz
   divban actual restore /srv/divban-actual/backups/actual-backup-2024-01-15.tar.gz
-`.trim();
-
-    case "backup-config":
-      return `
+`.trim()
+    ),
+    Match.when("backup-config", () =>
+      `
 backup-config - Create backup of configuration files and secrets
 
 USAGE:
@@ -280,10 +285,10 @@ EXAMPLES:
   divban immich backup-config /backup/immich-config.tar.gz
   divban all backup-config
   divban all backup-config --dry-run
-`.trim();
-
-    case "remove":
-      return `
+`.trim()
+    ),
+    Match.when("remove", () =>
+      `
 remove - Completely remove a service
 
 USAGE:
@@ -306,12 +311,10 @@ EXAMPLES:
   divban actual remove --force
   divban immich remove --force --preserve-data
   divban caddy remove --dry-run
-`.trim();
-
-    default:
-      return `No help available for command: ${command}`;
-  }
-};
+`.trim()
+    ),
+    Match.orElse(() => `No help available for command: ${command}`)
+  );
 
 /**
  * Print version information.

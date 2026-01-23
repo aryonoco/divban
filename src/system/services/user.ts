@@ -42,8 +42,7 @@ export interface UserServiceInterface {
 }
 
 /**
- * UserService tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * UserService service identifier for Effect dependency injection.
  */
 export interface UserService {
   readonly _tag: "UserService";

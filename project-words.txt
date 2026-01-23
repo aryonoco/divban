@@ -45,6 +45,7 @@ Zod
 healthcheck
 healthchecks
 semver
+speedups
 stdout
 stderr
 gzip
@@ -115,6 +116,8 @@ seccomp
 Rootfs
 journalctl
 pkill
+sysctl
+sysctls
 userdel
 nogroup
 clonefile

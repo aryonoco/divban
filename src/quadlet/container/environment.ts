@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container environment configuration for quadlet files.
+ * Container environment variable configuration. Environment files
+ * support systemd specifiers (%h for home directory) enabling
+ * portable paths across different service users. Values with
+ * special INI characters (=, whitespace) are escaped automatically.
  */
 
 import { Array as Arr, pipe } from "effect";

@@ -6,14 +6,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Pure parsing utilities for text file formats.
- * Functional core: no side effects, easy to unit test.
+ * Parsers for /etc/passwd and /etc/subuid needed by UID allocation.
+ * Uses Option-returning parsers for safety with noUncheckedIndexedAccess.
+ * Pure functions with no IO - callers handle file reading.
  */
 
-import { Array as Arr, Option, Order, pipe } from "effect";
+import { Array as Arr, Match, Option, Order, pipe } from "effect";
 
 // ============================================================================
-// Line Parsing Combinators
+// Line Parsing Helpers
 // ============================================================================
 
 /** Predicate: line is non-empty and not a comment */
@@ -59,7 +60,7 @@ export const parseKeyValue = (content: string): Record<string, string> =>
 
 /**
  * Parse colon-delimited lines.
- * Higher-order: takes a parser for the field array.
+ * Takes a parse function to transform each line's fields.
  * noUncheckedIndexedAccess-safe: parser receives readonly string[],
  * must use Arr.get for index access.
  */
@@ -87,10 +88,10 @@ export const parsePasswdUids = (content: string): readonly number[] =>
   );
 
 // ============================================================================
-// Subuid/Subgid Range ADT
+// Subuid/Subgid Range Type
 // ============================================================================
 
-/** Subuid/subgid range ADT */
+/** Subuid/subgid range type */
 export interface SubidRange {
   readonly user: string;
   readonly start: number;
@@ -152,7 +153,7 @@ interface GapSearchState {
 
 /**
  * Find gap in sorted ranges for new allocation.
- * Pure fold with early exit via Option.isSome check.
+ * Process lines with accumulator.
  */
 export const findGapForRange = (
   ranges: readonly SubidRange[],
@@ -163,24 +164,35 @@ export const findGapForRange = (
   const sorted = Arr.sort(ranges, SubidRangeOrd);
   const initial: GapSearchState = { candidate: rangeStart, found: Option.none() };
 
-  const step = (acc: GapSearchState, range: SubidRange): GapSearchState => {
-    // Short-circuit: already found
-    if (Option.isSome(acc.found)) {
-      return acc;
-    }
-    // Gap found before current range
-    if (acc.candidate + rangeSize - 1 < range.start) {
-      return { candidate: acc.candidate, found: Option.some(acc.candidate) };
-    }
-    // Move candidate past current range
-    return { candidate: Math.max(acc.candidate, range.end + 1), found: Option.none() };
-  };
+  const step = (acc: GapSearchState, range: SubidRange): GapSearchState =>
+    Option.match(acc.found, {
+      // Short-circuit: already found
+      onSome: (): GapSearchState => acc,
+      onNone: (): GapSearchState =>
+        pipe(
+          Match.value(acc.candidate + rangeSize - 1 < range.start),
+          // Gap found before current range
+          Match.when(true, () => ({ candidate: acc.candidate, found: Option.some(acc.candidate) })),
+          // Move candidate past current range
+          Match.when(false, () => ({
+            candidate: Math.max(acc.candidate, range.end + 1),
+            found: Option.none(),
+          })),
+          Match.exhaustive
+        ),
+    });
 
   const { candidate, found } = Arr.reduce(sorted, initial, step);
 
   // Check if gap exists after all ranges
-  if (Option.isSome(found)) {
-    return found;
-  }
-  return candidate + rangeSize - 1 <= maxEnd ? Option.some(candidate) : Option.none();
+  return Option.match(found, {
+    onSome: (): Option.Option<number> => found,
+    onNone: (): Option.Option<number> =>
+      pipe(
+        Match.value(candidate + rangeSize - 1 <= maxEnd),
+        Match.when(true, () => Option.some(candidate)),
+        Match.when(false, () => Option.none()),
+        Match.exhaustive
+      ),
+  });
 };

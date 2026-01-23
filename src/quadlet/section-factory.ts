@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Factory for creating quadlet section builders.
- * Extracted to break circular dependency between unit.ts and factory.ts.
+ * Section builder factory - eliminates repeated (name, entries) → IniSection
+ * boilerplate across unit.ts, service.ts, install.ts. Extracted to its own
+ * file to break circular imports between factory.ts and unit.ts.
  */
 
 import type { Entries } from "./entry";

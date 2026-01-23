@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Archive utilities using Effect and Bun's native Archive API.
- * MUST be used for ALL archive operations - no external tar commands.
+ * Tar archives using Bun's native Archive API instead of subprocess tar.
+ * Avoids shell injection risks and works cross-platform. Supports
+ * metadata.json for backup versioning and service identification.
  */
 
 import { Array as Arr, Effect, Match, Option, pipe } from "effect";

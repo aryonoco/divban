@@ -48,8 +48,7 @@ export interface UidAllocatorService {
 }
 
 /**
- * UidAllocator tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * UidAllocator service identifier for Effect dependency injection.
  */
 export interface UidAllocator {
   readonly _tag: "UidAllocator";

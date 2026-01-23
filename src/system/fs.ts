@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Filesystem operations using Effect for error handling.
- * Uses Bun.file, Bun.write, Bun.Glob for optimal performance.
+ * Filesystem operations wrapped in Effect for typed error handling.
+ * Atomic writes use temp file + rename to prevent partial writes on failure.
+ * File existence checks are non-throwing; reads return SystemError on failure.
  */
 
 import { watch } from "node:fs";
@@ -15,6 +16,7 @@ import { mkdir, writeFile as nodeWriteFile, rename, rm } from "node:fs/promises"
 import { type FileSink, Glob } from "bun";
 import { Effect, Option } from "effect";
 import { ErrorCode, SystemError, errorMessage } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
@@ -24,7 +26,7 @@ const fileReadError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.FILE_READ_FAILED as 27,
     message: `Failed to read file: ${path}: ${errorMessage(e)}`,
-    ...(e instanceof Error ? { cause: e } : {}),
+    ...extractCauseProps(e),
   });
 
 /**
@@ -34,7 +36,7 @@ const fileWriteError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.FILE_WRITE_FAILED as 28,
     message: `Failed to write file: ${path}: ${errorMessage(e)}`,
-    ...(e instanceof Error ? { cause: e } : {}),
+    ...extractCauseProps(e),
   });
 
 /**
@@ -44,7 +46,7 @@ const directoryError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
     message: `Failed to create directory: ${path}: ${errorMessage(e)}`,
-    ...(e instanceof Error ? { cause: e } : {}),
+    ...extractCauseProps(e),
   });
 
 /**
@@ -244,7 +246,7 @@ export const copyFile = (
         new SystemError({
           code: ErrorCode.FILE_WRITE_FAILED as 28,
           message: `Failed to copy file from ${source} to ${dest}: ${errorMessage(e)}`,
-          ...(e instanceof Error ? { cause: e } : {}),
+          ...extractCauseProps(e),
         }),
     });
   });
@@ -295,7 +297,7 @@ export const renameFile = (
       new SystemError({
         code: ErrorCode.FILE_WRITE_FAILED as 28,
         message: `Failed to rename ${source} to ${dest}: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
+        ...extractCauseProps(e),
       }),
   });
 
@@ -444,7 +446,7 @@ export const deleteDirectory = (path: AbsolutePath): Effect.Effect<void, SystemE
       new SystemError({
         code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
         message: `Failed to delete directory: ${path}: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
+        ...extractCauseProps(e),
       }),
   });
 

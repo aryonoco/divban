@@ -6,14 +6,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Age encryption utilities using Effect for error handling.
- * Uses age-encryption (FiloSottile's official TypeScript implementation).
+ * Age encryption for secret backup using X25519 keys.
+ * Age is chosen over GPG for simplicity (single-purpose tool, no keyring)
+ * and security (modern cryptography, no legacy cipher support).
+ * Uses FiloSottile's official age-encryption TypeScript library.
  */
 
 import { Decrypter, Encrypter, generateIdentity, identityToRecipient } from "age-encryption";
 import { Effect, Option, pipe } from "effect";
 import { ErrorCode, GeneralError, type SystemError, errorMessage } from "../lib/errors";
 import { parseKeyValue } from "../lib/file-parsers";
+import { extractCauseProps } from "../lib/match-helpers";
 import type { AbsolutePath } from "../lib/types";
 import { chmod } from "./directories";
 import { readFile, writeFile, writeFileExclusive } from "./fs";
@@ -44,7 +47,7 @@ export const generateKeypair = (): Effect.Effect<AgeKeypair, GeneralError> =>
       new GeneralError({
         code: ErrorCode.GENERAL_ERROR as 1,
         message: `Failed to generate age keypair: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
+        ...extractCauseProps(e),
       }),
   });
 
@@ -69,7 +72,7 @@ export const encrypt = (
       new GeneralError({
         code: ErrorCode.GENERAL_ERROR as 1,
         message: `Failed to encrypt with age: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
+        ...extractCauseProps(e),
       }),
   });
 
@@ -94,7 +97,7 @@ export const decrypt = (
       new GeneralError({
         code: ErrorCode.GENERAL_ERROR as 1,
         message: `Failed to decrypt with age: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
+        ...extractCauseProps(e),
       }),
   });
 
@@ -116,7 +119,7 @@ const loadExistingKeypair = (
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
           message: `Failed to derive public key: ${errorMessage(e)}`,
-          ...(e instanceof Error ? { cause: e } : {}),
+          ...extractCauseProps(e),
         }),
     });
   });

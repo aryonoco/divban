@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container security configuration for quadlet files.
+ * Container security hardening options. NoNewPrivileges prevents
+ * setuid escalation inside containers - always enable unless the
+ * application specifically requires privilege changes. ReadOnly
+ * rootfs forces all writes to explicit mounts, preventing hidden
+ * state accumulation. Seccomp profiles restrict syscalls.
  */
 
 import type { Entries } from "../entry";

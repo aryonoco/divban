@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Service interface and type definitions.
- * All services implement this interface for consistent behavior.
+ * Service abstraction enabling polymorphic CLI commands. A single `start`
+ * command handles Caddy, Immich, or any future service through this
+ * interface. ExistentialService wraps typed services for heterogeneous
+ * storage in the registry while preserving full type safety internally.
  */
 
 import type { Context, Effect, Schema } from "effect";
@@ -146,7 +148,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   readonly configTag: ConfigTag;
 
   /** Effect Schema for validating and decoding service configuration */
-  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type (invariant position)
+  // biome-ignore lint/suspicious/noExplicitAny: Schema input type varies per config - any is safe since we validate at runtime
   readonly configSchema: Schema.Schema<C, any, never>;
 
   // === Lifecycle Methods ===
@@ -274,26 +276,23 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
 }
 
 /**
- * Existential service wrapper - type-safe heterogeneous service storage.
+ * Existential service wrapper - allows storing services with different config types
+ * in the same collection (e.g., Map<ServiceName, ExistentialService>).
  *
- * This encodes the existential type: ∃C I Tag. ServiceEffect<C, I, Tag>
+ * The problem: ServiceEffect<C, I, Tag> has type parameters, so you can't store
+ * different services (CaddyService, ImmichService, etc.) in the same Map without
+ * losing type information or using `any` everywhere.
  *
- * In theory, the textbook CPS encoding would be:
- *   ∀R. (∀C I Tag. ServiceEffect<C, I, Tag> → R) → R
+ * The solution: Wrap each service and provide an `apply` method that lets you work
+ * with the service's full types inside a callback. The types are "hidden" from
+ * the outside but fully available inside the callback.
  *
- * Translated to TypeScript:
- *   apply: <R>(f: <C, I, Tag extends Context.Tag<I, C>>(service: ServiceEffect<C, I, Tag>) => R) => R
+ * TypeScript limitation: Ideally the callback would have its own type parameters
+ * that get unified with the stored service's types. But TypeScript can't do this -
+ * it treats the callback's type parameters as completely separate types, causing
+ * errors like "Type 'C' is not assignable to type 'C'".
  *
- * However, TypeScript's type system cannot handle this properly. When a callback has
- * fresh type parameters `<C, I, Tag>`, TypeScript treats them as entirely separate from
- * the concrete types stored in the existential. This results in errors like:
- *   "Type 'C' is not assignable to type 'C'. Two different types with this name exist."
- *
- * This is a fundamental limitation of TypeScript's type system, not specific to
- * exactOptionalPropertyTypes. Haskell handles this correctly because it has impredicative
- * instantiation and proper type application.
- *
- * The workaround uses `any` which is safe because:
+ * The workaround uses `any` in the callback signature, which is safe because:
  * 1. Only `mkExistentialService` can construct an ExistentialService
  * 2. The callback receives a concrete ServiceEffect (not any) at runtime
  * 3. The callback must be written to work with any service type
@@ -320,7 +319,7 @@ export interface ExistentialService {
    * );
    * ```
    */
-  // biome-ignore lint/suspicious/noExplicitAny: Required for existential type encoding - TypeScript's higher-rank polymorphism cannot unify fresh type variables with concrete existential types
+  // biome-ignore lint/suspicious/noExplicitAny: TypeScript can't infer concrete types from stored service - any is safe since we control construction
   readonly apply: <R>(f: (service: ServiceEffect<any, any, any>) => R) => R;
 }
 

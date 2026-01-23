@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based secret management CLI commands.
+ * Secret inspection via Podman secrets API. Lists and shows secrets
+ * stored in the service user's Podman secret store. Read-only -
+ * secret creation happens during setup from age-encrypted files
+ * in the config directory.
  */
 
-import { Effect } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import {
   ContainerError,
@@ -36,23 +39,20 @@ export interface SecretOptions {
  */
 export const executeSecret = (
   options: SecretOptions
-): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> => {
-  const { args } = options;
-
-  switch (args.subcommand) {
-    case "show":
-      return executeSecretShow(options);
-    case "list":
-      return executeSecretList(options);
-    default:
-      return Effect.fail(
+): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
+  pipe(
+    Match.value(options.args.subcommand),
+    Match.when("show", () => executeSecretShow(options)),
+    Match.when("list", () => executeSecretList(options)),
+    Match.orElse((cmd) =>
+      Effect.fail(
         new GeneralError({
           code: ErrorCode.INVALID_ARGS as 2,
-          message: `Unknown secret subcommand: ${args.subcommand}`,
+          message: `Unknown secret subcommand: ${cmd}`,
         })
-      );
-  }
-};
+      )
+    )
+  );
 
 /**
  * Show a specific secret value.
@@ -65,36 +65,46 @@ const executeSecretShow = (
     const serviceName = service.definition.name as ServiceName;
     const secretName = args.secretName;
 
-    if (!secretName) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Secret name is required",
+    return yield* pipe(
+      Match.value(secretName),
+      Match.when(undefined, () =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.INVALID_ARGS as 2,
+            message: "Secret name is required",
+          })
+        )
+      ),
+      Match.orElse((name) =>
+        Effect.gen(function* () {
+          // Get service user
+          const username = yield* getServiceUsername(serviceName);
+          const userResult = yield* Effect.either(getUserByName(username));
+
+          type ResultType = Effect.Effect<
+            void,
+            GeneralError | ContainerError | ServiceError | SystemError
+          >;
+          return yield* Either.match(userResult, {
+            onLeft: (): ResultType =>
+              Effect.fail(
+                new ContainerError({
+                  code: ErrorCode.SECRET_NOT_FOUND as 46,
+                  message: `Service '${serviceName}' is not configured. Run setup first.`,
+                  container: serviceName,
+                })
+              ),
+            onRight: ({ homeDir }): ResultType =>
+              Effect.gen(function* () {
+                // Get secret
+                const secretValue = yield* getServiceSecret(serviceName, name, homeDir);
+                // Output just the value (for scripting)
+                logger.raw(secretValue);
+              }),
+          });
         })
-      );
-    }
-
-    // Get service user
-    const username = yield* getServiceUsername(serviceName);
-
-    const userResult = yield* Effect.either(getUserByName(username));
-    if (userResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.SECRET_NOT_FOUND as 46,
-          message: `Service '${serviceName}' is not configured. Run setup first.`,
-          container: serviceName,
-        })
-      );
-    }
-
-    const { homeDir } = userResult.right;
-
-    // Get secret
-    const secretValue = yield* getServiceSecret(serviceName, secretName, homeDir);
-
-    // Output just the value (for scripting)
-    logger.raw(secretValue);
+      )
+    );
   });
 
 /**
@@ -109,29 +119,43 @@ const executeSecretList = (
 
     // Get service user
     const username = yield* getServiceUsername(serviceName);
-
     const userResult = yield* Effect.either(getUserByName(username));
-    if (userResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ContainerError({
-          code: ErrorCode.SECRET_NOT_FOUND as 46,
-          message: `Service '${serviceName}' is not configured. Run setup first.`,
-          container: serviceName,
-        })
-      );
-    }
 
-    const { homeDir } = userResult.right;
+    type ResultType = Effect.Effect<
+      void,
+      GeneralError | ContainerError | ServiceError | SystemError
+    >;
+    return yield* Either.match(userResult, {
+      onLeft: (): ResultType =>
+        Effect.fail(
+          new ContainerError({
+            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            message: `Service '${serviceName}' is not configured. Run setup first.`,
+            container: serviceName,
+          })
+        ),
+      onRight: ({ homeDir }): ResultType =>
+        Effect.gen(function* () {
+          // List secrets
+          const secrets = yield* listServiceSecrets(serviceName, homeDir);
 
-    // List secrets
-    const secrets = yield* listServiceSecrets(serviceName, homeDir);
-
-    if (args.format === "json") {
-      logger.raw(JSON.stringify({ service: serviceName, secrets }));
-    } else {
-      logger.info(`Secrets for ${serviceName}:`);
-      yield* Effect.forEach(secrets, (name) => Effect.sync(() => logger.raw(`  - ${name}`)), {
-        discard: true,
-      });
-    }
+          yield* pipe(
+            Match.value(args.format),
+            Match.when("json", () =>
+              Effect.sync(() => logger.raw(JSON.stringify({ service: serviceName, secrets })))
+            ),
+            Match.when("pretty", () =>
+              Effect.gen(function* () {
+                logger.info(`Secrets for ${serviceName}:`);
+                yield* Effect.forEach(
+                  secrets,
+                  (name) => Effect.sync(() => logger.raw(`  - ${name}`)),
+                  { discard: true }
+                );
+              })
+            ),
+            Match.exhaustive
+          );
+        }),
+    });
   });

@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * [Unit] section builder for quadlet files.
+ * Systemd [Unit] section for service dependencies and ordering.
+ * After/Before control startup sequence without hard dependencies.
+ * Requires vs Wants determines failure propagation - use Wants for
+ * optional services that shouldn't take down dependents on failure.
+ * Container names automatically get .service suffix for systemd.
  */
 
 import { Array as Arr, Option, pipe } from "effect";

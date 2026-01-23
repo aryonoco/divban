@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based backup command - create a service backup.
+ * Service data backup orchestration. Delegates to service-specific
+ * backup implementations since each service has different data
+ * structures (SQLite, uploads directory, etc.). Validates capability
+ * support before attempting - not all services implement backup.
  */
 
-import { Effect } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -39,72 +42,110 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
     const { service, args, logger } = options;
 
     // Check if service supports backup (must be done before context resolution)
-    if (!service.definition.capabilities.hasBackup) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `Service '${service.definition.name}' does not support backup`,
-        })
-      );
-    }
+    return yield* pipe(
+      Match.value(service.definition.capabilities.hasBackup),
+      Match.when(false, () =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Service '${service.definition.name}' does not support backup`,
+          })
+        )
+      ),
+      Match.when(true, () =>
+        pipe(
+          Match.value(args.dryRun),
+          Match.when(true, () =>
+            Effect.sync(() => {
+              logger.info("Dry run - would create backup");
+            })
+          ),
+          Match.when(false, () =>
+            Effect.gen(function* () {
+              logger.info(`Creating backup for ${service.definition.name}...`);
 
-    if (args.dryRun) {
-      logger.info("Dry run - would create backup");
-      return;
-    }
+              // Resolve prerequisites without config
+              const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-    logger.info(`Creating backup for ${service.definition.name}...`);
+              // Access service methods with proper config typing
+              const result = yield* service.apply((s) =>
+                Effect.gen(function* () {
+                  // Load config with typed schema (optional for backup)
+                  const configResult = yield* Effect.either(
+                    pipe(
+                      Match.value(args.configPath),
+                      Match.when(undefined, () =>
+                        findAndLoadConfig(
+                          service.definition.name,
+                          prereqs.user.homeDir,
+                          s.configSchema
+                        )
+                      ),
+                      Match.orElse((configPath) =>
+                        Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
+                          loadServiceConfig(path, s.configSchema)
+                        )
+                      )
+                    )
+                  );
 
-    // Resolve prerequisites without config
-    const prereqs = yield* resolvePrerequisites(service.definition.name, null);
+                  // Use empty config if not found
+                  type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
+                  type PathsType = typeof prereqs.paths;
+                  const config = Either.match(configResult, {
+                    onLeft: (): ConfigType => ({}) as ConfigType,
+                    onRight: (cfg): ConfigType => cfg,
+                  });
 
-    // Enter existential for typed config loading and method calls
-    const result = yield* service.apply((s) =>
-      Effect.gen(function* () {
-        // Load config with typed schema (optional for backup)
-        const configResult = yield* Effect.either(
-          args.configPath !== undefined
-            ? Effect.flatMap(toAbsolutePathEffect(args.configPath), (path) =>
-                loadServiceConfig(path, s.configSchema)
-              )
-            : findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-        );
+                  // Update paths with config dataDir if available
+                  const updatedPaths = Either.match(configResult, {
+                    onLeft: (): PathsType => prereqs.paths,
+                    onRight: (cfg): PathsType => ({
+                      ...prereqs.paths,
+                      dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
+                    }),
+                  });
 
-        // Use empty config if not found
-        const config =
-          configResult._tag === "Right"
-            ? configResult.right
-            : ({} as Parameters<(typeof s.configTag)["of"]>[0]);
+                  const layer = createServiceLayer(
+                    config,
+                    s.configTag,
+                    { ...prereqs, paths: updatedPaths },
+                    getContextOptions(args),
+                    logger
+                  );
 
-        // Update paths with config dataDir if available
-        const updatedPaths =
-          configResult._tag === "Right"
-            ? {
-                ...prereqs.paths,
-                dataDir: getDataDirFromConfig(configResult.right, prereqs.paths.dataDir),
-              }
-            : prereqs.paths;
+                  // backup is optional, use non-null assertion after capability check
+                  // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
+                  return yield* s.backup!().pipe(Effect.provide(layer));
+                })
+              );
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
-          logger
-        );
-
-        // backup is optional, use non-null assertion after capability check
-        // biome-ignore lint/style/noNonNullAssertion: capability check above ensures backup exists
-        return yield* s.backup!().pipe(Effect.provide(layer));
-      })
+              yield* pipe(
+                Match.value(args.format),
+                Match.when("json", () =>
+                  Effect.sync(() =>
+                    logger.info(
+                      JSON.stringify({
+                        path: result.path,
+                        size: result.size,
+                        timestamp: result.timestamp,
+                      })
+                    )
+                  )
+                ),
+                Match.when("pretty", () =>
+                  Effect.sync(() => {
+                    logger.success(`Backup created: ${result.path}`);
+                    logger.info(`Size: ${formatBytes(result.size)}`);
+                  })
+                ),
+                Match.exhaustive
+              );
+            })
+          ),
+          Match.orElse(() => Effect.void)
+        )
+      ),
+      Match.exhaustive
     );
-
-    if (args.format === "json") {
-      logger.info(
-        JSON.stringify({ path: result.path, size: result.size, timestamp: result.timestamp })
-      );
-    } else {
-      logger.success(`Backup created: ${result.path}`);
-      logger.info(`Size: ${formatBytes(result.size)}`);
-    }
   });

@@ -6,13 +6,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Command execution wrapper using Effect for error handling.
- * Uses Bun.spawn for process management and Bun Shell for complex piping.
+ * Command execution with Effect error handling and sudo user switching.
+ * Uses Bun.spawn for simple commands, Bun Shell ($) for piping/redirection.
+ * XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS are preserved for systemd.
  */
 
 import { $ } from "bun";
 import { Effect, Option, ParseResult, Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import type { UserId, Username } from "../lib/types";
 
 export interface ExecOptions {
@@ -39,7 +41,7 @@ const execError = (command: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.EXEC_FAILED as 26,
     message: `Failed to execute: ${command}: ${errorMessage(e)}`,
-    ...(e instanceof Error ? { cause: e } : {}),
+    ...extractCauseProps(e),
   });
 
 /**

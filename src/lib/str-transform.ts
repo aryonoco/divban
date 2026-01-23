@@ -6,15 +6,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * String transformations via fold.
- * Functions are curried for pipe composition.
+ * Functional string transformations using fold-based processing.
+ * Curried for pipe() composition. Avoids imperative loops and regex
+ * where character-by-character logic is clearer (e.g., collapseChar
+ * for normalizing paths with multiple slashes).
  */
 
 import { chars } from "./str";
 
 /**
- * Fold over characters with accumulator.
- * This is the primitive from which other transforms derive.
+ * Process each character with an accumulator.
+ * Base function for character-by-character transformations.
  */
 export const foldChars =
   <A>(initial: A, step: (acc: A, c: string) => A) =>
@@ -65,7 +67,7 @@ export const collapseChar =
   };
 
 /**
- * Remove suffix if present (total function).
+ * Remove suffix if present.
  */
 export const stripSuffix =
   (suffix: string) =>
@@ -73,7 +75,7 @@ export const stripSuffix =
     s.endsWith(suffix) ? s.slice(0, -suffix.length) : s;
 
 /**
- * Remove prefix if present (total function).
+ * Remove prefix if present.
  */
 export const stripPrefix =
   (prefix: string) =>
@@ -81,7 +83,7 @@ export const stripPrefix =
     s.startsWith(prefix) ? s.slice(prefix.length) : s;
 
 /**
- * Replace characters using a lookup map (total: unknown chars pass through).
+ * Replace characters using a lookup map (unknown chars pass through).
  */
 export const replaceChars = (mapping: ReadonlyMap<string, string>): ((s: string) => string) =>
   mapCharsToString((c) => mapping.get(c) ?? c);

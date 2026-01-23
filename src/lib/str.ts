@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Total string operations.
- * All partial operations return Option<T>.
+ * Total string functions that compose safely in Effect pipelines.
+ * Unlike String.prototype methods that throw on edge cases (empty strings,
+ * out-of-bounds indices), these return Option for partial operations.
+ * Unicode-aware via Array.from() instead of string indexing.
  */
 
 import { Option } from "effect";

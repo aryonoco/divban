@@ -6,12 +6,16 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * CLI argument parsing using Node.js parseArgs.
+ * Argument parsing with Effect error handling. Uses Node.js parseArgs
+ * for POSIX compliance, wrapping errors in typed GeneralError for
+ * consistent error reporting across the CLI. Validates service names
+ * and commands early to fail fast with clear messages.
  */
 
 import { parseArgs as nodeParseArgs } from "node:util";
 import { Array as Arr, Effect, Match, Option, pipe } from "effect";
 import { ErrorCode, GeneralError } from "../lib/errors";
+import { extractMessage } from "../lib/match-helpers";
 
 /**
  * Available commands.
@@ -127,7 +131,7 @@ type ParsedValues = {
 };
 
 // ============================================================================
-// Safe Array Access (Total Functions)
+// Safe Array Access
 // ============================================================================
 
 /**
@@ -284,9 +288,10 @@ const extractPositionalArgs = (
         Match.when("backup-config", () => ({ configPath: third })),
         Match.when("secret", (): Partial<ParsedArgs> => {
           const fourthOpt = getPositional(positionals, 3);
-          return Option.isSome(fourthOpt)
-            ? { subcommand: third, secretName: fourthOpt.value }
-            : { subcommand: third };
+          return Option.match(fourthOpt, {
+            onSome: (secretName): Partial<ParsedArgs> => ({ subcommand: third, secretName }),
+            onNone: (): Partial<ParsedArgs> => ({ subcommand: third }),
+          });
         }),
         Match.orElse(() => ({ configPath: third }))
       ),
@@ -342,7 +347,7 @@ const parseRawArgs = (argv: readonly string[]): { values: ParsedValues; position
 const toParseError = (e: unknown): GeneralError =>
   new GeneralError({
     code: ErrorCode.INVALID_ARGS as 2,
-    message: e instanceof Error ? e.message : String(e),
+    message: extractMessage(e),
   });
 
 /**

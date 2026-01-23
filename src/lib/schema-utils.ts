@@ -6,11 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect Schema utilities for divban configuration validation.
- * Provides error formatting, decode helpers, and validation predicates.
- *
- * Uses parser-first design: parsers return structured data via Option,
- * validators derive from parsers via Option.isSome.
+ * Effect Schema utilities with parser-first validation design.
+ * Parsers return Option<StructuredData> for safe extraction; validators
+ * derive from parsers via Option.isSome. This avoids regex complexity
+ * and provides useful parsed data when validation succeeds.
  */
 
 import { Array as Arr, Effect, Either, Option, ParseResult, Schema, pipe } from "effect";

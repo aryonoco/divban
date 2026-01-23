@@ -6,12 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Hardware acceleration for machine learning inference.
+ * ML inference acceleration for face recognition and smart search.
+ * Without GPU, processing a large library takes days. CUDA (NVIDIA)
+ * and OpenVINO (Intel) provide order-of-magnitude speedups. Each
+ * backend requires specific device mounts and environment setup.
  */
 
-import { Option } from "effect";
+import { Match, Option, pipe } from "effect";
 import { mapOr } from "../../../lib/option-helpers";
-import { assertNever } from "../../../lib/types";
 import type { MlConfig } from "../schema";
 
 /**
@@ -94,24 +96,17 @@ const getCpuConfig = (): MlDevices => ({
 /**
  * Get ML device configuration for a config.
  */
-export const getMlDevices = (config: MlConfig): MlDevices => {
-  switch (config.type) {
-    case "cuda":
-      return getCudaConfig(config.gpuIndex);
-    case "openvino":
-      return getOpenVinoConfig(config.device);
-    case "armnn":
-      return getArmnnConfig();
-    case "rknn":
-      return getRknnConfig();
-    case "rocm":
-      return getRocmConfig(config.gfxVersion);
-    case "disabled":
-      return getCpuConfig();
-    default:
-      return assertNever(config);
-  }
-};
+export const getMlDevices = (config: MlConfig): MlDevices =>
+  pipe(
+    Match.value(config),
+    Match.when({ type: "cuda" }, (c) => getCudaConfig(c.gpuIndex)),
+    Match.when({ type: "openvino" }, (c) => getOpenVinoConfig(c.device)),
+    Match.when({ type: "armnn" }, () => getArmnnConfig()),
+    Match.when({ type: "rknn" }, () => getRknnConfig()),
+    Match.when({ type: "rocm" }, (c) => getRocmConfig(c.gfxVersion)),
+    Match.when({ type: "disabled" }, () => getCpuConfig()),
+    Match.exhaustive
+  );
 
 /**
  * Get the full ML container image with suffix.

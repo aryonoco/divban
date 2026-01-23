@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Global options block generation for Caddyfile.
+ * Global options block - Caddyfile's top-level configuration. These
+ * settings affect all sites: admin API endpoint, ACME email for TLS
+ * certificates, default SNI for HTTPS. Must appear before any site
+ * blocks in the generated output.
  */
 
-import { Option } from "effect";
+import { Match, Option, pipe } from "effect";
 import { flatMapEntries } from "../../../lib/collection-utils";
 import type { GlobalOptions } from "../schema";
 import { Caddy, type CaddyOp, caddyfile } from "./format";
@@ -121,27 +124,32 @@ export const generateGlobalOptions = (options: GlobalOptions): string =>
 /**
  * Check if global options block is needed.
  */
-export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean => {
-  if (!options) {
-    return false;
-  }
+export const hasGlobalOptions = (options: GlobalOptions | undefined): boolean =>
+  pipe(
+    Match.value(options),
+    Match.when(undefined, () => false),
+    Match.orElse((opts) => {
+      const defined = <T>(v: T | undefined): boolean =>
+        Option.match(Option.fromNullable(v), {
+          onNone: (): boolean => false,
+          onSome: (): boolean => true,
+        });
 
-  const defined = <T>(v: T | undefined): boolean => Option.isSome(Option.fromNullable(v));
-
-  return (
-    defined(options.debug) ||
-    defined(options.email) ||
-    defined(options.acmeCA) ||
-    defined(options.acmeCaRoot) ||
-    defined(options.localCerts) ||
-    defined(options.skipInstallTrust) ||
-    defined(options.adminOff) ||
-    defined(options.adminEnforceOrigin) ||
-    defined(options.httpPort) ||
-    defined(options.httpsPort) ||
-    defined(options.autoHttps) ||
-    defined(options.servers) ||
-    defined(options.logFormat) ||
-    defined(options.logLevel)
+      return (
+        defined(opts.debug) ||
+        defined(opts.email) ||
+        defined(opts.acmeCA) ||
+        defined(opts.acmeCaRoot) ||
+        defined(opts.localCerts) ||
+        defined(opts.skipInstallTrust) ||
+        defined(opts.adminOff) ||
+        defined(opts.adminEnforceOrigin) ||
+        defined(opts.httpPort) ||
+        defined(opts.httpsPort) ||
+        defined(opts.autoHttps) ||
+        defined(opts.servers) ||
+        defined(opts.logFormat) ||
+        defined(opts.logLevel)
+      );
+    })
   );
-};

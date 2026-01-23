@@ -6,18 +6,24 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Helper functions for Effect Option
+ * Convenience wrappers for common Option patterns in Effect.
+ * Effect's Option API is comprehensive but verbose for frequent operations;
+ * these shortcuts reduce boilerplate without losing type safety.
  */
 
 import { Effect, Option, pipe } from "effect";
 
 /**
- * Total: Option → Effect conversion with custom error.
+ * Convert Option to Effect, failing if None.
  */
 export const expectOptionEffect = <T, E>(
   opt: Option.Option<T>,
   onNone: () => E
-): Effect.Effect<T, E> => (Option.isSome(opt) ? Effect.succeed(opt.value) : Effect.fail(onNone()));
+): Effect.Effect<T, E> =>
+  Option.match(opt, {
+    onNone: (): Effect.Effect<T, E> => Effect.fail(onNone()),
+    onSome: (value): Effect.Effect<T, E> => Effect.succeed(value),
+  });
 
 /**
  * Filter to non-empty arrays.
@@ -49,7 +55,7 @@ export const mapOrElse = <T, U>(
 ): U => pipe(opt, Option.map(fn), Option.getOrElse(defaultFn));
 
 /**
- * XOR combinator using nested Option.match
+ * Return the option that has a value, or None if both/neither have values.
  * Returns Some if exactly one is Some, None otherwise.
  */
 export const xorOption = <T>(a: Option.Option<T>, b: Option.Option<T>): Option.Option<T> =>
@@ -92,7 +98,7 @@ export const buildObject = <T extends Record<string, unknown>>(
 // ============================================================================
 
 /**
- * Fold Option with explicit handlers.
+ * Handle Option with separate functions for Some and None cases.
  * Prefer over getOrElse when the default computation is non-trivial.
  */
 export const fold =
@@ -106,7 +112,10 @@ export const fold =
 export const exists =
   <A>(predicate: (a: A) => boolean) =>
   (opt: Option.Option<A>): boolean =>
-    Option.isSome(opt) && predicate(opt.value);
+    Option.match(opt, {
+      onNone: (): boolean => false,
+      onSome: predicate,
+    });
 
 /**
  * Lift a partial function to work with Option.
@@ -122,12 +131,10 @@ export const fromPartial =
  * Returns Some only if ALL elements are Some.
  */
 export const sequence = <A>(opts: readonly Option.Option<A>[]): Option.Option<readonly A[]> =>
-  opts.every(Option.isSome)
-    ? Option.some(opts.filter(Option.isSome).map((o) => o.value))
-    : Option.none();
+  Option.all(opts);
 
 /**
- * Traverse: Apply function returning Option to each element, then sequence.
+ * Apply function to each element, returning None if any call fails.
  */
 export const traverse =
   <A, B>(f: (a: A) => Option.Option<B>) =>
@@ -138,4 +145,9 @@ export const traverse =
  * Filter out None values and extract Some values.
  */
 export const catOptions = <A>(opts: readonly Option.Option<A>[]): readonly A[] =>
-  opts.filter(Option.isSome).map((o) => o.value);
+  opts.flatMap((opt) =>
+    Option.match(opt, {
+      onNone: (): readonly A[] => [],
+      onSome: (a): readonly A[] => [a],
+    })
+  );

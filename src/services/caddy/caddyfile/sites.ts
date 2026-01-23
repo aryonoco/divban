@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Site block generation for Caddyfile.
+ * Site blocks - the core of Caddyfile configuration. Each site
+ * represents a domain/address with routes, handlers, and matchers.
+ * Ordering matters: first matching handle block wins. Named matchers
+ * (@name) enable complex routing patterns within sites.
  */
 
 import { Array as Arr, Option, pipe } from "effect";

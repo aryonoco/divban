@@ -6,12 +6,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Sysctl configuration using Effect for error handling.
- * Enables unprivileged users to bind to ports >= configured threshold.
+ * Sysctl for unprivileged port binding (ports 70+).
+ * Linux restricts ports < 1024 to root by default. Lowering
+ * net.ipv4.ip_unprivileged_port_start lets rootless containers
+ * bind HTTP/HTTPS ports without CAP_NET_BIND_SERVICE.
  */
 
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS } from "../lib/paths";
 import { execOutput, execSuccess } from "./exec";
 import { writeFile } from "./fs";
@@ -33,7 +36,7 @@ export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | 
           new SystemError({
             code: ErrorCode.EXEC_FAILED as 26,
             message: `Failed to read sysctl ${SYSCTL_KEY}: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -59,10 +62,10 @@ export const isUnprivilegedPortEnabled = (
 ): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(getUnprivilegedPortStart());
-    if (result._tag === "Left") {
-      return false;
-    }
-    return result.right <= threshold;
+    return Either.match(result, {
+      onLeft: (): boolean => false,
+      onRight: (value): boolean => value <= threshold,
+    });
   });
 
 /**
@@ -91,7 +94,7 @@ ${SYSCTL_KEY} = ${threshold}
           new SystemError({
             code: ErrorCode.FILE_WRITE_FAILED as 28,
             message: `Failed to write sysctl configuration: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -103,7 +106,7 @@ ${SYSCTL_KEY} = ${threshold}
           new SystemError({
             code: ErrorCode.EXEC_FAILED as 26,
             message: `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -123,7 +126,7 @@ export const ensureUnprivilegedPorts = (
         new SystemError({
           code: ErrorCode.EXEC_FAILED as 26,
           message: `Failed to configure unprivileged port binding${context}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );

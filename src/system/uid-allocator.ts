@@ -10,7 +10,7 @@
  * Cross-distribution compatible using POSIX-standard mechanisms.
  */
 
-import { Array as Arr, Effect, Option, pipe } from "effect";
+import { Array as Arr, Effect, Either, Option, pipe } from "effect";
 import {
   type SubidRange,
   findFirstAvailableUid,
@@ -66,9 +66,8 @@ export interface UidAllocationSettings {
 const parsePasswdFile = (content: string): ReadonlySet<number> => new Set(parsePasswdUids(content));
 
 /**
- * Get all UIDs currently in use on the system.
+ * Fetch UIDs from multiple sources in parallel.
  * Works across all major Linux distributions.
- * Applicative style with Effect.all for parallel fetching.
  */
 export const getUsedUids = (): Effect.Effect<ReadonlySet<number>, never> =>
   pipe(
@@ -84,8 +83,7 @@ export const getUsedUids = (): Effect.Effect<ReadonlySet<number>, never> =>
   );
 
 /**
- * Get all subuid ranges currently allocated.
- * Point-free with shared parser, returns readonly array.
+ * Parse subuid file into range list.
  */
 export const getUsedSubuidRanges = (): Effect.Effect<readonly SubidRange[], never> =>
   Effect.map(readFileOrEmpty(SYSTEM_PATHS.subuid), parseSubidRanges);
@@ -194,26 +192,27 @@ export const getUidByUsername = (
   Effect.gen(function* () {
     const result = yield* Effect.either(execOutput(["id", "-u", username]));
 
-    if (result._tag === "Left") {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `User ${username} not found`,
-        })
-      );
-    }
-
-    const uid = Number.parseInt(result.right.trim(), 10);
-    if (Number.isNaN(uid)) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `Invalid UID for user ${username}`,
-        })
-      );
-    }
-
-    return uid as UserId;
+    type UidResult = Effect.Effect<UserId, SystemError | GeneralError>;
+    return yield* Either.match(result, {
+      onLeft: (): UidResult =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `User ${username} not found`,
+          })
+        ),
+      onRight: (output): UidResult => {
+        const uid = Number.parseInt(output.trim(), 10);
+        return Number.isNaN(uid)
+          ? Effect.fail(
+              new GeneralError({
+                code: ErrorCode.GENERAL_ERROR as 1,
+                message: `Invalid UID for user ${username}`,
+              })
+            )
+          : Effect.succeed(uid as UserId);
+      },
+    });
   });
 
 /**
@@ -222,7 +221,10 @@ export const getUidByUsername = (
 export const userExists = (username: string): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(exec(["id", username]));
-    return result._tag === "Right" && result.right.exitCode === 0;
+    return Either.match(result, {
+      onLeft: (): boolean => false,
+      onRight: (r): boolean => r.exitCode === 0,
+    });
   });
 
 /**

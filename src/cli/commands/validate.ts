@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based validate command - validate a service configuration file.
+ * Configuration validation without side effects. Parses TOML and
+ * runs Effect Schema validation, reporting all errors found. Useful
+ * for CI pipelines and pre-commit hooks to catch config issues
+ * before deployment.
  */
 
-import { Effect } from "effect";
+import { Effect, Either } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
@@ -30,25 +33,30 @@ export const executeValidate = (options: ValidateOptions): Effect.Effect<void, D
     const { service, args, logger } = options;
     const configPath = args.configPath;
 
-    if (!configPath) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Config path is required for validate command",
-        })
-      );
-    }
+    return yield* configPath === undefined
+      ? Effect.fail(
+          new GeneralError({
+            code: ErrorCode.INVALID_ARGS as 2,
+            message: "Config path is required for validate command",
+          })
+        )
+      : Effect.gen(function* () {
+          const validPath = yield* toAbsolutePathEffect(configPath);
+          logger.info(`Validating configuration: ${validPath}`);
 
-    const validPath = yield* toAbsolutePathEffect(configPath);
-    logger.info(`Validating configuration: ${validPath}`);
+          // validate() is context-free, use apply() to access the method
+          const result = yield* service.apply((s) => Effect.either(s.validate(validPath)));
 
-    // validate() is context-free, use apply() to access the method
-    const result = yield* service.apply((s) => Effect.either(s.validate(validPath)));
-
-    if (result._tag === "Left") {
-      logger.fail(`Validation failed: ${result.left.message}`);
-      return yield* Effect.fail(result.left);
-    }
-
-    logger.success("Configuration is valid");
+          type ResultType = Effect.Effect<void, DivbanEffectError>;
+          return yield* Either.match(result, {
+            onLeft: (err): ResultType => {
+              logger.fail(`Validation failed: ${err.message}`);
+              return Effect.fail(err);
+            },
+            onRight: (): ResultType => {
+              logger.success("Configuration is valid");
+              return Effect.void;
+            },
+          });
+        });
   });

@@ -6,7 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container health check configuration for quadlet files.
+ * Container health checks for systemd integration. Health status
+ * feeds into systemd's restart logic - a failing health check can
+ * trigger automatic container restart. Start periods prevent
+ * false positives during slow application initialization.
+ * Service-specific helpers (Postgres, Redis) use native health
+ * commands that avoid external dependencies like curl.
  */
 
 import { Option, pipe } from "effect";

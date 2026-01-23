@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Character classification predicates.
- * Total functions: single-character input assumed (caller's responsibility via Str.chars).
+ * Character predicates for validation without regex overhead.
+ * Used with Str.all/any for input validation (e.g., isValidUsername).
+ * Direct comparisons are faster than regex for simple character sets.
  */
 
 /** a-z */

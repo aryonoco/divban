@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Type definitions for Quadlet file generation.
- * Quadlets are systemd generator files for Podman containers.
+ * Quadlet configuration types for systemd-Podman integration.
+ * Quadlets are INI files that systemd generators convert to unit files
+ * at boot. This enables declarative container definitions with systemd
+ * lifecycle management (dependencies, restart policies, logging).
  */
 
 import type { DurationString } from "../lib/types";

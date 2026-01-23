@@ -36,8 +36,7 @@ export interface LingerService {
 }
 
 /**
- * Linger tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Linger service identifier for Effect dependency injection.
  */
 export interface Linger {
   readonly _tag: "Linger";

@@ -6,7 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Higher-order factories for quadlet generation.
+ * Higher-order factory for quadlet generators.
+ * Reduces boilerplate for network/volume generators that follow
+ * the same pattern: optional Unit section + main section.
  */
 
 import { Array as Arr, Option, identity, pipe } from "effect";

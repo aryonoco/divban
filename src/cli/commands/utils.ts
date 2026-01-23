@@ -6,12 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Shared utilities for CLI commands.
- * Provides helpers for resolving service context using Effect's Layer pattern.
+ * Command context resolution. Builds the Layer dependencies that
+ * service methods need - user info, paths, capabilities, logger.
+ * Centralizes the boilerplate so each command focuses on its
+ * specific logic rather than context setup.
  */
 
 import type { Context } from "effect";
-import { Effect, Layer, Schema, pipe } from "effect";
+import { Effect, Either, Layer, Schema, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -78,7 +80,7 @@ const getConfigPaths = (serviceName: ServiceName, homeDir: AbsolutePathType): st
  */
 const tryLoadConfigFromPath = <C>(
   path: string,
-  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type
+  // biome-ignore lint/suspicious/noExplicitAny: Schema input varies per service - validated at runtime
   schema: Schema.Schema<C, any, never>
 ): Effect.Effect<C, ConfigError | SystemError> =>
   pipe(
@@ -105,7 +107,7 @@ const tryLoadConfigFromPath = <C>(
 export const findAndLoadConfig = <C>(
   serviceName: ServiceName,
   homeDir: AbsolutePathType,
-  // biome-ignore lint/suspicious/noExplicitAny: Type parameter any is acceptable for schema input type
+  // biome-ignore lint/suspicious/noExplicitAny: Schema input varies per service - validated at runtime
   schema: Schema.Schema<C, any, never>
 ): Effect.Effect<C, ConfigError | SystemError> =>
   pipe(
@@ -264,23 +266,24 @@ export const resolveServiceUser = (
     const username = yield* getServiceUsername(serviceName);
     const userInfoResult = yield* Effect.either(getUserByName(username));
 
-    if (userInfoResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
-          message: `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`,
-          service: serviceName,
-        })
-      );
-    }
-
-    const { uid, homeDir } = userInfoResult.right;
-    return {
-      name: username,
-      uid,
-      gid: userIdToGroupId(uid),
-      homeDir,
-    };
+    type ResultType = Effect.Effect<ResolvedServiceUser, ServiceError>;
+    return yield* Either.match(userInfoResult, {
+      onLeft: (): ResultType =>
+        Effect.fail(
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`,
+            service: serviceName,
+          })
+        ),
+      onRight: ({ uid, homeDir }): ResultType =>
+        Effect.succeed({
+          name: username,
+          uid,
+          gid: userIdToGroupId(uid),
+          homeDir,
+        }),
+    });
   });
 
 // ============================================================================
@@ -289,7 +292,7 @@ export const resolveServiceUser = (
 
 /**
  * Prerequisites resolved for a service command (without config).
- * Config is loaded inside the existential apply() with proper typing.
+ * Config is loaded with the correct schema for each service.
  */
 export interface Prerequisites {
   user: ResolvedServiceUser;

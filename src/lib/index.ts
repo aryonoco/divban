@@ -46,7 +46,6 @@ export {
   isUsername,
   isVolumeName,
   // Path utilities
-  assertNever,
   joinPath,
   parseErrorToGeneralError,
   path,

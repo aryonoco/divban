@@ -6,12 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Hardware acceleration device mappings for transcoding.
+ * Video transcoding acceleration via hardware encoders. Software
+ * encoding saturates CPU for hours; hardware offload (NVENC, QSV,
+ * VAAPI) completes in minutes. Maps acceleration type to required
+ * /dev/ device nodes and NVIDIA/Intel driver environment.
  */
 
-import { Option } from "effect";
+import { Match, Option, pipe } from "effect";
 import { mapOr } from "../../../lib/option-helpers";
-import { assertNever } from "../../../lib/types";
 import type { TranscodingConfig } from "../schema";
 
 /**
@@ -79,24 +81,17 @@ const getRkmppDevices = (): TranscodingDevices => ({
  */
 export const getTranscodingDevices = (
   config: TranscodingConfig
-): Option.Option<TranscodingDevices> => {
-  switch (config.type) {
-    case "nvenc":
-      return Option.some(getNvencDevices(config.gpuIndex));
-    case "qsv":
-      return Option.some(getQsvDevices(config.renderDevice));
-    case "vaapi":
-      return Option.some(getVaapiDevices(config.renderDevice));
-    case "vaapi-wsl":
-      return Option.some(getVaapiWslDevices());
-    case "rkmpp":
-      return Option.some(getRkmppDevices());
-    case "disabled":
-      return Option.none();
-    default:
-      return assertNever(config);
-  }
-};
+): Option.Option<TranscodingDevices> =>
+  pipe(
+    Match.value(config),
+    Match.when({ type: "nvenc" }, (c) => Option.some(getNvencDevices(c.gpuIndex))),
+    Match.when({ type: "qsv" }, (c) => Option.some(getQsvDevices(c.renderDevice))),
+    Match.when({ type: "vaapi" }, (c) => Option.some(getVaapiDevices(c.renderDevice))),
+    Match.when({ type: "vaapi-wsl" }, () => Option.some(getVaapiWslDevices())),
+    Match.when({ type: "rkmpp" }, () => Option.some(getRkmppDevices())),
+    Match.when({ type: "disabled" }, () => Option.none()),
+    Match.exhaustive
+  );
 
 /**
  * Check if a transcoding configuration requires special devices.

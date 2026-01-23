@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container Linux capabilities configuration for quadlet files.
+ * Linux capabilities for least-privilege containers. Drop ALL then
+ * add back only what's needed - this is safer than trying to
+ * enumerate what to drop. Web servers need NET_BIND_SERVICE for
+ * ports <1024, databases need CHOWN/SETUID/SETGID for user
+ * switching. SYS_ADMIN should be avoided - it's nearly root.
  */
 
 import type { Entries } from "../entry";

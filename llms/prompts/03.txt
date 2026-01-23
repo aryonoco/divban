@@ -1,0 +1,36 @@
+ High Impact
+
+  1. Variadic SetupStep pipelines
+  Currently pipeline3, pipeline4, pipeline5 are manually defined. A type-level list or HKT approach would let you compose N steps without
+  writing pipeline6, pipeline7, etc. Effect has Effect.all patterns that might inspire this.
+
+  2. Structured logging with spans
+  The codebase logs, but adding OpenTelemetry-style spans/traces would make debugging multi-step operations (setup → user creation → linger →
+  directories → services) much clearer. Effect has Effect.withSpan for this.
+
+  3. Circuit breakers for external calls
+  You have retry, but no circuit breaker pattern for when a service is persistently failing. Effect.Schedule can do this with
+  Schedule.recurWhile combined with state, or there's @effect/io's circuit breaker.
+
+  Medium Impact
+
+  4. Refined error types per operation
+  Currently SystemError covers a lot. More granular types like UserCreationError, LingerError, DirectoryError would give callers finer control
+  over recovery. The error code enum partially does this, but the type system doesn't enforce it.
+
+  5. Effect Schema codecs for all external boundaries
+  TOML configs are validated, but are all podman/systemctl outputs parsed through schemas? Treating external command output as untrusted and
+  parsing it through schemas would catch edge cases.
+
+  6. Capability-based design
+  Instead of CommandExecutor being one big service, split into UserCommands, SystemctlCommands, PodmanCommands with minimal interfaces.
+  Principle of least authority at the type level.
+
+  Lower Priority (diminishing returns)
+
+  - Property-based tests (when you add tests) — fast-check for schema roundtrips
+  - ADRs — architecture decision records for why Effect, why branded types, etc.
+  - Benchmark suite — prove the retry/backoff doesn't add latency in happy path
+
+  The first three would have the most impact on both correctness and maintainability. The variadic pipeline one is probably the most "Rust
+  evangelist" move — making invalid states unrepresentable at the type level.

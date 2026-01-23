@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Entry type - the fundamental unit of quadlet configuration.
- * This module defines the core ADT for INI entries.
+ * INI entry as a data type for composable quadlet building.
+ * Separating Entry from formatting enables pure transformation
+ * pipelines before any I/O (write) occurs.
  */
 
 /**
@@ -24,6 +25,6 @@ export interface Entry {
 export type Entries = readonly Entry[];
 
 /**
- * Empty entries - the identity element for entry concatenation.
+ * Empty entries - empty starting point for entry arrays.
  */
 export const empty: Entries = [];

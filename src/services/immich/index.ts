@@ -51,7 +51,7 @@ import {
   cleanupFileBackups,
   createConfigValidator,
   emptyState,
-  executeSteps5,
+  pipeline,
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
@@ -467,10 +467,13 @@ const setup = (): Effect.Effect<
   ServiceError | SystemError | ContainerError | GeneralError,
   ImmichConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
 > =>
-  executeSteps5(
-    [secretsStep, generateStep, createDirsStep, writeFilesStep, enableServicesStep],
-    emptyState
-  );
+  pipeline<EmptyState>()
+    .andThen(secretsStep)
+    .andThen(generateStep)
+    .andThen(createDirsStep)
+    .andThen(writeFilesStep)
+    .andThen(enableServicesStep)
+    .execute(emptyState);
 
 /**
  * Start Immich service.

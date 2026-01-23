@@ -33,7 +33,7 @@ import {
   createConfigValidator,
   createSingleContainerOps,
   emptyState,
-  executeSteps3,
+  pipeline,
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
@@ -266,7 +266,12 @@ const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
   CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
-> => executeSteps3([generateStep, writeFilesStep, enableServicesStep], emptyState);
+> =>
+  pipeline<EmptyState>()
+    .andThen(generateStep)
+    .andThen(writeFilesStep)
+    .andThen(enableServicesStep)
+    .execute(emptyState);
 
 /**
  * Reload Caddy configuration.

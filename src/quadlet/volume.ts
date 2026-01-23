@@ -6,7 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Volume quadlet file generation.
+ * Podman volume quadlet generation for persistent storage.
+ * Named volumes persist across container recreation and are
+ * managed by Podman (vs bind mounts managed by host filesystem).
  */
 
 import type { Entries } from "./entry";
@@ -24,7 +26,7 @@ export const getVolumeSectionEntries = (config: VolumeQuadlet): Entries =>
   );
 
 /**
- * Build the [Volume] section using combinators.
+ * Build the [Volume] section.
  */
 export const buildVolumeSection: (config: VolumeQuadlet) => IniSection = makeSection(
   "Volume",

@@ -6,12 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * User linger management using Effect for error handling.
- * Enables services to run without an active login session.
+ * User linger enables systemd user services to persist without login.
+ * Without linger, user services stop when the last session ends.
+ * Also starts user@<uid>.service explicitly for WSL compatibility.
  */
 
-import { Array as Arr, Effect, pipe } from "effect";
+import { Array as Arr, Effect, Either, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
 import {
   heavyRetrySchedule,
@@ -41,7 +43,7 @@ const startUserService = (uid: UserId): Effect.Effect<void, SystemError | Genera
         new SystemError({
           code: ErrorCode.LINGER_ENABLE_FAILED as 23,
           message: `Failed to start user service for uid ${uid}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -122,7 +124,7 @@ export const enableLinger = (
           new SystemError({
             code: ErrorCode.LINGER_ENABLE_FAILED as 23,
             message: `Failed to enable linger for ${username}: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -176,7 +178,7 @@ export const disableLinger = (
           new GeneralError({
             code: ErrorCode.GENERAL_ERROR as 1,
             message: `Failed to disable linger for ${username}: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -191,20 +193,17 @@ export const getLingeringUsers = (): Effect.Effect<string[], never> =>
       exec(["ls", SYSTEM_PATHS.lingerDir], { captureStdout: true })
     );
 
-    if (result._tag === "Left") {
-      // Directory might not exist if no users have linger enabled
-      return [];
-    }
-
-    if (result.right.exitCode !== 0) {
-      return [];
-    }
-
-    return pipe(
-      result.right.stdout.split("\n"),
-      Arr.map((line) => line.trim()),
-      Arr.filter((line) => line.length > 0)
-    );
+    return Either.match(result, {
+      onLeft: (): string[] => [],
+      onRight: (r): string[] =>
+        r.exitCode !== 0
+          ? []
+          : pipe(
+              r.stdout.split("\n"),
+              Arr.map((line) => line.trim()),
+              Arr.filter((line) => line.length > 0)
+            ),
+    });
   });
 
 /**
@@ -221,7 +220,7 @@ export const ensureLinger = (
         new SystemError({
           code: ErrorCode.LINGER_ENABLE_FAILED as 23,
           message: `Failed to enable linger for service ${serviceName} (user: ${username})`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );

@@ -24,8 +24,7 @@ export interface SELinuxService {
 }
 
 /**
- * SELinux tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * SELinux service identifier for Effect dependency injection.
  */
 export interface SELinux {
   readonly _tag: "SELinux";

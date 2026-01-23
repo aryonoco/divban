@@ -6,11 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based status command - show service status.
- * Uses Layer.provide pattern for dependency injection.
+ * Service health overview. Queries systemd for each container's
+ * active state, showing running/stopped status per container.
+ * Works even when service isn't configured yet - gracefully
+ * reports "not set up" instead of failing.
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError } from "../../lib/errors";
@@ -44,99 +46,151 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
     const username = yield* getServiceUsername(service.definition.name);
     const userResult = yield* Effect.either(getUserByName(username));
 
-    if (userResult._tag === "Left") {
-      if (args.format === "json") {
-        logger.raw(
-          JSON.stringify({
-            service: service.definition.name,
-            status: "not_configured",
-            running: false,
-          })
-        );
-      } else {
-        logger.warn(`Service '${service.definition.name}' is not configured.`);
-        logger.info(`Run 'divban ${service.definition.name} setup <config>' to set up.`);
-      }
-      return;
-    }
-
-    // Resolve prerequisites without config
-    const prereqs = yield* resolvePrerequisites(service.definition.name, null);
-
-    // Enter existential for typed config loading and method calls
-    const status = yield* service.apply((s) =>
-      Effect.gen(function* () {
-        // Load config with typed schema (optional for status)
-        const configResult = yield* Effect.either(
-          args.configPath !== undefined
-            ? Effect.flatMap(toAbsolutePathEffect(args.configPath), (path) =>
-                loadServiceConfig(path, s.configSchema)
+    type MatchResultType = Effect.Effect<void, DivbanEffectError>;
+    return yield* Either.match(userResult, {
+      onLeft: (): MatchResultType =>
+        pipe(
+          Match.value(args.format),
+          Match.when("json", () =>
+            Effect.sync(() =>
+              logger.raw(
+                JSON.stringify({
+                  service: service.definition.name,
+                  status: "not_configured",
+                  running: false,
+                })
               )
-            : findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-        );
+            )
+          ),
+          Match.when("pretty", () =>
+            Effect.sync(() => {
+              logger.warn(`Service '${service.definition.name}' is not configured.`);
+              logger.info(`Run 'divban ${service.definition.name} setup <config>' to set up.`);
+            })
+          ),
+          Match.exhaustive
+        ),
+      onRight: (): MatchResultType =>
+        Effect.gen(function* () {
+          // Resolve prerequisites without config
+          const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-        // Use empty config if not found
-        const config =
-          configResult._tag === "Right"
-            ? configResult.right
-            : ({} as Parameters<(typeof s.configTag)["of"]>[0]);
+          // Access service methods with proper config typing
+          const status = yield* service.apply((s) =>
+            Effect.gen(function* () {
+              // Load config with typed schema (optional for status)
+              const configResult = yield* Effect.either(
+                pipe(
+                  Match.value(args.configPath),
+                  Match.when(undefined, () =>
+                    findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+                  ),
+                  Match.orElse((configPath) =>
+                    Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
+                      loadServiceConfig(path, s.configSchema)
+                    )
+                  )
+                )
+              );
 
-        // Update paths with config dataDir if available
-        const updatedPaths =
-          configResult._tag === "Right"
-            ? {
-                ...prereqs.paths,
-                dataDir: getDataDirFromConfig(configResult.right, prereqs.paths.dataDir),
-              }
-            : prereqs.paths;
+              // Use empty config if not found
+              type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
+              type PathsType = typeof prereqs.paths;
+              const config = Either.match(configResult, {
+                onLeft: (): ConfigType => ({}) as ConfigType,
+                onRight: (cfg): ConfigType => cfg,
+              });
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
-          logger
-        );
+              // Update paths with config dataDir if available
+              const updatedPaths = Either.match(configResult, {
+                onLeft: (): PathsType => prereqs.paths,
+                onRight: (cfg): PathsType => ({
+                  ...prereqs.paths,
+                  dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
+                }),
+              });
 
-        return yield* s.status().pipe(Effect.provide(layer));
-      })
-    );
+              const layer = createServiceLayer(
+                config,
+                s.configTag,
+                { ...prereqs, paths: updatedPaths },
+                getContextOptions(args),
+                logger
+              );
 
-    if (args.format === "json") {
-      logger.raw(
-        JSON.stringify({
-          service: service.definition.name,
-          running: status.running,
-          containers: status.containers,
-        })
-      );
-    } else {
-      const overallStatus = status.running ? "running" : "stopped";
-      const statusColor = status.running ? "\x1b[32m" : "\x1b[31m";
-      const reset = "\x1b[0m";
-
-      logger.raw(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
-
-      if (status.containers.length > 0) {
-        logger.raw("");
-        logger.raw("Containers:");
-
-        // Pure: format container lines
-        const containerLines = status.containers.map((container) => {
-          const containerStatusColor =
-            container.status.status === "running" ? "\x1b[32m" : "\x1b[31m";
-          const healthStr = pipe(
-            Option.fromNullable(container.health),
-            Option.map((h) => ` (${h.health})`),
-            Option.getOrElse(() => "")
+              return yield* s.status().pipe(Effect.provide(layer));
+            })
           );
-          return `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`;
-        });
 
-        // Single side effect: log all lines
-        yield* Effect.forEach(containerLines, (line) => Effect.sync(() => logger.raw(line)), {
-          discard: true,
-        });
-      }
-    }
+          yield* pipe(
+            Match.value(args.format),
+            Match.when("json", () =>
+              Effect.sync(() =>
+                logger.raw(
+                  JSON.stringify({
+                    service: service.definition.name,
+                    running: status.running,
+                    containers: status.containers,
+                  })
+                )
+              )
+            ),
+            Match.when("pretty", () =>
+              Effect.gen(function* () {
+                const overallStatus = pipe(
+                  Match.value(status.running),
+                  Match.when(true, () => "running"),
+                  Match.when(false, () => "stopped"),
+                  Match.exhaustive
+                );
+                const statusColor = pipe(
+                  Match.value(status.running),
+                  Match.when(true, () => "\x1b[32m"),
+                  Match.when(false, () => "\x1b[31m"),
+                  Match.exhaustive
+                );
+                const reset = "\x1b[0m";
+
+                logger.raw(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
+
+                yield* pipe(
+                  Match.value(status.containers.length > 0),
+                  Match.when(true, () =>
+                    Effect.gen(function* () {
+                      logger.raw("");
+                      logger.raw("Containers:");
+
+                      // Pure: format container lines
+                      const containerLines = status.containers.map((container) => {
+                        const containerStatusColor = pipe(
+                          Match.value(container.status.status === "running"),
+                          Match.when(true, () => "\x1b[32m"),
+                          Match.when(false, () => "\x1b[31m"),
+                          Match.exhaustive
+                        );
+                        const healthStr = pipe(
+                          Option.fromNullable(container.health),
+                          Option.map((h) => ` (${h.health})`),
+                          Option.getOrElse(() => "")
+                        );
+                        return `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`;
+                      });
+
+                      // Single side effect: log all lines
+                      yield* Effect.forEach(
+                        containerLines,
+                        (line) => Effect.sync(() => logger.raw(line)),
+                        { discard: true }
+                      );
+                    })
+                  ),
+                  Match.when(false, () => Effect.void),
+                  Match.exhaustive
+                );
+              })
+            ),
+            Match.exhaustive
+          );
+        }),
+    });
   });

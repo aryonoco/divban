@@ -6,11 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based restart command - restart a service.
- * Uses Layer.provide pattern for dependency injection.
+ * Service restart with dependency awareness. For multi-container
+ * stacks, respects topological order - stops dependents first, then
+ * restarts in dependency order. Single-container services use direct
+ * systemctl restart.
  */
 
-import { Effect } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -41,32 +43,40 @@ export const executeRestart = (options: RestartOptions): Effect.Effect<void, Div
     // Resolve prerequisites without config
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-    // Enter existential for typed config loading and method calls
+    // Access service methods with proper config typing
     yield* service.apply((s) =>
       Effect.gen(function* () {
         // Load config with typed schema (optional for restart)
         const configResult = yield* Effect.either(
-          args.configPath !== undefined
-            ? Effect.flatMap(toAbsolutePathEffect(args.configPath), (path) =>
+          pipe(
+            Match.value(args.configPath),
+            Match.when(undefined, () =>
+              findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+            ),
+            Match.orElse((configPath) =>
+              Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
                 loadServiceConfig(path, s.configSchema)
               )
-            : findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+            )
+          )
         );
 
         // Use empty config if not found
-        const config =
-          configResult._tag === "Right"
-            ? configResult.right
-            : ({} as Parameters<(typeof s.configTag)["of"]>[0]);
+        type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
+        type PathsType = typeof prereqs.paths;
+        const config = Either.match(configResult, {
+          onLeft: (): ConfigType => ({}) as ConfigType,
+          onRight: (cfg): ConfigType => cfg,
+        });
 
         // Update paths with config dataDir if available
-        const updatedPaths =
-          configResult._tag === "Right"
-            ? {
-                ...prereqs.paths,
-                dataDir: getDataDirFromConfig(configResult.right, prereqs.paths.dataDir),
-              }
-            : prereqs.paths;
+        const updatedPaths = Either.match(configResult, {
+          onLeft: (): PathsType => prereqs.paths,
+          onRight: (cfg): PathsType => ({
+            ...prereqs.paths,
+            dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
+          }),
+        });
 
         const layer = createServiceLayer(
           config,

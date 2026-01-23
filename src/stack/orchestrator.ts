@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based stack orchestration for starting, stopping, and managing multi-container stacks.
+ * Stack lifecycle orchestration via systemd. Start/stop operations
+ * respect dependency order from topological sort. Parallel mode runs
+ * containers within the same dependency level concurrently - safe
+ * because they have no interdependencies. Daemon reload ensures
+ * systemd sees updated quadlet files before starting services.
  */
 
 import { Effect, pipe } from "effect";

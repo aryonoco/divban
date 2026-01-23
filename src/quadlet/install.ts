@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * [Install] section builder for quadlet files.
+ * Systemd [Install] section determines when services auto-start.
+ * WantedBy=default.target starts on user login (user services),
+ * multi-user.target starts at boot (system services). Without
+ * an Install section, services must be started manually.
  */
 
 import type { Entries } from "./entry";

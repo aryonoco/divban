@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container network configuration for quadlet files.
+ * Container network configuration with rootless Podman considerations.
+ * Pasta (default) provides user-space networking with better performance
+ * than slirp4netns. MapHostLoopback enables containers to reach host
+ * services via 127.0.0.1 - critical for accessing local databases.
+ * IPv6 addresses in port mappings require bracket notation.
  */
 
 import type { Entries } from "../entry";

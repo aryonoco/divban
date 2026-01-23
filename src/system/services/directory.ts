@@ -43,8 +43,7 @@ export interface DirectoryService {
 }
 
 /**
- * Directory tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Directory service identifier for Effect dependency injection.
  */
 export interface Directory {
   readonly _tag: "Directory";

@@ -6,8 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration merging utilities.
- * Merges global defaults with service-specific configuration.
+ * Configuration precedence: service-specific > global defaults.
+ * Deep merge recursively combines nested objects, with source
+ * values taking precedence. Undefined values in source are
+ * skipped (don't override target), enabling sparse overrides
+ * like { networkMode: "host" } without clobbering other fields.
  */
 
 import { isPlainObject } from "../lib/assert";

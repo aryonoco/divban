@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Named matcher generation for Caddyfile.
+ * Named matchers for reusable request conditions. Define once as
+ * @name { ... }, reference anywhere with @name. Supports path patterns,
+ * headers, query params, and boolean logic (not/or). Essential for
+ * complex routing without duplicating conditions across handlers.
  */
 
 import { Option, pipe } from "effect";
@@ -151,18 +154,25 @@ export const matcherRef = (name: string): string => `@${name}`;
  * Uses Option for null-safe checking.
  */
 export const isEmptyMatcher = (matcher: Omit<NamedMatcher, "name">): boolean => {
-  const defined = <T>(v: T | undefined): boolean => Option.isSome(Option.fromNullable(v));
+  const defined = <T>(v: T | undefined): boolean =>
+    Option.match(Option.fromNullable(v), {
+      onNone: (): boolean => false,
+      onSome: (): boolean => true,
+    });
+
+  const hasValue = <T>(opt: Option.Option<readonly T[]>): boolean =>
+    Option.match(opt, { onNone: (): boolean => false, onSome: (): boolean => true });
 
   // A matcher is empty if ALL conditions are undefined/empty
   return !(
-    Option.isSome(nonEmpty(matcher.path)) ||
+    hasValue(nonEmpty(matcher.path)) ||
     defined(matcher.pathRegexp) ||
-    Option.isSome(nonEmpty(matcher.host)) ||
-    Option.isSome(nonEmpty(matcher.method)) ||
+    hasValue(nonEmpty(matcher.host)) ||
+    hasValue(nonEmpty(matcher.method)) ||
     defined(matcher.header) ||
     defined(matcher.headerRegexp) ||
     defined(matcher.query) ||
-    Option.isSome(nonEmpty(matcher.remoteIp)) ||
+    hasValue(nonEmpty(matcher.remoteIp)) ||
     defined(matcher.protocol) ||
     defined(matcher.not) ||
     defined(matcher.expression)

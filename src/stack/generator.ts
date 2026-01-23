@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Generate all quadlet files for a multi-container stack.
+ * Quadlet file generation from Stack definitions. Converts high-level
+ * container configs to .container/.network/.volume quadlet files.
+ * Applies context-dependent transformations: SELinux relabeling,
+ * shared environment files, default user namespace. Outputs a
+ * StackGeneratedFiles map for batch filesystem operations.
  */
 
 import type { AbsolutePath } from "../lib/types";

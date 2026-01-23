@@ -33,8 +33,7 @@ export interface SysctlService {
 }
 
 /**
- * Sysctl tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Sysctl service identifier for Effect dependency injection.
  */
 export interface Sysctl {
   readonly _tag: "Sysctl";

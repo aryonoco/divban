@@ -39,16 +39,39 @@ Examine what has already been done, what is left to do, and then provide me with
 
 Your report should indicate exactly how Effect is already used, and it should provide a concrete set of next steps which I can take to fully adopt Effect across the codebase and truly leverage what this library provides. 
 
+--- 
+
+Come up with a comprehensive, detailed, and accurate plan to completely refactor this codebase such that ALL dependency injection follows the recommended Context.Tag + Layer  pattern. You should think like a Haskell developer who is trying to implement `effectful` in a codebase but use TypsScript and the effect library to implement it instead. At the end of the implementation of the plan, all dependencies should be type checked at compile time and ServiceContext should be complettely removed with no legacy code, compatibility bridges, shims or wrappers left behind. 
 
 --- 
 
-Find all regexps used in this codebase. 
+Verify this plan fully achieves all of the following:
+
+  - Provide Type-checked dependencies at compile time
+  - No manual context threading
+  - Layer memoization that prevents duplicate construction
+  - Complete removal of ServiceContext
+  - Fully leverages ALL of the relevant facilities provided by Effect library
+  - Is DRY, follows idiomatic FP patterns, uses modern Effect features, and aligns with software engineering best practices  
+
+
+To find out what Effect provides
 
 Read @llms/effect.llms.headline.txt 
 
 To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
 
-Come up 
+--- 
+
+Find all the instances in the codebase where a non-exhaustive conditional statment is used. An if statement or similar. 
+
+To find out what Effect provides
+
+Read @llms/effect.llms.headline.txt 
+
+To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+
+Come up with a plan to eliminated every single non exhaustive conditional statement with an exhaustive patttern match using the facilities provided by Effect library. 
 
 --- 
 
@@ -99,3 +122,21 @@ Ensure your plan achieves a clean refactor, with no legacy code, compatibility b
 Think like a SRE level Haskell expert with a penchant for type theory, and then think very carefully and see if there is a way to restructure/refactor 
 @src/quadlet/ 
 in a more composable and FP-oriented way while still respecting my TS compiler settings @tsconfig.json
+
+
+---
+
+Ensure your plan follows the idiomatic FP-pattern used across the codebase. No loops of any kind are allowed. No mutable data structures are allowed. Business logic and types cannot use "any", "unknown" or "undefined", they are only acceptable on the input side of a vlidation machine, or as internal part of an API when TypeScript's HKT limitations make them unavoidable (the public API should always be fully typed). 
+
+Ensure you plan does not use any if, switch or other such conditional statements, only exhaustive pattern matching using Effect library is allowed. 
+
+Ensure the plan is compatible with my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)
+
+Ensure the plan fully leverages all the relevant facilities available in Effect
+
+Read @llms/effect.llms.headline.txt 
+
+To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+
+
+Ensure the plan is fully in alignment with the error handling, retry mechanism, and type system used across the codebase. 

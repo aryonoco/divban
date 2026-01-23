@@ -23,8 +23,7 @@ export interface LockService {
 }
 
 /**
- * Lock tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Lock service identifier for Effect dependency injection.
  */
 export interface Lock {
   readonly _tag: "Lock";

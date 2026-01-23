@@ -6,11 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Systemd systemctl wrapper using Effect for error handling.
+ * Systemctl wrapper for managing user services via systemd.
+ * Runs as service user with --user flag for user session scope.
+ * Quadlet-generated units are auto-enabled, so enable is skipped.
  */
 
-import { Effect, Option, pipe } from "effect";
+import { Effect, Either, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, ServiceError, SystemError } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { heavyRetrySchedule, isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
@@ -47,16 +50,12 @@ const isGeneratedUnit = (unit: string, options: SystemctlOptions): Effect.Effect
       ])
     );
 
-    if (result._tag === "Left") {
-      return false;
-    }
-
-    if (result.right.exitCode !== 0) {
-      return false;
-    }
-
-    const output = result.right.stdout.trim();
-    return output.includes("/generator/") || output.includes("/run/");
+    return Either.match(result, {
+      onLeft: (): boolean => false,
+      onRight: (r): boolean =>
+        r.exitCode === 0 &&
+        (r.stdout.trim().includes("/generator/") || r.stdout.trim().includes("/run/")),
+    });
   });
 
 /**
@@ -112,7 +111,7 @@ export const startService = (
           code: ErrorCode.SERVICE_START_FAILED as 31,
           message: `Failed to start ${unit}: ${err.message}`,
           service: unit,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -137,7 +136,7 @@ export const stopService = (
           code: ErrorCode.SERVICE_STOP_FAILED as 32,
           message: `Failed to stop ${unit}: ${err.message}`,
           service: unit,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -162,7 +161,7 @@ export const restartService = (
           code: ErrorCode.SERVICE_START_FAILED as 31, // No RESTART_FAILED code, using START
           message: `Failed to restart ${unit}: ${err.message}`,
           service: unit,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -187,7 +186,7 @@ export const reloadService = (
           code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
           message: `Failed to reload ${unit}: ${err.message}`,
           service: unit,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -239,7 +238,10 @@ export const isServiceActive = (
 ): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(systemctl("is-active", unit, options));
-    return result._tag === "Right" && result.right === "active";
+    return Either.match(result, {
+      onLeft: (): boolean => false,
+      onRight: (output): boolean => output === "active",
+    });
   });
 
 /**
@@ -251,7 +253,10 @@ export const isServiceEnabled = (
 ): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const result = yield* Effect.either(systemctl("is-enabled", unit, options));
-    return result._tag === "Right" && result.right === "enabled";
+    return Either.match(result, {
+      onLeft: (): boolean => false,
+      onRight: (output): boolean => output === "enabled",
+    });
   });
 
 /**

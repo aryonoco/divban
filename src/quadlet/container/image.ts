@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container image configuration for quadlet files.
+ * Container image reference parsing and construction. Image references
+ * have complex grammar: [registry/][namespace/]name[:tag][@digest].
+ * The state-machine parser handles edge cases like port numbers in
+ * registries (localhost:5000) that look like tags without context.
  */
 
 import { Option, pipe } from "effect";
@@ -39,7 +42,6 @@ const initialState = (ref: string): ParseState => ({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State transitions
-// Each function: ParseState → ParseState
 // ─────────────────────────────────────────────────────────────────────────────
 
 const extractDigest = (state: ParseState): ParseState => {
@@ -121,7 +123,7 @@ export const getImageEntries = (config: ImageConfig): Entries =>
   ).filter((e) => e.value !== "");
 
 /**
- * Parse image reference using state machine composition.
+ * Parse image reference using state machine.
  */
 export const parseImageReference = (ref: string): ImageComponents =>
   pipe(initialState(ref), extractDigest, extractTag, extractRegistry, toComponents);

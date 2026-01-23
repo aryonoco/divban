@@ -6,8 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect Schema definitions for divban configuration files.
- * Single source of truth for configuration structure and validation.
+ * Configuration schemas as the single source of truth. Input/Output
+ * type pairs enable validation-time transformation (e.g., string →
+ * AbsolutePath brand). Defaults are embedded in schemas via
+ * optionalWith(), ensuring valid output even with minimal TOML.
+ * Service configs extend ContainerBaseConfig for shared security
+ * and lifecycle settings.
  */
 
 import { Effect, Schema } from "effect";

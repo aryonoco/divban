@@ -100,8 +100,7 @@ export interface FileSystemService {
 }
 
 /**
- * FileSystem tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * FileSystem service identifier for Effect dependency injection.
  */
 export interface FileSystem {
   readonly _tag: "FileSystem";

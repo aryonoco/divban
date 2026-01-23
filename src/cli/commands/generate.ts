@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based generate command - generate quadlet files without installing.
+ * Dry-run quadlet generation. Writes files to a specified output
+ * directory instead of the systemd quadlet path - useful for
+ * reviewing generated configs, version control, or debugging
+ * without affecting the running system.
  */
 
 import { Effect } from "effect";
@@ -63,7 +66,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
     const configDir = yield* outputConfigDir(outputDir);
     const system = yield* detectSystemCapabilities();
 
-    // Enter existential for typed config loading
+    // Access service methods with proper config typing
     const files = yield* service.apply((s) =>
       Effect.gen(function* () {
         const config = yield* loadServiceConfig(validPath, s.configSchema);

@@ -13,7 +13,7 @@
  * This is the "imperative shell" - the only place where Effect runtime is executed.
  */
 
-import { Cause, Effect, Exit, pipe } from "effect";
+import { Cause, Effect, Exit, Match, Option, pipe } from "effect";
 import { program } from "./cli/index";
 
 /**
@@ -24,33 +24,42 @@ const exitCodeFromExit = (exit: Exit.Exit<number, unknown>): number =>
   Exit.match(exit, {
     onSuccess: (code): number => code,
     onFailure: (cause): number =>
-      pipe(Cause.failureOption(cause), (opt) =>
-        opt._tag === "Some" &&
-        typeof opt.value === "object" &&
-        opt.value !== null &&
-        "code" in opt.value
-          ? (opt.value as { code: number }).code
-          : 1
-      ),
+      Option.match(Cause.failureOption(cause), {
+        onNone: (): number => 1,
+        onSome: (value: unknown): number =>
+          pipe(
+            Match.value(value),
+            Match.when(
+              (v: unknown): v is { code: number } =>
+                typeof v === "object" && v !== null && "code" in v,
+              (v: { code: number }) => v.code
+            ),
+            Match.orElse(() => 1)
+          ),
+      }),
   });
 
 /**
  * Log error from Exit cause.
  */
-const logExitError = (exit: Exit.Exit<number, unknown>): void => {
-  if (Exit.isFailure(exit)) {
-    const failOpt = Cause.failureOption(exit.cause);
-    if (failOpt._tag === "Some") {
-      const err = failOpt.value;
-      if (typeof err === "object" && err !== null && "message" in err) {
-        console.error(`Error: ${(err as { message: string }).message}`);
-      }
-    } else {
-      // Defect or interruption
-      console.error("Unexpected error:", Cause.pretty(exit.cause));
-    }
-  }
-};
+const logExitError = (exit: Exit.Exit<number, unknown>): void =>
+  Exit.match(exit, {
+    onSuccess: (): void => undefined,
+    onFailure: (cause): void =>
+      Option.match(Cause.failureOption(cause), {
+        onNone: (): void => console.error("Unexpected error:", Cause.pretty(cause)),
+        onSome: (err: unknown): void =>
+          pipe(
+            Match.value(err),
+            Match.when(
+              (v: unknown): v is { message: string } =>
+                typeof v === "object" && v !== null && "message" in v,
+              (v: { message: string }) => console.error(`Error: ${v.message}`)
+            ),
+            Match.orElse(() => undefined)
+          ),
+      }),
+  });
 
 /**
  * Main entry point - wrapped in async function for bytecode compatibility.

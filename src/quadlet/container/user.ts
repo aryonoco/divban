@@ -6,7 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container user namespace configuration for quadlet files.
+ * User namespace modes for UID mapping between container and host.
+ * keep-id maps the host user to container root (UID 0) - essential
+ * when containers expect root but must access host-owned files.
+ * auto provides maximum isolation via subuid ranges but breaks
+ * host file access. host mode disables namespacing entirely and
+ * should never be used in production.
  */
 
 import { Array as Arr, Match, Option, pipe } from "effect";
@@ -35,9 +40,7 @@ const formatKeepId = (config: Extract<UserNamespace, { mode: "keep-id" }>): stri
   );
 
 /**
- * Function: UserNamespace | undefined → Entries
- * Pattern match on UserNamespace discriminated union.
- * Exhaustive matching ensures all cases are handled.
+ * Convert user namespace config to INI entries.
  */
 export const getUserNsEntries = (config: UserNamespace | undefined): Entries =>
   pipe(
@@ -113,15 +116,23 @@ export const createRootMappedNs = (): UserNamespace => ({
 /**
  * Check if a user namespace uses UID/GID mapping that differs from the default.
  */
-export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean => {
-  if (!ns) {
-    return false;
-  }
-  if (ns.mode !== "keep-id") {
-    return false;
-  }
-  return Option.isSome(Option.fromNullable(ns.uid)) || Option.isSome(Option.fromNullable(ns.gid));
-};
+export const hasUidGidMapping = (ns: UserNamespace | undefined): boolean =>
+  pipe(
+    Match.value(ns),
+    Match.when(undefined, () => false),
+    Match.when({ mode: "keep-id" }, (keepId) => {
+      const hasUid = Option.match(Option.fromNullable(keepId.uid), {
+        onNone: (): boolean => false,
+        onSome: (): boolean => true,
+      });
+      const hasGid = Option.match(Option.fromNullable(keepId.gid), {
+        onNone: (): boolean => false,
+        onSome: (): boolean => true,
+      });
+      return hasUid || hasGid;
+    }),
+    Match.orElse(() => false)
+  );
 
 /**
  * User namespace modes.

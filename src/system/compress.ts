@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Compression utilities using Bun's native compression APIs.
- * Provides gzip, deflate, and zstd compression without external dependencies.
+ * Compression using Bun's native APIs (gzip, deflate, zstd).
+ * Zstd is preferred for backups: better ratio than gzip at comparable
+ * speed. Gzip used for compatibility with external tools.
  */
 
 import type { ZlibCompressionOptions } from "bun";

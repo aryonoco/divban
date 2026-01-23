@@ -6,7 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Stack orchestration module exports.
+ * Multi-container stack management - dependency resolution, quadlet
+ * generation, and systemd orchestration for composed services.
  */
 
 // Types

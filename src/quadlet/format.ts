@@ -6,7 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * INI file formatting utilities for quadlet files.
+ * INI serialization with Quadlet section ordering.
+ * Sections must appear in standard order (Unit, Container, Service,
+ * Install) for systemd generator compatibility.
  */
 
 import { Array as Arr, Order, pipe } from "effect";

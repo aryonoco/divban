@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Miscellaneous container configuration for quadlet files.
+ * Catch-all for container options that don't warrant their own
+ * module. Includes init process (handles zombie reaping), logging,
+ * stop signals (some apps need SIGINT instead of SIGTERM), and
+ * device passthrough for GPU acceleration. Sysctl settings enable
+ * kernel tuning within the container's namespace.
  */
 
 import type { Entries } from "../entry";
@@ -44,9 +48,7 @@ export interface ContainerMiscConfig {
 }
 
 /**
- * Pure function: Config → Entries
- * No side effects, explicit return type.
- * Eliminates 3 for-loops with fromRecord.
+ * Convert config to INI entries.
  */
 export const getMiscEntries = (config: ContainerMiscConfig): Entries =>
   concat(

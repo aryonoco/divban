@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Branded/Nominal types for type-safe identifiers.
+ * Branded types prevent accidental mixing of same-underlying-type values.
+ * UserId and GroupId are both numbers, but the compiler rejects using one
+ * where the other is expected. This catches bugs at compile time that would
+ * otherwise surface as silent data corruption at runtime.
  */
 
 import { type Brand, Effect, Option, ParseResult, Schema, type SchemaAST, pipe } from "effect";
@@ -196,28 +199,26 @@ export const duration = <const S extends `${number}${"ms" | "s" | "m" | "h" | "d
 // ============================================================================
 
 /** Private IPv4 (RFC 1918) validation using parser */
-const isRfc1918IPv4 = (s: string): boolean => {
-  const result = parseIPv4(s);
-  if (Option.isNone(result)) {
-    return false;
-  }
-  const [a, b] = result.value;
-  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-};
+const isRfc1918IPv4 = (s: string): boolean =>
+  Option.match(parseIPv4(s), {
+    onNone: (): boolean => false,
+    onSome: ([a, b]): boolean =>
+      a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168),
+  });
 
 /** Private IPv6 (RFC 4193 ULA) validation using parser */
-const isRfc4193IPv6 = (s: string): boolean => {
-  const result = parseIPv6Groups(s);
-  if (Option.isNone(result)) {
-    return false;
-  }
-  const firstGroup = s.split(":")[0];
-  if (!firstGroup) {
-    return false;
-  }
-  const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
-  return !Number.isNaN(firstWord) && firstWord >= 0xfc00 && firstWord <= 0xfdff;
-};
+const isRfc4193IPv6 = (s: string): boolean =>
+  Option.match(parseIPv6Groups(s), {
+    onNone: (): boolean => false,
+    onSome: (): boolean =>
+      Option.match(Option.fromNullable(s.split(":")[0]), {
+        onNone: (): boolean => false,
+        onSome: (firstGroup): boolean => {
+          const firstWord = Number.parseInt(firstGroup.toLowerCase(), 16);
+          return !Number.isNaN(firstWord) && firstWord >= 0xfc00 && firstWord <= 0xfdff;
+        },
+      }),
+  });
 
 /** Check if string is a valid private IP */
 const isPrivateIPString = (s: string): boolean => isRfc1918IPv4(s) || isRfc4193IPv6(s);
@@ -429,7 +430,7 @@ export function pathJoin(base: string, ...segments: string[]): string {
   if (segments.length === 0) {
     return base;
   }
-  // Normalize multiple slashes using fold-based collapseChar
+  // Normalize multiple slashes into single slashes
   return pipe([base, ...segments].join("/"), collapseChar("/"));
 }
 
@@ -463,26 +464,3 @@ export const joinPath = (...segments: string[]): Effect.Effect<AbsolutePath, Gen
     : decodeAbsolutePath(pipe(segments.join("/"), collapseChar("/"))).pipe(
         Effect.mapError(parseErrorToGeneralError)
       );
-
-// ============================================================================
-// Exhaustiveness Checking
-// ============================================================================
-
-/**
- * Exhaustiveness helper for switch statements on discriminated unions.
- * TypeScript will error at compile time if a case is not handled.
- *
- * @example
- * type Status = { type: 'running' } | { type: 'stopped' };
- *
- * const handle = (s: Status) => {
- *   switch (s.type) {
- *     case 'running': return 'Running';
- *     case 'stopped': return 'Stopped';
- *     default: return assertNever(s);
- *   }
- * };
- */
-export const assertNever = (x: never, message?: string): never => {
-  throw new Error(message ?? `Unexpected value: ${JSON.stringify(x)}`);
-};

@@ -6,13 +6,16 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Configuration file loading
- * Supports TOML format with Effect Schema validation.
- * Uses Bun's native TOML parser for optimal performance.
+ * TOML configuration loading with fail-fast validation. Files are
+ * parsed and validated in a single pass - syntax errors and schema
+ * violations are reported immediately with file path context. Global
+ * config searches multiple paths (/etc, ~/.config, ./), but explicit
+ * paths fail on any error to catch typos and permission issues.
  */
 
 import { Config, Effect, type Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
 import type { AbsolutePath, ServiceName } from "../lib/types";
@@ -48,7 +51,7 @@ export const loadTomlFile = <A, I = A>(
         new SystemError({
           code: ErrorCode.FILE_READ_FAILED as 27,
           message: `Failed to read ${filePath}: ${errorMessage(e)}`,
-          ...(e instanceof Error ? { cause: e } : {}),
+          ...extractCauseProps(e),
         }),
     });
 
@@ -60,7 +63,7 @@ export const loadTomlFile = <A, I = A>(
           code: ErrorCode.CONFIG_PARSE_ERROR as 11,
           message: `Failed to parse TOML in ${filePath}: ${errorMessage(e)}`,
           path: filePath,
-          ...(e instanceof Error ? { cause: e } : {}),
+          ...extractCauseProps(e),
         }),
     });
 

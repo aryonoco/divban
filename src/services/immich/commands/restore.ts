@@ -88,17 +88,18 @@ export const restoreDatabase = (
     logger.warn("This will overwrite the existing database!");
 
     // Detect compression type
-    const compressionOpt = detectCompressionFormat(backupPath);
-    if (Option.isNone(compressionOpt)) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.RESTORE_FAILED as 51,
-          message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
-          path: backupPath,
-        })
-      );
-    }
-    const compression = compressionOpt.value;
+    type CompressionResult = Effect.Effect<"gzip" | "zstd", BackupError>;
+    const compression = yield* Option.match(detectCompressionFormat(backupPath), {
+      onNone: (): CompressionResult =>
+        Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
+            path: backupPath,
+          })
+        ),
+      onSome: (c): CompressionResult => Effect.succeed(c),
+    });
 
     // Read the backup file
     const compressedData = yield* readBytes(backupPath);
@@ -189,17 +190,18 @@ export const validateBackup = (
     }
 
     // Detect compression type
-    const compressionOpt = detectCompressionFormat(backupPath);
-    if (Option.isNone(compressionOpt)) {
-      return yield* Effect.fail(
-        new BackupError({
-          code: ErrorCode.RESTORE_FAILED as 51,
-          message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
-          path: backupPath,
-        })
-      );
-    }
-    const compression = compressionOpt.value;
+    type CompressionResult = Effect.Effect<"gzip" | "zstd", BackupError>;
+    const compression = yield* Option.match(detectCompressionFormat(backupPath), {
+      onNone: (): CompressionResult =>
+        Effect.fail(
+          new BackupError({
+            code: ErrorCode.RESTORE_FAILED as 51,
+            message: `Unsupported backup format: ${backupPath}. Expected .tar.gz or .tar.zst`,
+            path: backupPath,
+          })
+        ),
+      onSome: (c): CompressionResult => Effect.succeed(c),
+    });
 
     // Read and decompress the archive
     const compressedData = yield* readBytes(backupPath);

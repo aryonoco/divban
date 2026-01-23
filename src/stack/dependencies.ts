@@ -6,8 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based dependency resolution for multi-container stacks.
- * Uses topological sort to determine correct start/stop order.
+ * Dependency resolution via Kahn's topological sort algorithm.
+ * Validates no cycles exist and all dependencies are defined before
+ * computing start order. Levels enable parallelism - containers in
+ * the same level have no interdependencies and can start together.
+ * Stop order is the reverse of start order.
  */
 
 import { Effect, Option, pipe } from "effect";
@@ -111,8 +114,13 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
         const newStack = new Set([...inStack, name]);
 
         // Find first cycle in dependencies (short-circuit with reduce)
-        return getNodeDeps(node).reduce<Option.Option<readonly string[]>>(
-          (acc, dep) => (Option.isSome(acc) ? acc : findCycle(dep, newPath, newVisited, newStack)),
+        type CycleResult = Option.Option<readonly string[]>;
+        return getNodeDeps(node).reduce<CycleResult>(
+          (acc, dep) =>
+            Option.match(acc, {
+              onSome: (): CycleResult => acc,
+              onNone: (): CycleResult => findCycle(dep, newPath, newVisited, newStack),
+            }),
           Option.none()
         );
       })
@@ -120,8 +128,13 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
   };
 
   // Check all nodes as starting points
-  const cycleResult = nodes.reduce<Option.Option<readonly string[]>>(
-    (acc, node) => (Option.isSome(acc) ? acc : findCycle(node.name, [], new Set(), new Set())),
+  type CycleResult = Option.Option<readonly string[]>;
+  const cycleResult = nodes.reduce<CycleResult>(
+    (acc, node) =>
+      Option.match(acc, {
+        onSome: (): CycleResult => acc,
+        onNone: (): CycleResult => findCycle(node.name, [], new Set(), new Set()),
+      }),
     Option.none()
   );
 

@@ -6,8 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Shared backup utilities for all services.
- * Provides common functionality for creating, listing, and validating backups.
+ * Common backup infrastructure shared across service implementations.
+ * Handles archive creation, compression detection, and backup rotation.
+ * Service-specific backup commands delegate here for consistency.
  */
 
 import { Glob } from "bun";
@@ -18,6 +19,7 @@ import { directoryExists, ensureDirectory } from "../system/fs";
 import { collectAsyncOrDie } from "./collection-utils";
 import { BackupError, ErrorCode, type SystemError, errorMessage } from "./errors";
 import type { Logger } from "./logger";
+import { extractCauseProps } from "./match-helpers";
 import { mapCharsToString } from "./str-transform";
 import type { AbsolutePath } from "./types";
 
@@ -78,7 +80,7 @@ export const writeBackupArchive = (
         new BackupError({
           code: ErrorCode.BACKUP_FAILED as 50,
           message: `Failed to write backup file: ${errorMessage(e)}`,
-          ...(e instanceof Error ? { cause: e } : {}),
+          ...extractCauseProps(e),
         }),
     });
   });
@@ -188,7 +190,7 @@ export const validateBackupService = (
   });
 
 // ============================================================================
-// FP-style Directory Scanning Utilities
+// Directory Scanning Utilities
 // ============================================================================
 
 /**
@@ -239,8 +241,7 @@ const sortByMtimeDesc = (files: readonly FileWithMtime[]): readonly string[] =>
   [...files].sort((a, b) => b.mtime - a.mtime).map((f) => f.name);
 
 /**
- * List files in directory sorted by mtime (newest first).
- * FP alternative to for-await with mutable arrays.
+ * List files sorted by modification time (newest first).
  */
 export const listFilesByMtime = (
   dir: string,
@@ -291,7 +292,6 @@ export interface CollectedFiles {
 
 /**
  * Collect files with their contents from a directory.
- * FP replacement for for-await loops with mutable arrays.
  */
 export const collectFilesWithContent = (
   dir: string,

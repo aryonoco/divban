@@ -6,7 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Network quadlet file generation.
+ * Podman network quadlet generation for container networking.
+ * Internal networks isolate service containers; external networks
+ * enable host/internet connectivity with optional custom subnets.
  */
 
 import type { Entries } from "./entry";
@@ -29,7 +31,7 @@ export const getNetworkSectionEntries = (config: NetworkQuadlet): Entries =>
   );
 
 /**
- * Build the [Network] section using pure combinators.
+ * Build the [Network] section.
  */
 export const buildNetworkSection: (config: NetworkQuadlet) => IniSection = makeSection(
   "Network",

@@ -6,7 +6,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Centralized path construction utilities.
+ * Centralized path constants prevent typos and enable global refactoring.
+ * All system paths are branded AbsolutePath types for compile-time safety.
+ * User home lookups cache results since /etc/passwd rarely changes.
  */
 
 import { readFileSync } from "node:fs";

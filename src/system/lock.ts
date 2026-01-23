@@ -6,11 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * File-based locking using Effect for error handling.
- * Uses O_EXCL (via writeFileExclusive) for atomic lock acquisition.
+ * Cross-process locks for UID allocation and subid configuration.
+ * Uses O_EXCL (exclusive create) for atomic lock acquisition - the
+ * kernel guarantees only one process succeeds. Stale locks from
+ * crashed processes are detected via PID liveness and timestamp.
  */
 
-import { Effect, Option, Schedule, pipe } from "effect";
+import { Effect, Either, Option, Schedule, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { pollingSchedule } from "../lib/retry";
 import type { AbsolutePath } from "../lib/types";
@@ -73,14 +75,13 @@ const isInfoStale = (info: LockInfo): boolean =>
 const isLockStale = (lockPath: AbsolutePath): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const contentResult = yield* Effect.either(readFile(lockPath));
-    if (contentResult._tag === "Left") {
-      return true;
-    }
-
-    const info = parseLockContent(contentResult.right);
-    return Option.match(info, {
-      onNone: (): boolean => true,
-      onSome: isInfoStale,
+    return Either.match(contentResult, {
+      onLeft: (): boolean => true,
+      onRight: (content): boolean =>
+        Option.match(parseLockContent(content), {
+          onNone: (): boolean => true,
+          onSome: isInfoStale,
+        }),
     });
   });
 
@@ -106,35 +107,42 @@ const takeoverStaleLock = (
 
     // Write our PID to temp file
     const writeResult = yield* Effect.either(writeFile(tempPath, pidContent));
-    if (writeResult._tag === "Left") {
-      return yield* Effect.fail(writeResult.left);
-    }
+    type TakeoverResult = Effect.Effect<boolean, SystemError>;
+    return yield* Either.match(writeResult, {
+      onLeft: (err): TakeoverResult => Effect.fail(err),
+      onRight: (): TakeoverResult =>
+        // Use ensuring to guarantee temp file cleanup
+        Effect.ensuring(
+          Effect.gen(function* () {
+            // Re-read current lock to verify it's still stale
+            const currentContent = yield* Effect.either(readFile(lockPath));
+            type InnerResult = Effect.Effect<boolean, never>;
+            return yield* Either.match(currentContent, {
+              onLeft: (): InnerResult => Effect.succeed(false),
+              onRight: (content): InnerResult => {
+                const stillStale = Option.match(parseLockContent(content), {
+                  onNone: (): boolean => true,
+                  onSome: isInfoStale,
+                });
 
-    // Use ensuring to guarantee temp file cleanup
-    return yield* Effect.ensuring(
-      Effect.gen(function* () {
-        // Re-read current lock to verify it's still stale
-        const currentContent = yield* Effect.either(readFile(lockPath));
-        if (currentContent._tag === "Left") {
-          return false;
-        }
-
-        const stillStale = Option.match(parseLockContent(currentContent.right), {
-          onNone: (): boolean => true,
-          onSome: isInfoStale,
-        });
-
-        if (!stillStale) {
-          return false;
-        }
-
-        // Atomic rename to take over the lock
-        const renameResult = yield* Effect.either(renameFile(tempPath, lockPath));
-        return renameResult._tag === "Right";
-      }),
-      // Cleanup: delete temp file if it still exists (rename succeeded = no file)
-      deleteFile(tempPath).pipe(Effect.ignore)
-    );
+                return Effect.gen(function* () {
+                  return yield* pipe(stillStale, (isStale) =>
+                    isStale
+                      ? Effect.gen(function* () {
+                          // Atomic rename to take over the lock
+                          const renameResult = yield* Effect.either(renameFile(tempPath, lockPath));
+                          return Either.isRight(renameResult);
+                        })
+                      : Effect.succeed(false)
+                  );
+                });
+              },
+            });
+          }),
+          // Cleanup: delete temp file if it still exists (rename succeeded = no file)
+          deleteFile(tempPath).pipe(Effect.ignore)
+        ),
+    });
   });
 
 /**

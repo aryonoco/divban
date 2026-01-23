@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based reload command - reload service configuration (if supported).
+ * Hot configuration reload without restart. Some services (Caddy)
+ * support reloading configs without dropping connections. Validates
+ * capability first - services without reload support get clear error
+ * directing users to use restart instead.
  */
 
-import { Effect } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
@@ -38,65 +41,90 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
     const { service, args, logger } = options;
 
     // Check if service supports reload
-    if (!service.definition.capabilities.hasReload) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `Service '${service.definition.name}' does not support reload. Use 'restart' instead.`,
-        })
-      );
-    }
+    return yield* pipe(
+      Match.value(service.definition.capabilities.hasReload),
+      Match.when(false, () =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Service '${service.definition.name}' does not support reload. Use 'restart' instead.`,
+          })
+        )
+      ),
+      Match.when(true, () =>
+        pipe(
+          Match.value(args.dryRun),
+          Match.when(true, () =>
+            Effect.sync(() => {
+              logger.info("Dry run - would reload configuration");
+            })
+          ),
+          Match.when(false, () =>
+            Effect.gen(function* () {
+              logger.info(`Reloading ${service.definition.name} configuration...`);
 
-    if (args.dryRun) {
-      logger.info("Dry run - would reload configuration");
-      return;
-    }
+              // Resolve prerequisites without config
+              const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-    logger.info(`Reloading ${service.definition.name} configuration...`);
+              // Access service methods with proper config typing
+              yield* service.apply((s) =>
+                Effect.gen(function* () {
+                  // Load config with typed schema (optional for reload)
+                  const configResult = yield* Effect.either(
+                    pipe(
+                      Match.value(args.configPath),
+                      Match.when(undefined, () =>
+                        findAndLoadConfig(
+                          service.definition.name,
+                          prereqs.user.homeDir,
+                          s.configSchema
+                        )
+                      ),
+                      Match.orElse((configPath) =>
+                        Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
+                          loadServiceConfig(path, s.configSchema)
+                        )
+                      )
+                    )
+                  );
 
-    // Resolve prerequisites without config
-    const prereqs = yield* resolvePrerequisites(service.definition.name, null);
+                  // Use empty config if not found
+                  type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
+                  type PathsType = typeof prereqs.paths;
+                  const config = Either.match(configResult, {
+                    onLeft: (): ConfigType => ({}) as ConfigType,
+                    onRight: (cfg): ConfigType => cfg,
+                  });
 
-    // Enter existential for typed config loading and method calls
-    yield* service.apply((s) =>
-      Effect.gen(function* () {
-        // Load config with typed schema (optional for reload)
-        const configResult = yield* Effect.either(
-          args.configPath !== undefined
-            ? Effect.flatMap(toAbsolutePathEffect(args.configPath), (path) =>
-                loadServiceConfig(path, s.configSchema)
-              )
-            : findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-        );
+                  // Update paths with config dataDir if available
+                  const updatedPaths = Either.match(configResult, {
+                    onLeft: (): PathsType => prereqs.paths,
+                    onRight: (cfg): PathsType => ({
+                      ...prereqs.paths,
+                      dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
+                    }),
+                  });
 
-        // Use empty config if not found
-        const config =
-          configResult._tag === "Right"
-            ? configResult.right
-            : ({} as Parameters<(typeof s.configTag)["of"]>[0]);
+                  const layer = createServiceLayer(
+                    config,
+                    s.configTag,
+                    { ...prereqs, paths: updatedPaths },
+                    getContextOptions(args),
+                    logger
+                  );
 
-        // Update paths with config dataDir if available
-        const updatedPaths =
-          configResult._tag === "Right"
-            ? {
-                ...prereqs.paths,
-                dataDir: getDataDirFromConfig(configResult.right, prereqs.paths.dataDir),
-              }
-            : prereqs.paths;
+                  // reload is optional, use non-null assertion after capability check
+                  // biome-ignore lint/style/noNonNullAssertion: capability check above ensures reload exists
+                  yield* s.reload!().pipe(Effect.provide(layer));
+                })
+              );
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
-          logger
-        );
-
-        // reload is optional, use non-null assertion after capability check
-        // biome-ignore lint/style/noNonNullAssertion: capability check above ensures reload exists
-        yield* s.reload!().pipe(Effect.provide(layer));
-      })
+              logger.success("Configuration reloaded successfully");
+            })
+          ),
+          Match.orElse(() => Effect.void)
+        )
+      ),
+      Match.exhaustive
     );
-
-    logger.success("Configuration reloaded successfully");
   });

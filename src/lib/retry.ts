@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Retry utilities using Effect Schedule for transient failure handling.
+ * Retry schedules for transient failures using Effect Schedule.
+ * Distinguishes permanent errors (permission denied) from transient ones
+ * (connection refused) to avoid wasting time on unrecoverable failures.
+ * Jitter prevents thundering herd when multiple services retry together.
  */
 
 import { Array as Arr, Duration, type Duration as EffectDuration, Schedule, pipe } from "effect";

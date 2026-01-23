@@ -6,8 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Functional collection utilities.
- * Provides total functions for collection operations following FP principles.
+ * Functional collection operations with noUncheckedIndexedAccess support.
+ * Array indexing returns `T | undefined` in strict mode; these functions
+ * use Option instead. ReadonlyMap/ReadonlyArray operations are persistent
+ * (always return new collections) per the immutable data coding standard.
  */
 
 import { Array as Arr, Chunk, Effect, Option, Stream, pipe } from "effect";
@@ -126,7 +128,7 @@ export const at =
     Option.fromNullable(arr[index]);
 
 /**
- * Flatten nested arrays (monadic join).
+ * Flatten nested arrays into a single array.
  */
 export const flatten = <A>(arr: readonly (readonly A[])[]): readonly A[] => arr.flat();
 
@@ -184,7 +186,7 @@ export const mergeRecords = <A extends Record<string, unknown>>(left: A, right: 
 });
 
 /**
- * Fold records with a monoid-like merge.
+ * Merge multiple partial records into one.
  */
 export const foldRecords = <A extends Record<string, unknown>>(
   empty: A,

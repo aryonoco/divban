@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Hardware acceleration module exports.
+ * Hardware detection for GPU-accelerated processing. Immich benefits
+ * significantly from hardware acceleration - transcoding drops from
+ * hours to minutes, ML inference becomes real-time. This module maps
+ * config (nvenc, qsv, vaapi, cuda, openvino) to container devices
+ * and environment variables.
  */
 
 export { getTranscodingDevices, requiresDevices } from "./transcoding";
@@ -15,7 +19,7 @@ export type { TranscodingDevices } from "./transcoding";
 export { getMlDevices, getMlImage, mlRequiresDevices } from "./ml";
 export type { MlDevices } from "./ml";
 
-import { Option, pipe } from "effect";
+import { Match, Option, pipe } from "effect";
 import { concatUnique, foldRecords } from "../../../lib/collection-utils";
 import type { MlConfig, TranscodingConfig } from "../schema";
 import { type MlDevices, getMlDevices } from "./ml";
@@ -52,7 +56,7 @@ type DeviceSource =
   | { readonly kind: "optional"; readonly value: Option.Option<TranscodingDevices> };
 
 /**
- * Smart constructors for DeviceSource.
+ * Factory functions for DeviceSource.
  * Prefer these over raw object literals.
  */
 const DeviceSource = {
@@ -65,50 +69,44 @@ const DeviceSource = {
 
 /**
  * Extract devices from a source using pattern matching.
- * Total function - handles all cases.
+ * Handles all DeviceSource cases.
  */
-const extractDevices = (source: DeviceSource): readonly string[] => {
-  switch (source.kind) {
-    case "direct":
-      return source.value.devices;
-    case "optional":
-      return pipe(
-        source.value,
+const extractDevices = (source: DeviceSource): readonly string[] =>
+  pipe(
+    Match.value(source),
+    Match.when({ kind: "direct" }, (s): readonly string[] => s.value.devices),
+    Match.when({ kind: "optional" }, (s): readonly string[] =>
+      pipe(
+        s.value,
         Option.match({
           onNone: (): readonly string[] => [],
           onSome: (v): readonly string[] => v.devices,
         })
-      );
-    default: {
-      // Exhaustiveness check: this should never be reached
-      const exhaustiveCheck: never = source;
-      return exhaustiveCheck;
-    }
-  }
-};
+      )
+    ),
+    Match.exhaustive
+  );
 
 /**
  * Extract environment from a source using pattern matching.
  */
-const extractEnvironment = (source: DeviceSource): Readonly<Record<string, string>> => {
-  switch (source.kind) {
-    case "direct":
-      return source.value.environment;
-    case "optional":
-      return pipe(
-        source.value,
-        Option.match({
-          onNone: (): Readonly<Record<string, string>> => ({}),
-          onSome: (v): Readonly<Record<string, string>> => v.environment,
-        })
-      );
-    default: {
-      // Exhaustiveness check: this should never be reached
-      const exhaustiveCheck: never = source;
-      return exhaustiveCheck;
-    }
-  }
-};
+const extractEnvironment = (source: DeviceSource): Readonly<Record<string, string>> =>
+  pipe(
+    Match.value(source),
+    Match.when({ kind: "direct" }, (s): Readonly<Record<string, string>> => s.value.environment),
+    Match.when(
+      { kind: "optional" },
+      (s): Readonly<Record<string, string>> =>
+        pipe(
+          s.value,
+          Option.match({
+            onNone: (): Readonly<Record<string, string>> => ({}),
+            onSome: (v): Readonly<Record<string, string>> => v.environment,
+          })
+        )
+    ),
+    Match.exhaustive
+  );
 
 /**
  * Wrap a raw source in DeviceSource.

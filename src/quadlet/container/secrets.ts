@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container secrets configuration for quadlet files.
+ * Podman secrets integration for sensitive data. Secrets can be
+ * mounted as files (/run/secrets/name) or injected as environment
+ * variables. File mounts are preferred - they don't appear in
+ * process listings and can have restricted permissions. Environment
+ * secrets are convenient but visible in /proc/PID/environ.
  */
 
 import { Option, pipe } from "effect";

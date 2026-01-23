@@ -6,10 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based setup command - full service setup (generate, install, enable).
+ * Idempotent service provisioning. Creates user, enables linger,
+ * creates directories, generates quadlets, copies config, and
+ * enables services - all with automatic rollback on failure.
+ * Safe to re-run: skips existing resources, updates changed files.
  */
 
-import { Effect, Exit } from "effect";
+import { Effect, Either, Exit, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
@@ -103,33 +106,53 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       return;
     }
 
-    const totalSteps = needsSysctl ? 8 : 7;
+    const totalSteps = pipe(
+      Match.value(needsSysctl),
+      Match.when(true, () => 8),
+      Match.when(false, () => 7),
+      Match.exhaustive
+    );
 
     // Check if running as root (required for user creation and sysctl)
-    if (process.getuid?.() !== 0) {
-      // Check if user already exists
-      const existingUser = yield* Effect.either(getUserByName(username));
-      if (existingUser._tag === "Left") {
-        return yield* Effect.fail(
-          new GeneralError({
-            code: ErrorCode.ROOT_REQUIRED as 3,
-            message: "Root privileges required to create service user. Run with sudo.",
-          })
-        );
-      }
-      // For caddy, also check if sysctl needs root
-      if (needsSysctl) {
-        return yield* Effect.fail(
-          new GeneralError({
-            code: ErrorCode.ROOT_REQUIRED as 3,
-            message:
-              "Root privileges required to configure privileged port binding. Run with sudo.",
-          })
-        );
-      }
-    }
+    const isRoot = process.getuid?.() === 0;
+    yield* pipe(
+      Match.value(isRoot),
+      Match.when(true, () => Effect.void),
+      Match.when(false, () =>
+        Effect.gen(function* () {
+          // Check if user already exists
+          type CheckResultType = Effect.Effect<void, GeneralError>;
+          const existingUser = yield* Effect.either(getUserByName(username));
+          yield* Either.match(existingUser, {
+            onLeft: (): CheckResultType =>
+              Effect.fail(
+                new GeneralError({
+                  code: ErrorCode.ROOT_REQUIRED as 3,
+                  message: "Root privileges required to create service user. Run with sudo.",
+                })
+              ),
+            onRight: (): CheckResultType =>
+              pipe(
+                Match.value(needsSysctl),
+                Match.when(true, () =>
+                  Effect.fail(
+                    new GeneralError({
+                      code: ErrorCode.ROOT_REQUIRED as 3,
+                      message:
+                        "Root privileges required to configure privileged port binding. Run with sudo.",
+                    })
+                  )
+                ),
+                Match.when(false, () => Effect.void),
+                Match.exhaustive
+              ),
+          });
+        })
+      ),
+      Match.orElse(() => Effect.void)
+    );
 
-    // Enter existential for typed config loading
+    // Access service methods with proper config typing
     yield* service.apply((s) =>
       Effect.gen(function* () {
         // Load and validate config with typed schema
@@ -152,10 +175,17 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             logger.step(currentStep, totalSteps, `Creating service user: ${username}...`);
             const userAcq = yield* Effect.acquireRelease(
               acquireServiceUser(service.definition.name, uidSettings),
-              (acq, exit) =>
-                Exit.isFailure(exit) && acq.wasCreated
-                  ? releaseServiceUser(service.definition.name, true)
-                  : Effect.void
+              (acq, exit): Effect.Effect<void> =>
+                Exit.match(exit, {
+                  onSuccess: (): Effect.Effect<void> => Effect.void,
+                  onFailure: (): Effect.Effect<void> =>
+                    pipe(
+                      Match.value(acq.wasCreated),
+                      Match.when(true, () => releaseServiceUser(service.definition.name, true)),
+                      Match.when(false, () => Effect.void),
+                      Match.exhaustive
+                    ),
+                })
             );
             const { uid, homeDir } = userAcq.value;
             const gid = userIdToGroupId(uid);
@@ -163,10 +193,19 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             // Step 3: Linger - scoped resource with conditional rollback
             currentStep++;
             logger.step(currentStep, totalSteps, "Enabling user linger...");
-            yield* Effect.acquireRelease(enableLingerTracked(username, uid), (acq, exit) =>
-              Exit.isFailure(exit) && acq.wasCreated
-                ? disableLinger(username).pipe(Effect.ignore)
-                : Effect.void
+            yield* Effect.acquireRelease(
+              enableLingerTracked(username, uid),
+              (acq, exit): Effect.Effect<void> =>
+                Exit.match(exit, {
+                  onSuccess: (): Effect.Effect<void> => Effect.void,
+                  onFailure: (): Effect.Effect<void> =>
+                    pipe(
+                      Match.value(acq.wasCreated),
+                      Match.when(true, () => disableLinger(username).pipe(Effect.ignore)),
+                      Match.when(false, () => Effect.void),
+                      Match.exhaustive
+                    ),
+                })
             );
 
             // Step 4: Directories - scoped resource with tracked rollback
@@ -175,8 +214,12 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
             yield* Effect.acquireRelease(
               ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
-              (result, exit) =>
-                Exit.isFailure(exit) ? removeDirectoriesReverse(result.createdPaths) : Effect.void
+              (result, exit): Effect.Effect<void> =>
+                Exit.match(exit, {
+                  onSuccess: (): Effect.Effect<void> => Effect.void,
+                  onFailure: (): Effect.Effect<void> =>
+                    removeDirectoriesReverse(result.createdPaths),
+                })
             );
 
             // Step 5: Config copy - scoped resource with backup/restore
@@ -188,10 +231,11 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
             yield* Effect.acquireRelease(
               copyConfigTracked(validConfigPath, configDestPath, { uid, gid }),
-              (result, exit) =>
-                Exit.isFailure(exit)
-                  ? rollbackConfigCopy(configDestPath, result)
-                  : cleanupConfigBackup(result)
+              (result, exit): Effect.Effect<void> =>
+                Exit.match(exit, {
+                  onSuccess: (): Effect.Effect<void> => cleanupConfigBackup(result),
+                  onFailure: (): Effect.Effect<void> => rollbackConfigCopy(configDestPath, result),
+                })
             );
 
             // Build service layer

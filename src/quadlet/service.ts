@@ -6,7 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * [Service] section builder for quadlet files.
+ * Systemd [Service] section for container lifecycle behavior.
+ * TimeoutStartSec=900 (15 min) accommodates slow image pulls on
+ * first start. TimeoutStopSec=70 allows graceful shutdown - most
+ * containers need only seconds, but databases may need longer for
+ * checkpoints. Restart=on-failure with RestartSec=10 prevents
+ * rapid restart loops while ensuring eventual recovery.
  */
 
 import type { Entries } from "./entry";

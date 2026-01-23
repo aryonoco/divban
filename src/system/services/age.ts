@@ -35,8 +35,7 @@ export interface AgeService {
 }
 
 /**
- * Age tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Age service identifier for Effect dependency injection.
  */
 export interface Age {
   readonly _tag: "Age";

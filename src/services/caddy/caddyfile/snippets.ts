@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Snippet generation for Caddyfile.
+ * Snippets for DRY Caddyfile configuration. Define common directive
+ * sequences as (snippet_name) { ... } blocks, then import with
+ * `import snippet_name`. Reduces duplication across site blocks -
+ * security headers, CORS policies, proxy defaults.
  */
 
 import { Option, pipe } from "effect";
@@ -60,8 +63,7 @@ export const generateSnippets = (snippets: readonly Snippet[]): string =>
   snippets.length === 0 ? "" : snippets.map(generateSnippet).join("\n");
 
 /**
- * Generate an import directive string.
- * Pure function - returns string for use in directives.
+ * Returns import directive string.
  */
 export const importSnippet = (name: string, args?: readonly string[]): string =>
   pipe(

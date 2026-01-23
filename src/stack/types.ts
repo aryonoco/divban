@@ -6,7 +6,10 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Type definitions for multi-container stack orchestration.
+ * Stack types for multi-container service composition. A Stack groups
+ * related containers (e.g., app + database + cache) with shared networking.
+ * Containers declare dependencies via requires/wants for correct startup
+ * order. StackGeneratedFiles tracks all quadlet outputs for atomic writes.
  */
 
 import type {

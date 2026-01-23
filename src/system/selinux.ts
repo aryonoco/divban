@@ -6,11 +6,13 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * SELinux detection module using Effect for error handling.
- * Provides runtime detection of SELinux status for conditional volume relabeling.
+ * SELinux detection for conditional :Z volume labeling.
+ * SELinux blocks container access to host files unless relabeled.
+ * On SELinux systems (RHEL/Fedora), volumes need :Z suffix. On
+ * non-SELinux systems (Debian/Ubuntu), :Z is a no-op but harmless.
  */
 
-import { Effect } from "effect";
+import { Effect, Either, Match, pipe } from "effect";
 import { commandExists, exec } from "./exec";
 
 /**
@@ -25,30 +27,28 @@ export type SELinuxMode = "enforcing" | "permissive" | "disabled";
 export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
   Effect.gen(function* () {
     // Check if getenforce command exists (SELinux not installed on Debian/Ubuntu)
-    if (!commandExists("getenforce")) {
-      return "disabled" as const;
-    }
-
-    const result = yield* Effect.either(exec(["getenforce"], { captureStdout: true }));
-
-    if (result._tag === "Left") {
-      // If command fails, assume SELinux is disabled
-      return "disabled" as const;
-    }
-
-    const output = result.right.stdout.trim().toLowerCase();
-
-    switch (output) {
-      case "enforcing":
-        return "enforcing" as const;
-      case "permissive":
-        return "permissive" as const;
-      case "disabled":
-        return "disabled" as const;
-      default:
-        // Unknown output, default to disabled
-        return "disabled" as const;
-    }
+    return yield* pipe(
+      Match.value(commandExists("getenforce")),
+      Match.when(false, () => Effect.succeed<SELinuxMode>("disabled")),
+      Match.when(true, () =>
+        pipe(
+          Effect.either(exec(["getenforce"], { captureStdout: true })),
+          Effect.map((result) =>
+            Either.match(result, {
+              onLeft: (): SELinuxMode => "disabled",
+              onRight: (r): SELinuxMode =>
+                pipe(
+                  Match.value(r.stdout.trim().toLowerCase()),
+                  Match.when("enforcing", (): SELinuxMode => "enforcing"),
+                  Match.when("permissive", (): SELinuxMode => "permissive"),
+                  Match.orElse((): SELinuxMode => "disabled")
+                ),
+            })
+          )
+        )
+      ),
+      Match.exhaustive
+    );
   });
 
 /**

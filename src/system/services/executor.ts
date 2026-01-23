@@ -54,8 +54,7 @@ export interface CommandExecutorService {
 }
 
 /**
- * CommandExecutor tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * CommandExecutor service identifier for Effect dependency injection.
  */
 export interface CommandExecutor {
   readonly _tag: "CommandExecutor";

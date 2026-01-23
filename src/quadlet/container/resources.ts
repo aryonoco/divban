@@ -6,7 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container resource limits configuration for quadlet files.
+ * Container resource limits via cgroups. Memory limits prevent OOM
+ * from affecting other containers. PidsLimit prevents fork bombs.
+ * ShmSize is critical for PostgreSQL and other apps using shared
+ * memory - the 64MB default is often too small. The memory parser
+ * uses a state machine to handle various formats (512m, 2G, 1024).
  */
 
 import { Effect, Option, pipe } from "effect";

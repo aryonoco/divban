@@ -6,11 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect-based backup-config command - create a backup of configuration files.
+ * Configuration backup separate from data backup. Captures TOML configs
+ * and encrypted secrets - everything needed to recreate the service on
+ * a new system. Stored separately from data because configs change less
+ * frequently and are much smaller.
  */
 
 import { Glob } from "bun";
-import { Effect, Option, pipe } from "effect";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import { createBackupTimestamp } from "../../lib/backup-utils";
 import { collectAsyncOrDie } from "../../lib/collection-utils";
@@ -156,30 +159,39 @@ const getServiceConfigDir = (
 ): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-
     const userResult = yield* Effect.either(getUserByName(username));
-    if (userResult._tag === "Left") {
-      return yield* Effect.fail(
-        new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
-          message: `Service '${serviceName}' not set up`,
-          service: serviceName,
-        })
-      );
-    }
 
-    const configDir = userConfigDir(userResult.right.homeDir);
-    if (!(yield* directoryExists(configDir))) {
-      return yield* Effect.fail(
-        new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
-          message: `Config directory not found for ${serviceName}`,
-          service: serviceName,
-        })
-      );
-    }
+    type ResultType = Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError>;
+    return yield* Either.match(userResult, {
+      onLeft: (): ResultType =>
+        Effect.fail(
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Service '${serviceName}' not set up`,
+            service: serviceName,
+          })
+        ),
+      onRight: ({ homeDir }): ResultType =>
+        Effect.gen(function* () {
+          const configDir = userConfigDir(homeDir);
+          const exists = yield* directoryExists(configDir);
 
-    return configDir;
+          return yield* pipe(
+            Match.value(exists),
+            Match.when(false, () =>
+              Effect.fail(
+                new ServiceError({
+                  code: ErrorCode.SERVICE_NOT_FOUND as 30,
+                  message: `Config directory not found for ${serviceName}`,
+                  service: serviceName,
+                })
+              )
+            ),
+            Match.when(true, () => Effect.succeed(configDir)),
+            Match.exhaustive
+          );
+        }),
+    });
   });
 
 /**
@@ -264,64 +276,96 @@ export const executeBackupConfig = (
 
     // Step 2: Collect files (parallel I/O)
     logger.info("Collecting configuration files...");
-    const files = isAll
-      ? yield* collectAllConfigFiles(configDir)
-      : yield* collectServiceConfigFiles(configDir, serviceName);
+    const files = yield* pipe(
+      Match.value(isAll),
+      Match.when(true, () => collectAllConfigFiles(configDir)),
+      Match.when(false, () => collectServiceConfigFiles(configDir, serviceName)),
+      Match.exhaustive
+    );
 
     const fileNames = Object.keys(files);
-    if (fileNames.length === 0) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
-          message: `No configuration files found for ${serviceName}`,
+
+    return yield* pipe(
+      Match.value(fileNames.length === 0),
+      Match.when(true, () =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `No configuration files found for ${serviceName}`,
+          })
+        )
+      ),
+      Match.when(false, () =>
+        Effect.gen(function* () {
+          // Step 3: Prepare output path
+          const outputPath = yield* prepareOutputPath(configDir, serviceName, args.configPath);
+
+          return yield* pipe(
+            Match.value(args.dryRun),
+            // Step 4: Handle dry run
+            Match.when(true, () =>
+              Effect.gen(function* () {
+                logger.info(`Dry run - would create backup at: ${outputPath}`);
+                logger.info("Files to include:");
+                yield* Effect.forEach(
+                  fileNames,
+                  (file) => Effect.sync(() => logger.info(`  - ${file}`)),
+                  { discard: true }
+                );
+              })
+            ),
+            Match.when(false, () =>
+              Effect.gen(function* () {
+                // Step 5: Warn about sensitive content
+                logger.warn("WARNING: This backup contains encryption keys and secrets.");
+                logger.warn(
+                  "Treat this file like a password - store it securely and do not share it."
+                );
+
+                // Step 6: Create archive with metadata
+                const metadata: ArchiveMetadata = {
+                  version: "1.0",
+                  service: serviceName,
+                  timestamp: new Date().toISOString(),
+                  files: fileNames,
+                };
+
+                logger.info("Creating archive...");
+                const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
+
+                // Step 7: Write archive to disk
+                yield* writeBytes(outputPath, archiveData);
+
+                // Step 8: Output result
+                yield* pipe(
+                  Match.value(args.format),
+                  Match.when("json", () =>
+                    Effect.sync(() =>
+                      logger.raw(
+                        JSON.stringify({
+                          path: outputPath,
+                          size: archiveData.length,
+                          files: fileNames,
+                          timestamp: metadata.timestamp,
+                        })
+                      )
+                    )
+                  ),
+                  Match.when("pretty", () =>
+                    Effect.sync(() => {
+                      logger.success(`Configuration backup created: ${outputPath}`);
+                      logger.info(`  Size: ${formatBytes(archiveData.length)}`);
+                      logger.info(`  Files: ${fileNames.length}`);
+                    })
+                  ),
+                  Match.exhaustive
+                );
+              })
+            ),
+            Match.orElse(() => Effect.void)
+          );
         })
-      );
-    }
-
-    // Step 3: Prepare output path
-    const outputPath = yield* prepareOutputPath(configDir, serviceName, args.configPath);
-
-    // Step 4: Handle dry run
-    if (args.dryRun) {
-      logger.info(`Dry run - would create backup at: ${outputPath}`);
-      logger.info("Files to include:");
-      yield* Effect.forEach(fileNames, (file) => Effect.sync(() => logger.info(`  - ${file}`)), {
-        discard: true,
-      });
-      return;
-    }
-
-    // Step 5: Warn about sensitive content
-    logger.warn("WARNING: This backup contains encryption keys and secrets.");
-    logger.warn("Treat this file like a password - store it securely and do not share it.");
-
-    // Step 6: Create archive with metadata
-    const metadata: ArchiveMetadata = {
-      version: "1.0",
-      service: serviceName,
-      timestamp: new Date().toISOString(),
-      files: fileNames,
-    };
-
-    logger.info("Creating archive...");
-    const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
-
-    // Step 7: Write archive to disk
-    yield* writeBytes(outputPath, archiveData);
-
-    // Step 8: Output result
-    if (args.format === "json") {
-      logger.raw(
-        JSON.stringify({
-          path: outputPath,
-          size: archiveData.length,
-          files: fileNames,
-          timestamp: metadata.timestamp,
-        })
-      );
-    } else {
-      logger.success(`Configuration backup created: ${outputPath}`);
-      logger.info(`  Size: ${formatBytes(archiveData.length)}`);
-      logger.info(`  Files: ${fileNames.length}`);
-    }
+      ),
+      Match.exhaustive
+    );
   });

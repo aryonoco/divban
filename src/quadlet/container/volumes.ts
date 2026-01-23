@@ -6,7 +6,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container volume configuration for quadlet files.
+ * Container volume mounts with SELinux and ownership handling.
+ * Bind mounts need :Z for SELinux relabeling (private to container)
+ * and :U for ownership chown (container UID may differ from host).
+ * Named volumes (.volume suffix) don't need these - Podman manages
+ * them internally. The processVolumes pipeline applies both flags
+ * conditionally based on mount type and host configuration.
  */
 
 import { Array as Arr, Option, pipe } from "effect";

@@ -35,8 +35,7 @@ export interface ArchiveService {
 }
 
 /**
- * Archive tag identifier type.
- * Used in Effect's R type parameter to track this dependency.
+ * Archive service identifier for Effect dependency injection.
  */
 export interface Archive {
   readonly _tag: "Archive";

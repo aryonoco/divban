@@ -27,7 +27,7 @@ import {
   createConfigValidator,
   createSingleContainerOps,
   emptyState,
-  executeSteps4,
+  pipeline,
   reloadAndEnableServicesTracked,
   rollbackFileWrites,
   rollbackServiceChanges,
@@ -277,7 +277,13 @@ const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
   ActualConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
-> => executeSteps4([generateStep, createDirsStep, writeFilesStep, enableServicesStep], emptyState);
+> =>
+  pipeline<EmptyState>()
+    .andThen(generateStep)
+    .andThen(createDirsStep)
+    .andThen(writeFilesStep)
+    .andThen(enableServicesStep)
+    .execute(emptyState);
 
 /**
  * Backup Actual data.

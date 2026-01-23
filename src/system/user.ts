@@ -6,13 +6,16 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * User management
- * Creates isolated users with proper subuid/subgid configuration.
+ * Service user management for process isolation.
+ * Each service runs as a dedicated system user (divban-<service>) with
+ * nologin shell for security. Subuid/subgid ranges enable rootless
+ * user namespaces for container isolation without root privileges.
  */
 
 import { Array as Arr, Effect, Exit, Option, Schedule, pipe } from "effect";
 import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
+import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { systemRetrySchedule } from "../lib/retry";
 import type {
@@ -162,7 +165,7 @@ const appendSubidEntry = (
           new SystemError({
             code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
             message: `Failed to configure ${file}`,
-            ...(e instanceof Error ? { cause: e } : {}),
+            ...extractCauseProps(e),
           })
       )
     );
@@ -219,7 +222,7 @@ const removeSubidEntry = (
           new SystemError({
             code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
             message: `Failed to remove ${username} from ${file}`,
-            ...(e instanceof Error ? { cause: e } : {}),
+            ...extractCauseProps(e),
           })
       )
     );
@@ -269,7 +272,7 @@ export const deleteServiceUser = (
           new GeneralError({
             code: ErrorCode.GENERAL_ERROR as 1,
             message: `Failed to delete user ${username}: ${err.message}`,
-            ...(err instanceof Error ? { cause: err } : {}),
+            ...extractCauseProps(err),
           })
       )
     );
@@ -311,7 +314,7 @@ const createUserWithUid = (
         new SystemError({
           code: ErrorCode.USER_CREATE_FAILED as 20,
           message: `Failed to create user ${username}: ${err.message}`,
-          ...(err instanceof Error ? { cause: err } : {}),
+          ...extractCauseProps(err),
         })
     )
   );
@@ -375,8 +378,12 @@ export const createServiceUser = (
               return allocatedUid;
             })
           ).pipe(Effect.retry(retrySchedule)),
-          (_, exit) =>
-            Exit.isFailure(exit) ? deleteServiceUser(serviceName).pipe(Effect.ignore) : Effect.void
+          (_, exit): Effect.Effect<void> =>
+            Exit.match(exit, {
+              onSuccess: (): Effect.Effect<void> => Effect.void,
+              onFailure: (): Effect.Effect<void> =>
+                deleteServiceUser(serviceName).pipe(Effect.ignore),
+            })
         );
 
         // === POINT OF NO RETURN: User created, rollback on subsequent failure ===

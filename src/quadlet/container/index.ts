@@ -6,8 +6,11 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Container quadlet builder.
- * Combines all container configuration modules into a single builder.
+ * Container quadlet composition - assembles separate config modules into
+ * a complete Container section. Each aspect (network, volumes, security,
+ * etc.) is handled by a dedicated module for testability and reuse.
+ * The builder combines them using structural subtyping - ContainerQuadlet
+ * satisfies all sub-config interfaces, enabling direct pass-through.
  */
 
 import { concat } from "../entry-combinators";
