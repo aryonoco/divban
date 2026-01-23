@@ -10,7 +10,6 @@ import {
   collapseChar,
   escapeWith,
   filterCharsToString,
-  foldChars,
   mapCharsToString,
   replaceChars,
   stripPrefix,
@@ -18,18 +17,6 @@ import {
 } from "../../src/lib/str-transform";
 
 describe("str-transform", () => {
-  describe("foldChars", () => {
-    test("accumulates over characters", () => {
-      const count = foldChars(0, (acc, _) => acc + 1);
-      expect(count("hello")).toBe(5);
-    });
-
-    test("handles empty string", () => {
-      const count = foldChars(0, (acc, _) => acc + 1);
-      expect(count("")).toBe(0);
-    });
-  });
-
   describe("mapCharsToString", () => {
     test("transforms each character", () => {
       const upper = mapCharsToString((c) => c.toUpperCase());

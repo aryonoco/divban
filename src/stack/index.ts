@@ -24,7 +24,6 @@ export type {
 // Dependencies
 export {
   buildDependencyGraph,
-  detectCycles,
   getAllDependencies,
   getDependents,
   resolveStartOrder,
