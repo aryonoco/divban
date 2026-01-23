@@ -23,7 +23,7 @@ import {
   isWhitespace,
 } from "./char";
 import { ConfigError, ErrorCode } from "./errors";
-import { all, uncons } from "./str";
+import { all, last, uncons } from "./str";
 
 export const formatSchemaError = (error: ParseResult.ParseError, context: string): ConfigError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
@@ -304,3 +304,56 @@ export const isValidUrl = (s: string): boolean => {
     return false;
   }
 };
+
+// Valid duration units - using const assertion for type safety
+const DURATION_UNITS = ["ms", "s", "m", "h", "d"] as const;
+type DurationUnit = (typeof DURATION_UNITS)[number];
+
+/** Structured representation of a parsed duration string. */
+export interface ParsedDuration {
+  readonly value: number;
+  readonly unit: DurationUnit;
+}
+
+/**
+ * Extract the unit suffix from a duration string.
+ * Checks multi-char "ms" first, then single-char units.
+ */
+const extractDurationUnit = (
+  s: string
+): Option.Option<{ unit: DurationUnit; numericPart: string }> =>
+  s.endsWith("ms")
+    ? Option.some({ unit: "ms" as const, numericPart: s.slice(0, -2) })
+    : pipe(
+        last(s),
+        Option.filter(
+          (c): c is "s" | "m" | "h" | "d" => c === "s" || c === "m" || c === "h" || c === "d"
+        ),
+        Option.map((unit) => ({ unit, numericPart: s.slice(0, -1) }))
+      );
+
+/**
+ * Parse a duration string into structured data.
+ * Valid formats: "10s", "5m", "1h", "30ms", "2d"
+ *
+ * Uses Option-chained pipeline with:
+ * - Option.filter for validation gates
+ * - Option.flatMap for dependent parsing steps
+ * - parseNat for safe integer parsing (reuses existing infrastructure)
+ */
+export const parseDurationString = (s: string): Option.Option<ParsedDuration> =>
+  pipe(
+    Option.some(s),
+    Option.filter((str) => str.length >= 2), // Minimum: "0s"
+    Option.flatMap(extractDurationUnit),
+    Option.filter(({ numericPart }) => numericPart.length > 0),
+    Option.flatMap(({ unit, numericPart }) =>
+      pipe(
+        parseNat(numericPart),
+        Option.map((value) => ({ value, unit }))
+      )
+    )
+  );
+
+/** Validator derived from parser per codebase convention. */
+export const isValidDurationString = (s: string): boolean => Option.isSome(parseDurationString(s));

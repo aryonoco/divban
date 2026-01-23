@@ -18,6 +18,7 @@ import { ErrorCode, GeneralError } from "./errors";
 import {
   isValidContainerImage,
   isValidContainerName,
+  isValidDurationString,
   isValidPosixUsername,
   isValidServiceName,
   parseIPv4,
@@ -114,13 +115,11 @@ export const ContainerImageSchema: Schema.BrandSchema<ContainerImage, string, ne
 
 export type DurationString = string & Brand.Brand<"DurationString">;
 
-const DURATION_PATTERN = /^[0-9]+(?:ms|s|m|h|d)$/;
-
 const durationMsg = (): string => "Duration must be number followed by unit (ms, s, m, h, d)";
 
 export const DurationStringSchema: Schema.BrandSchema<DurationString, string, never> =
   Schema.String.pipe(
-    Schema.filter((s): boolean => DURATION_PATTERN.test(s), { message: durationMsg }),
+    Schema.filter(isValidDurationString, { message: durationMsg }),
     Schema.brand("DurationString")
   );
 

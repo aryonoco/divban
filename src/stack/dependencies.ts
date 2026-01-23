@@ -99,7 +99,7 @@ export const detectCycles = (nodes: DependencyNode[]): Effect.Effect<void, Gener
     | { readonly kind: "AlreadyVisited" }
     | { readonly kind: "Recurse" };
 
-  /** Classification state for ternary-free pattern matching */
+  /** Classification state for pattern matching */
   type CycleCheckState = { readonly inStack: boolean; readonly visited: boolean };
 
   const classifyCycleState = (
