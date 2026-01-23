@@ -12,9 +12,9 @@
  */
 
 import { Array as Arr, Effect, Match, Option, pipe } from "effect";
-import type { DivbanBackUpSchemaVersion, DivbanProducerVersion } from "../lib/backup-version";
-import { BACKUP_METADATA_FILENAME } from "../lib/backup-version";
+import { BACKUP_METADATA_FILENAME } from "../lib/backup-compat";
 import type { AbsolutePath } from "../lib/types";
+import type { DivbanBackUpSchemaVersion, DivbanProducerVersion } from "../lib/versioning";
 
 export interface ArchiveMetadata {
   /** Schema version for this metadata format (semver) */

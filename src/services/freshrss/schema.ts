@@ -20,6 +20,10 @@ import {
   ContainerNameSchema,
   containerImage,
 } from "../../lib/types";
+import {
+  type DivbanConfigSchemaVersion,
+  DivbanConfigSchemaVersionSchema,
+} from "../../lib/versioning";
 
 const FRESHRSS_CONTAINER = "freshrss" as ContainerName;
 
@@ -52,6 +56,7 @@ export const freshRssBackupConfigSchema: Schema.Schema<
 });
 
 export interface FreshRssConfig {
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   /** Path configuration */
   readonly paths: {
     /** Directory for FreshRSS data (database, config, extensions) */
@@ -89,6 +94,7 @@ export interface FreshRssConfig {
 
 /** Fields with defaults are optional in input */
 export interface FreshRssConfigInput {
+  readonly divbanConfigSchemaVersion: string;
   readonly paths: {
     readonly dataDir: string;
   };
@@ -113,6 +119,7 @@ export interface FreshRssConfigInput {
 
 export const freshRssConfigSchema: Schema.Schema<FreshRssConfig, FreshRssConfigInput> =
   Schema.Struct({
+    divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
     paths: Schema.Struct({
       dataDir: absolutePathSchema,
     }),

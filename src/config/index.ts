@@ -58,3 +58,9 @@ export {
   resolveLogLevel,
 } from "./env";
 export type { EnvConfig, LogFormat, LogLevel as EnvLogLevel, TestConfigOverrides } from "./env";
+
+export {
+  CURRENT_CONFIG_SCHEMA_VERSION,
+  SUPPORTED_CONFIG_SCHEMA_VERSIONS,
+  validateConfigCompatibility,
+} from "./version-compat";

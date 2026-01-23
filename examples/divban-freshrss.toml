@@ -3,6 +3,7 @@
 #
 # divban-freshrss.toml - FreshRSS configuration
 
+divbanConfigSchemaVersion = "1.0.0"
 
 [paths]
 # Directory for FreshRSS data (database, config, extensions)

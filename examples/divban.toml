@@ -6,6 +6,8 @@
 # This is the global configuration file for divban.
 # Place it at /etc/divban/divban.toml or ~/.config/divban/divban.toml
 
+divbanConfigSchemaVersion = "1.0.0"
+
 [defaults]
 # Default network mode for all services
 # Options: "pasta" (Podman 5.0+ default, recommended), "slirp4netns"

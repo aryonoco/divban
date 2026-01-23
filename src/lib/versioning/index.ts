@@ -6,20 +6,21 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Backup versioning module.
+ * Versioning module.
  *
  * Provides branded types for semver versions, smart constructors,
- * and compatibility checking for backup metadata.
+ * and generic version checking utilities.
  *
  * KEY TYPES:
  * - SemVer: Base validated semver string
- * - DivbanBackUpSchemaVersion: Metadata format version
+ * - DivbanBackUpSchemaVersion: Backup metadata format version
  * - DivbanProducerVersion: Tool version that created backup
+ * - DivbanConfigSchemaVersion: TOML config schema version
  *
  * KEY FUNCTIONS:
- * - schemaVersion("1.0.0"): Literal constructor (compile-time safe)
- * - divbanBackUpSchemaVersion(s): Smart constructor (runtime validation)
- * - validateBackupCompatibility(): Effect-ful restore validation
+ * - schemaVersion("1.0.0"): Backup schema literal constructor
+ * - configSchemaVersion("1.0.0"): Config schema literal constructor
+ * - checkVersionInList(): Generic version compatibility check
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@
 
 export type {
   DivbanBackUpSchemaVersion,
+  DivbanConfigSchemaVersion,
   DivbanProducerVersion,
   SemVer,
   SemVerComponents,
@@ -39,6 +41,7 @@ export type {
 
 export {
   divbanBackUpSchemaVersion,
+  divbanConfigSchemaVersion,
   divbanProducerVersion,
   semVer,
 } from "./types";
@@ -47,7 +50,7 @@ export {
 // Literal Constructors (Compile-time validation: literal -> T)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { producerVersion, schemaVersion } from "./types";
+export { configSchemaVersion, producerVersion, schemaVersion } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure Functions (Operations on validated types)
@@ -69,21 +72,18 @@ export {
 
 export {
   DivbanBackUpSchemaVersionSchema,
+  DivbanConfigSchemaVersionSchema,
   DivbanProducerVersionSchema,
   SemVerSchema,
 } from "./schema";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compatibility (Domain logic for restore validation)
+// Generic Version Checking (Parameterized utilities)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export {
-  BACKUP_METADATA_FILENAME,
-  CURRENT_BACKUP_SCHEMA_VERSION,
-  SUPPORTED_SCHEMA_VERSIONS,
-  checkProducerVersion,
-  checkSchemaVersion,
-  validateBackupCompatibility,
-  type ProducerCheckResult,
-  type SchemaCheckResult,
-} from "./compat";
+  checkVersionInList,
+  formatVersionList,
+  mkVersionCheckResult,
+  type VersionCheckResult,
+} from "./check";

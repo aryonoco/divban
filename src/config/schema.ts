@@ -32,6 +32,7 @@ import {
   duration,
   parseErrorToGeneralError,
 } from "../lib/types";
+import { type DivbanConfigSchemaVersion, DivbanConfigSchemaVersionSchema } from "../lib/versioning";
 
 /**
  * Re-export branded schemas for backwards compatibility.
@@ -250,6 +251,7 @@ export const DEFAULT_TIMEOUTS = {
 } as const;
 
 export interface GlobalConfig {
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   readonly defaults: {
     readonly networkMode: "pasta" | "slirp4netns";
     readonly autoUpdate: "registry" | "local" | false;
@@ -283,6 +285,7 @@ export interface GlobalConfig {
  * All nested objects and their fields are optional.
  */
 export interface GlobalConfigInput {
+  readonly divbanConfigSchemaVersion: string;
   readonly defaults?:
     | {
         readonly networkMode?: "pasta" | "slirp4netns" | undefined;
@@ -319,6 +322,7 @@ export interface GlobalConfigInput {
 }
 
 export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> = Schema.Struct({
+  divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
   defaults: Schema.optionalWith(
     Schema.Struct({
       networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns"), {

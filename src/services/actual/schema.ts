@@ -20,8 +20,13 @@ import {
   containerImage,
 } from "../../lib/types";
 import { ContainerNameSchema } from "../../lib/types";
+import {
+  type DivbanConfigSchemaVersion,
+  DivbanConfigSchemaVersionSchema,
+} from "../../lib/versioning";
 
 export interface ActualConfig {
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   /** Path configuration */
   readonly paths: {
     /** Directory for Actual data (database, user files) */
@@ -93,6 +98,7 @@ export const actualBackupConfigSchema: Schema.Schema<
 
 /** Fields with defaults are optional in input */
 export interface ActualConfigInput {
+  readonly divbanConfigSchemaVersion: string;
   readonly paths: {
     readonly dataDir: string;
   };
@@ -113,6 +119,7 @@ export interface ActualConfigInput {
 }
 
 export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> = Schema.Struct({
+  divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
   paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),

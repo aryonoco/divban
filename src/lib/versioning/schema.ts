@@ -16,6 +16,7 @@
 import { Option, Schema } from "effect";
 import {
   type DivbanBackUpSchemaVersion,
+  type DivbanConfigSchemaVersion,
   type DivbanProducerVersion,
   type SemVer,
   parseSemVer,
@@ -64,4 +65,15 @@ export const DivbanProducerVersionSchema: Schema.Schema<DivbanProducerVersion, s
     Schema.filter(isValidSemVer, { message: semVerErrorMsg }),
     Schema.brand("SemVer"),
     Schema.brand("DivbanProducerVersion")
+  );
+
+/**
+ * Schema for DivbanConfigSchemaVersion.
+ * Used when parsing TOML config files.
+ */
+export const DivbanConfigSchemaVersionSchema: Schema.Schema<DivbanConfigSchemaVersion, string> =
+  Schema.String.pipe(
+    Schema.filter(isValidSemVer, { message: semVerErrorMsg }),
+    Schema.brand("SemVer"),
+    Schema.brand("DivbanConfigSchemaVersion")
   );

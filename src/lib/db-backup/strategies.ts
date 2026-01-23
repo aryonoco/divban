@@ -18,8 +18,8 @@ import { DEFAULT_TIMEOUTS } from "../../config/schema";
 import { execAsUser } from "../../system/exec";
 import { fileExists } from "../../system/fs";
 import { startService, stopService } from "../../system/systemctl";
+import { BACKUP_METADATA_FILENAME } from "../backup-compat";
 import { collectFilesWithContent } from "../backup-utils";
-import { BACKUP_METADATA_FILENAME } from "../backup-version";
 import {
   BackupError,
   ErrorCode,

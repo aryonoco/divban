@@ -19,8 +19,10 @@ import { extractCauseProps } from "../lib/match-helpers";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
 import type { AbsolutePath, ServiceName } from "../lib/types";
+import type { DivbanConfigSchemaVersion } from "../lib/versioning";
 import { fileExists } from "../system/fs";
 import { type GlobalConfig, globalConfigSchema } from "./schema";
+import { validateConfigCompatibility } from "./version-compat";
 
 export const loadTomlFile = <A, I = A>(
   filePath: AbsolutePath,
@@ -62,7 +64,15 @@ export const loadTomlFile = <A, I = A>(
         }),
     });
 
-    return yield* decodeToEffect(schema, parsed, filePath);
+    const decoded = yield* decodeToEffect(schema, parsed, filePath);
+
+    // Validate config schema version if present (all divban configs have this field)
+    const version = (decoded as { divbanConfigSchemaVersion?: unknown }).divbanConfigSchemaVersion;
+    if (version !== undefined) {
+      yield* validateConfigCompatibility(version as DivbanConfigSchemaVersion, filePath);
+    }
+
+    return decoded;
   });
 
 export const loadGlobalConfigWithHome = (

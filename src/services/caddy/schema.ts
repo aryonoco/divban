@@ -27,6 +27,10 @@ import {
   DurationStringSchema,
   duration,
 } from "../../lib/types";
+import {
+  type DivbanConfigSchemaVersion,
+  DivbanConfigSchemaVersionSchema,
+} from "../../lib/versioning";
 
 // The interface must explicitly include undefined for exactOptionalPropertyTypes
 // Use readonly arrays to match Effect Schema's default behavior
@@ -316,6 +320,7 @@ const caddyNetworkSchema = Schema.Struct({
 });
 
 export interface CaddyConfig {
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   readonly paths: {
     readonly dataDir: AbsolutePath;
   };
@@ -329,6 +334,7 @@ export interface CaddyConfig {
 }
 
 export interface CaddyConfigInput {
+  readonly divbanConfigSchemaVersion: string;
   readonly paths: {
     readonly dataDir: string;
   };
@@ -342,6 +348,7 @@ export interface CaddyConfigInput {
 }
 
 export const caddyConfigSchema: Schema.Schema<CaddyConfig, CaddyConfigInput> = Schema.Struct({
+  divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
   paths: Schema.Struct({
     dataDir: absolutePathSchema,
   }),

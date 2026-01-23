@@ -3,6 +3,8 @@
 #
 # divban-caddy.toml - Caddy reverse proxy configuration
 
+divbanConfigSchemaVersion = "1.0.0"
+
 [paths]
 dataDir = "/srv/divban-caddy"
 

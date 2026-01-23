@@ -13,7 +13,7 @@
 import { Glob } from "bun";
 import { Array as Arr, Effect, Option, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
-import { CURRENT_BACKUP_SCHEMA_VERSION } from "./backup-version";
+import { CURRENT_BACKUP_SCHEMA_VERSION } from "./backup-compat";
 import { collectAsyncOrDie } from "./collection-utils";
 import { mapCharsToString } from "./str-transform";
 import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "./version";

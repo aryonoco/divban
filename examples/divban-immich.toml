@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: 2026 Aryan Ameri <info@ameri.me>
 #
 # divban-immich.toml - Immich photo management configuration
-#
+
+divbanConfigSchemaVersion = "1.0.0"
 
 [paths]
 # Directory for all Immich data

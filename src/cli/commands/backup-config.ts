@@ -15,8 +15,8 @@
 import { Glob } from "bun";
 import { Effect, Either, Match, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
+import { CURRENT_BACKUP_SCHEMA_VERSION } from "../../lib/backup-compat";
 import { createBackupTimestamp } from "../../lib/backup-utils";
-import { CURRENT_BACKUP_SCHEMA_VERSION } from "../../lib/backup-version";
 import { collectAsyncOrDie } from "../../lib/collection-utils";
 import {
   type ConfigError,

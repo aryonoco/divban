@@ -15,17 +15,12 @@ import type { ArchiveMetadata } from "../../system/archive";
 import { createArchive, extractArchive } from "../../system/archive";
 import { ensureDirectory } from "../../system/directories";
 import { fileExists, readBytes, writeBytes } from "../../system/fs";
+import { BACKUP_METADATA_FILENAME, validateBackupCompatibility } from "../backup-compat";
 import {
   createBackupMetadata,
   createBackupTimestamp,
   detectCompressionFormat,
 } from "../backup-utils";
-import {
-  BACKUP_METADATA_FILENAME,
-  type DivbanBackUpSchemaVersion,
-  type DivbanProducerVersion,
-  validateBackupCompatibility,
-} from "../backup-version";
 import {
   BackupError,
   ErrorCode,
@@ -36,6 +31,7 @@ import {
 import type { AbsolutePath, ServiceName, UserId, Username } from "../types";
 import { pathJoin, userIdToGroupId } from "../types";
 import { DIVBAN_VERSION } from "../version";
+import type { DivbanBackUpSchemaVersion, DivbanProducerVersion } from "../versioning";
 import { freshRssCliStrategy, postgresStrategy, sqliteStopStrategy } from "./strategies";
 import type { BackupConfig, BackupStrategy } from "./types";
 

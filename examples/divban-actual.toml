@@ -3,6 +3,7 @@
 #
 # divban-actual.toml - Actual Budget configuration
 
+divbanConfigSchemaVersion = "1.0.0"
 
 [paths]
 # Directory for Actual data (SQLite database, user files)

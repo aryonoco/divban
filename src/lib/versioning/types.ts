@@ -55,6 +55,12 @@ export type DivbanBackUpSchemaVersion = SemVer & Brand.Brand<"DivbanBackUpSchema
  */
 export type DivbanProducerVersion = SemVer & Brand.Brand<"DivbanProducerVersion">;
 
+/**
+ * Schema version for divban TOML configuration files.
+ * Bump semantics same as DivbanBackUpSchemaVersion.
+ */
+export type DivbanConfigSchemaVersion = SemVer & Brand.Brand<"DivbanConfigSchemaVersion">;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Parsing Primitives (Internal)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,6 +149,13 @@ export const divbanProducerVersion = (s: string): Option.Option<DivbanProducerVe
     Option.map((v): DivbanProducerVersion => v as DivbanProducerVersion)
   );
 
+/** Construct DivbanConfigSchemaVersion from untrusted string. */
+export const divbanConfigSchemaVersion = (s: string): Option.Option<DivbanConfigSchemaVersion> =>
+  pipe(
+    semVer(s),
+    Option.map((v): DivbanConfigSchemaVersion => v as DivbanConfigSchemaVersion)
+  );
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Literal Constructors (Compile-time validated)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,6 +194,19 @@ export const schemaVersion = <const S extends SemVerLiteral>(
 export const producerVersion = <const S extends SemVerLiteral>(literal: S): DivbanProducerVersion =>
   pipe(
     divbanProducerVersion(literal),
+    Option.getOrThrow // Safe: template literal type guarantees valid format
+  );
+
+/**
+ * Construct DivbanConfigSchemaVersion from a string literal.
+ *
+ * USAGE: configSchemaVersion("1.0.0") - literal only, no variables
+ */
+export const configSchemaVersion = <const S extends SemVerLiteral>(
+  literal: S
+): DivbanConfigSchemaVersion =>
+  pipe(
+    divbanConfigSchemaVersion(literal),
     Option.getOrThrow // Safe: template literal type guarantees valid format
   );
 

@@ -11,7 +11,7 @@
  */
 
 import pkg from "../../package.json";
-import { type DivbanProducerVersion, producerVersion } from "./backup-version";
+import { type DivbanProducerVersion, producerVersion } from "./versioning";
 
 /**
  * Current divban version from package.json.

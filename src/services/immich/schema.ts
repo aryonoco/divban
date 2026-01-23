@@ -21,6 +21,10 @@ import {
 } from "../../lib/db-backup";
 import { isValidIP, isValidUrl } from "../../lib/schema-utils";
 import type { AbsolutePath } from "../../lib/types";
+import {
+  type DivbanConfigSchemaVersion,
+  DivbanConfigSchemaVersionSchema,
+} from "../../lib/versioning";
 import { CONTAINERS, DEFAULT_IMAGES } from "./constants";
 
 export type TranscodingConfig =
@@ -196,6 +200,7 @@ export const immichNetworkSchema: Schema.Schema<ImmichNetworkConfig, ImmichNetwo
   });
 
 export interface ImmichConfig {
+  readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   readonly paths: {
     readonly dataDir: AbsolutePath;
     readonly uploadDir?: AbsolutePath | undefined;
@@ -223,6 +228,7 @@ export interface ImmichBackupConfigInput {
 }
 
 export interface ImmichConfigInput {
+  readonly divbanConfigSchemaVersion: string;
   readonly paths: {
     readonly dataDir: string;
     readonly uploadDir?: string | undefined;
@@ -266,6 +272,7 @@ export const immichBackupConfigSchema: Schema.Schema<
 });
 
 export const immichConfigSchema: Schema.Schema<ImmichConfig, ImmichConfigInput> = Schema.Struct({
+  divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
   paths: Schema.Struct({
     dataDir: absolutePathSchema,
     uploadDir: Schema.optional(absolutePathSchema),

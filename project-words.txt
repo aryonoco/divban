@@ -44,6 +44,7 @@ bunx
 Zod
 
 # Technical Terms
+compat
 dedup
 healthcheck
 healthchecks
@@ -52,6 +53,7 @@ speedups
 stdout
 stderr
 gzip
+versioning
 zstd
 
 # Project-Specific

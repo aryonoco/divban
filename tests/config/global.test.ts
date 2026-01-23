@@ -40,7 +40,8 @@ describe("global config", () => {
       await Effect.runPromise(
         writeFile(
           configPath,
-          `
+          `divbanConfigSchemaVersion = "1.0.0"
+
 [users]
 uidRangeStart = 15000
 uidRangeEnd = 20000
@@ -74,7 +75,8 @@ level = "debug"
       await Effect.runPromise(
         writeFile(
           configPath,
-          `
+          `divbanConfigSchemaVersion = "1.0.0"
+
 [logging]
 format = "json"
 `
@@ -94,7 +96,10 @@ format = "json"
 
   describe("getUserAllocationSettings", () => {
     test("extracts settings from global config", async () => {
-      const config = await Effect.runPromise(loadGlobalConfig());
+      const configPath = pathJoin(TEST_DIR, "user-defaults.toml");
+      await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
+
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
       const settings = getUserAllocationSettings(config);
       expect(settings.uidRangeStart).toBe(10000);
@@ -108,7 +113,8 @@ format = "json"
       await Effect.runPromise(
         writeFile(
           configPath,
-          `
+          `divbanConfigSchemaVersion = "1.0.0"
+
 [users]
 uidRangeStart = 20000
 uidRangeEnd = 30000
@@ -130,7 +136,10 @@ subuidRangeSize = 131072
 
   describe("getLoggingSettings", () => {
     test("extracts logging settings with defaults", async () => {
-      const config = await Effect.runPromise(loadGlobalConfig());
+      const configPath = pathJoin(TEST_DIR, "logging-defaults.toml");
+      await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
+
+      const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
       const settings = getLoggingSettings(config);
       expect(settings.level).toBe("info");
@@ -142,7 +151,8 @@ subuidRangeSize = 131072
       await Effect.runPromise(
         writeFile(
           configPath,
-          `
+          `divbanConfigSchemaVersion = "1.0.0"
+
 [logging]
 level = "warn"
 format = "json"

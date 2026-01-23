@@ -6,24 +6,23 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Backup compatibility checking.
- *
- * Determines whether a backup can be restored by this version of divban.
- * Uses sum types (tagged unions) for exhaustive pattern matching.
+ * Backup-specific compatibility checking.
+ * Uses generic utilities from versioning/check.ts.
  */
 
-import { Array as Arr, Data, Effect, Match, Option, pipe } from "effect";
-import { BackupError, ErrorCode } from "../errors";
+import { Data, Effect, Match, pipe } from "effect";
+import { BackupError, ErrorCode } from "./errors";
 import {
   type DivbanBackUpSchemaVersion,
   type DivbanProducerVersion,
   type SemVer,
   compareSemVer,
   schemaVersion,
-} from "./types";
+} from "./versioning";
+import { checkVersionInList, formatVersionList } from "./versioning/check";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constants
+// Backup-Specific Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -42,7 +41,7 @@ export const CURRENT_BACKUP_SCHEMA_VERSION: DivbanBackUpSchemaVersion = schemaVe
  * Add older versions here to maintain backward compatibility.
  * Remove versions to drop support (with migration path).
  */
-export const SUPPORTED_SCHEMA_VERSIONS: readonly DivbanBackUpSchemaVersion[] = [
+export const SUPPORTED_BACKUP_SCHEMA_VERSIONS: readonly DivbanBackUpSchemaVersion[] = [
   schemaVersion("1.0.0"),
 ] as const;
 
@@ -53,18 +52,9 @@ export const SUPPORTED_SCHEMA_VERSIONS: readonly DivbanBackUpSchemaVersion[] = [
 export const BACKUP_METADATA_FILENAME = "divban.backup.metadata.json" as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compatibility Result Types (Sum Types for Exhaustive Matching)
+// Producer Version Check (Backup-Specific - compares versions)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Schema version check result using Effect Data.TaggedEnum for proper discriminant. */
-export type SchemaCheckResult = Data.TaggedEnum<{
-  schemaSupported: object;
-  schemaUnsupported: { readonly version: DivbanBackUpSchemaVersion };
-}>;
-
-const SchemaCheck = Data.taggedEnum<SchemaCheckResult>();
-
-/** Producer version check result using Effect Data.TaggedEnum. */
 export type ProducerCheckResult = Data.TaggedEnum<{
   producerOlderOrEqual: object;
   producerNewer: { readonly version: DivbanProducerVersion };
@@ -72,22 +62,6 @@ export type ProducerCheckResult = Data.TaggedEnum<{
 
 const ProducerCheck = Data.taggedEnum<ProducerCheckResult>();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pure Check Functions (No Effects)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Check if backup schema version is in our supported list. */
-export const checkSchemaVersion = (backupSchema: DivbanBackUpSchemaVersion): SchemaCheckResult =>
-  pipe(
-    SUPPORTED_SCHEMA_VERSIONS,
-    Arr.findFirst((v): boolean => (v as SemVer) === (backupSchema as SemVer)),
-    Option.match({
-      onNone: (): SchemaCheckResult => SchemaCheck.schemaUnsupported({ version: backupSchema }),
-      onSome: (): SchemaCheckResult => SchemaCheck.schemaSupported(),
-    })
-  );
-
-/** Check if backup was created by a newer producer. */
 export const checkProducerVersion = (
   backupProducer: DivbanProducerVersion,
   currentProducer: DivbanProducerVersion
@@ -97,10 +71,8 @@ export const checkProducerVersion = (
     : ProducerCheck.producerOlderOrEqual();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Effectful Validation (Fails on unsupported, warns on newer producer)
+// Backup Compatibility Validation (Effectful)
 // ─────────────────────────────────────────────────────────────────────────────
-
-const formatSupportedVersions = (): string => SUPPORTED_SCHEMA_VERSIONS.join(", ");
 
 /**
  * Validate backup compatibility for restore.
@@ -114,25 +86,27 @@ export const validateBackupCompatibility = (
   currentProducer: DivbanProducerVersion
 ): Effect.Effect<void, BackupError> =>
   Effect.gen(function* () {
-    // Check schema version (hard requirement)
+    // Use generic checker
+    const schemaResult = checkVersionInList(backupSchema, SUPPORTED_BACKUP_SCHEMA_VERSIONS);
+
     yield* pipe(
-      checkSchemaVersion(backupSchema),
+      schemaResult,
       Match.value,
-      Match.tag("schemaSupported", (): Effect.Effect<void, never> => Effect.void),
+      Match.tag("versionSupported", (): Effect.Effect<void, never> => Effect.void),
       Match.tag(
-        "schemaUnsupported",
+        "versionUnsupported",
         ({ version }): Effect.Effect<void, BackupError> =>
           Effect.fail(
             new BackupError({
               code: ErrorCode.RESTORE_FAILED as 51,
-              message: `Backup schema version ${version} is not supported. Supported versions: ${formatSupportedVersions()}`,
+              message: `Backup schema version ${version} is not supported. Supported versions: ${formatVersionList(SUPPORTED_BACKUP_SCHEMA_VERSIONS)}`,
             })
           )
       ),
       Match.exhaustive
     );
 
-    // Check producer version (soft warning)
+    // Producer version check (backup-specific)
     yield* pipe(
       checkProducerVersion(backupProducer, currentProducer),
       Match.value,
