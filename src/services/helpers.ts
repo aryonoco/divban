@@ -13,7 +13,17 @@
  * setup skips existing resources and doesn't delete them on rollback.
  */
 
-import { Array as Arr, Data, Effect, Exit, Option, type Schema, type Scope, pipe } from "effect";
+import {
+  Array as Arr,
+  Data,
+  Effect,
+  Exit,
+  Match,
+  Option,
+  type Schema,
+  type Scope,
+  pipe,
+} from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type { ConfigError, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { configFilePath, quadletFilePath } from "../lib/paths";
@@ -517,12 +527,12 @@ export const wrapBackupResult = <E>(
  * A simple sum type for success/failure branching.
  * Uses Data.TaggedEnum for idiomatic _tag generation.
  */
-export type Outcome = Data.TaggedEnum<{
-  Success: {};
-  Failure: {};
+type Outcome = Data.TaggedEnum<{
+  success: object;
+  failure: object;
 }>;
 
-const { Success, Failure, $match } = Data.taggedEnum<Outcome>();
+const { success, failure } = Data.taggedEnum<Outcome>();
 
 interface OutcomeOps {
   readonly success: Outcome;
@@ -535,8 +545,8 @@ interface OutcomeOps {
 }
 
 export const Outcome: OutcomeOps = {
-  success: Success(),
-  failure: Failure(),
+  success: success(),
+  failure: failure(),
 
   fromExit: <A, E>(exit: Exit.Exit<A, E>): Outcome =>
     Exit.match(exit, {
@@ -550,7 +560,12 @@ export const Outcome: OutcomeOps = {
       readonly onSuccess: () => A;
       readonly onFailure: () => A;
     }
-  ): A => $match({ Success: cases.onSuccess, Failure: cases.onFailure })(outcome) as A,
+  ): A =>
+    Match.value(outcome).pipe(
+      Match.tag("success", cases.onSuccess),
+      Match.tag("failure", cases.onFailure),
+      Match.exhaustive
+    ) as A,
 };
 
 // ============================================================================
