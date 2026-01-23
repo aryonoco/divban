@@ -172,7 +172,10 @@ export const TEMP_PATHS: {
 
 export const outputQuadletDir = (
   outputDir: string
-): Effect.Effect<AbsolutePathType, GeneralError> => joinPath(outputDir, "quadlets");
+): Effect.Effect<AbsolutePathType, ConfigError | GeneralError> =>
+  Effect.flatMap(toAbsolutePathEffect(outputDir), (absDir) => joinPath(absDir, "quadlets"));
 
-export const outputConfigDir = (outputDir: string): Effect.Effect<AbsolutePathType, GeneralError> =>
-  joinPath(outputDir, "config");
+export const outputConfigDir = (
+  outputDir: string
+): Effect.Effect<AbsolutePathType, ConfigError | GeneralError> =>
+  Effect.flatMap(toAbsolutePathEffect(outputDir), (absDir) => joinPath(absDir, "config"));

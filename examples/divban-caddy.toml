@@ -44,7 +44,7 @@ mapHostLoopback = "172.31.255.254"
 # ─────────────────────────────────────────────────────────────────────────────
 
 [caddyfile.global]
-email = "admin@example.com"
+email = "example@example.com"
 # Staging CA (safe for testing, avoids rate limits)
 acmeCA = "https://acme-staging-v02.api.letsencrypt.org/directory"
 # Production CA (uncomment when ready):
@@ -70,7 +70,7 @@ args = ["X-Content-Type-Options", "nosniff"]
 # Immich
 # Use mapped loopback IP to reach services bound to host's 127.0.0.1
 [[caddyfile.sites]]
-addresses = ["photos.example.com"]
+addresses = ["immich.example.com"]
 [[caddyfile.sites.directives]]
 name = "import"
 args = ["common_headers"]
@@ -81,10 +81,21 @@ args = ["172.31.255.254:2283"]
 # Actual Budget
 # Use mapped loopback IP to reach services bound to host's 127.0.0.1
 [[caddyfile.sites]]
-addresses = ["budget.example.com"]
+addresses = ["actual.example.com"]
 [[caddyfile.sites.directives]]
 name = "import"
 args = ["common_headers"]
 [[caddyfile.sites.directives]]
 name = "reverse_proxy"
 args = ["172.31.255.254:5006"]
+
+# FreshRSS
+# Use mapped loopback IP to reach services bound to host's 127.0.0.1
+[[caddyfile.sites]]
+addresses = ["freshrss.example.com"]
+[[caddyfile.sites.directives]]
+name = "import"
+args = ["common_headers"]
+[[caddyfile.sites.directives]]
+name = "reverse_proxy"
+args = ["172.31.255.254:8080"]
