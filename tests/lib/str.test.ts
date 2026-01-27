@@ -7,20 +7,33 @@
 
 import { describe, expect, test } from "bun:test";
 import { Option } from "effect";
-import { all, any, charAt, chars, head, last, uncons } from "../../src/lib/str";
+import {
+  all,
+  chars,
+  collapseChar,
+  escapeWith,
+  filterCharsToString,
+  last,
+  mapCharsToString,
+  uncons,
+} from "../../src/lib/str";
 
 describe("str module", () => {
-  describe("head", () => {
-    test("returns Some for non-empty string", () => {
-      expect(head("abc")).toEqual(Option.some("a"));
+  // ==========================================================================
+  // Decomposition
+  // ==========================================================================
+
+  describe("chars", () => {
+    test("splits string into characters", () => {
+      expect(chars("abc")).toEqual(["a", "b", "c"]);
     });
 
-    test("returns None for empty string", () => {
-      expect(head("")).toEqual(Option.none());
+    test("returns empty array for empty string", () => {
+      expect(chars("")).toEqual([]);
     });
 
     test("handles unicode correctly", () => {
-      expect(head("😀abc")).toEqual(Option.some("😀"));
+      expect(chars("a😀b")).toEqual(["a", "😀", "b"]);
     });
   });
 
@@ -42,24 +55,6 @@ describe("str module", () => {
     });
   });
 
-  describe("charAt", () => {
-    test("returns character at valid index", () => {
-      expect(charAt(1)("abc")).toEqual(Option.some("b"));
-    });
-
-    test("returns None for negative index", () => {
-      expect(charAt(-1)("abc")).toEqual(Option.none());
-    });
-
-    test("returns None for out of bounds index", () => {
-      expect(charAt(3)("abc")).toEqual(Option.none());
-    });
-
-    test("returns first character at index 0", () => {
-      expect(charAt(0)("abc")).toEqual(Option.some("a"));
-    });
-  });
-
   describe("last", () => {
     test("returns last character", () => {
       expect(last("abc")).toEqual(Option.some("c"));
@@ -78,19 +73,9 @@ describe("str module", () => {
     });
   });
 
-  describe("chars", () => {
-    test("splits string into characters", () => {
-      expect(chars("abc")).toEqual(["a", "b", "c"]);
-    });
-
-    test("returns empty array for empty string", () => {
-      expect(chars("")).toEqual([]);
-    });
-
-    test("handles unicode correctly", () => {
-      expect(chars("a😀b")).toEqual(["a", "😀", "b"]);
-    });
-  });
+  // ==========================================================================
+  // Predicate Lifting
+  // ==========================================================================
 
   describe("all", () => {
     const isLower = (c: string): boolean => c >= "a" && c <= "z";
@@ -108,19 +93,83 @@ describe("str module", () => {
     });
   });
 
-  describe("any", () => {
-    const isDigit = (c: string): boolean => c >= "0" && c <= "9";
+  // ==========================================================================
+  // Transformation
+  // ==========================================================================
 
-    test("returns true when at least one character matches", () => {
-      expect(any(isDigit)("abc1")).toBe(true);
+  describe("mapCharsToString", () => {
+    test("transforms each character", () => {
+      const upper = mapCharsToString((c) => c.toUpperCase());
+      expect(upper("abc")).toBe("ABC");
     });
 
-    test("returns false when no characters match", () => {
-      expect(any(isDigit)("abc")).toBe(false);
+    test("handles empty string", () => {
+      const upper = mapCharsToString((c) => c.toUpperCase());
+      expect(upper("")).toBe("");
     });
 
-    test("returns false for empty string", () => {
-      expect(any(isDigit)("")).toBe(false);
+    test("can expand characters", () => {
+      const double = mapCharsToString((c) => c + c);
+      expect(double("ab")).toBe("aabb");
+    });
+  });
+
+  describe("filterCharsToString", () => {
+    test("keeps matching characters", () => {
+      const digitsOnly = filterCharsToString((c) => c >= "0" && c <= "9");
+      expect(digitsOnly("a1b2c3")).toBe("123");
+    });
+
+    test("handles empty string", () => {
+      const digitsOnly = filterCharsToString((c) => c >= "0" && c <= "9");
+      expect(digitsOnly("")).toBe("");
+    });
+
+    test("returns empty when no matches", () => {
+      const digitsOnly = filterCharsToString((c) => c >= "0" && c <= "9");
+      expect(digitsOnly("abc")).toBe("");
+    });
+  });
+
+  describe("collapseChar", () => {
+    test("collapses consecutive characters", () => {
+      expect(collapseChar("/")("a//b///c")).toBe("a/b/c");
+    });
+
+    test("collapses leading characters", () => {
+      expect(collapseChar("/")("///a")).toBe("/a");
+    });
+
+    test("handles empty string", () => {
+      expect(collapseChar("/")("")).toBe("");
+    });
+
+    test("leaves single occurrences alone", () => {
+      expect(collapseChar("/")("a/b/c")).toBe("a/b/c");
+    });
+
+    test("handles string without target character", () => {
+      expect(collapseChar("/")("abc")).toBe("abc");
+    });
+  });
+
+  describe("escapeWith", () => {
+    test("escapes characters from mapping", () => {
+      const mapping = new Map([['"', '\\"']]);
+      expect(escapeWith(mapping)('"hello"')).toBe('\\"hello\\"');
+    });
+
+    test("leaves other characters unchanged", () => {
+      const mapping = new Map([['"', '\\"']]);
+      expect(escapeWith(mapping)("hello")).toBe("hello");
+    });
+
+    test("handles multiple escape sequences", () => {
+      const mapping = new Map([
+        ["\\", "\\\\"],
+        ['"', '\\"'],
+      ]);
+      expect(escapeWith(mapping)('\\"')).toBe('\\\\\\"');
     });
   });
 });

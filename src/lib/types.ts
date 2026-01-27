@@ -7,9 +7,9 @@
 
 /**
  * Branded types prevent accidental mixing of same-underlying-type values.
- * UserId and GroupId are both numbers, but the compiler rejects using one
- * where the other is expected. This catches bugs at compile time that would
- * otherwise surface as silent data corruption at runtime.
+ * `UserId` and `GroupId` are both numbers, but the compiler rejects using
+ * one where the other is expected — catching silent data corruption at
+ * compile time rather than runtime.
  */
 
 import { type Brand, Effect, Option, ParseResult, Schema, type SchemaAST, pipe } from "effect";
@@ -24,7 +24,7 @@ import {
   parseIPv4,
   parseIPv6Groups,
 } from "./schema-utils";
-import { collapseChar } from "./str-transform";
+import { collapseChar } from "./str";
 
 export type UserId = number & Brand.Brand<"UserId">;
 export type GroupId = number & Brand.Brand<"GroupId">;
@@ -132,10 +132,7 @@ export const decodeDurationString: (
 ) => Effect.Effect<DurationString, ParseResult.ParseError, never> =
   Schema.decode(DurationStringSchema);
 
-/**
- * Compile-time validated duration literal.
- * Template literal type restricts to valid patterns.
- */
+/** Template literal type restricts to valid duration patterns at compile time. */
 export const duration = <const S extends `${number}${"ms" | "s" | "m" | "h" | "d"}`>(
   literal: S
 ): DurationString => literal as string as DurationString;
@@ -247,10 +244,7 @@ export const decodeContainerImage: (
 ) => Effect.Effect<ContainerImage, ParseResult.ParseError, never> =
   Schema.decode(ContainerImageSchema);
 
-/**
- * Convert ParseError to GeneralError for Effect pipelines.
- * Used with Effect.mapError to translate Schema validation errors.
- */
+/** Bridge Schema `ParseError` into the application error hierarchy. */
 export const parseErrorToGeneralError = (error: ParseResult.ParseError): GeneralError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
   return new GeneralError({
@@ -259,142 +253,56 @@ export const parseErrorToGeneralError = (error: ParseResult.ParseError): General
   });
 };
 
-/**
- * Convert UserId to GroupId.
- * POSIX convention: GID matches UID for service users.
- */
+/** POSIX convention: primary GID matches UID for service users. */
 export const userIdToGroupId = (uid: UserId): GroupId => uid as number as GroupId;
 
 type AbsolutePathLiteral = `/${string}`;
 
 /**
- * Create an AbsolutePath from a string literal with compile-time validation.
- *
- * This function only accepts string literals that start with '/'.
- * Variables are rejected because their values aren't known at compile time.
- *
- * Use cases:
- * - Hardcoded system paths: path("/etc/passwd")
- * - Test fixtures: path("/tmp/test-dir")
- * - Known config locations: path("/etc/divban")
- *
- * For dynamic paths (variables, user input), use:
- * - decodeAbsolutePath(str) for runtime validation returning Effect
- * - pathJoin(base, ...segments) for path concatenation
- *
- * @example
- * // Compiles - literal starting with /
- * const passwd = path("/etc/passwd");
- *
- * // Compile error - doesn't start with /
- * const bad = path("relative/path");
- *
- * // Compile error - variable (even if it starts with /)
- * const str = "/etc/hosts";
- * const hosts = path(str);  // Error: string is not assignable to `/${string}`
+ * Compile-time validated `AbsolutePath` from a string literal.
+ * Only accepts literals starting with `/`; variables are rejected because
+ * their values aren't known at compile time. For dynamic paths, use
+ * `decodeAbsolutePath` (runtime validation) or `pathJoin` (concatenation).
  */
 export const path = <const S extends AbsolutePathLiteral>(literal: S): AbsolutePath =>
   literal as string as AbsolutePath;
 
-/**
- * Create a ContainerImage from a string literal.
- *
- * For default values and known images, use this function.
- * For dynamic/user input, use decodeContainerImage() for runtime validation.
- *
- * @example
- * const image = containerImage("docker.io/library/nginx:latest");
- */
+/** Branded literal constructor. For dynamic input, use `decodeContainerImage`. */
 export const containerImage = <const S extends string>(literal: S): ContainerImage =>
   literal as string as ContainerImage;
 
-/**
- * Create a ContainerName from a string literal.
- *
- * For default values and known container names, use this function.
- * For dynamic/user input, use decodeContainerName() for runtime validation.
- *
- * @example
- * const container = containerName("immich-postgres");
- */
+/** Branded literal constructor. For dynamic input, use `decodeContainerName`. */
 export const containerName = <const S extends string>(literal: S): ContainerName =>
   literal as string as ContainerName;
 
-/**
- * Create a ServiceName from a string literal.
- * For dynamic/user input, use decodeServiceName() for runtime validation.
- */
+/** Branded literal constructor. For dynamic input, use `decodeServiceName`. */
 export const serviceName = <const S extends string>(literal: S): ServiceName =>
   literal as string as ServiceName;
 
-/**
- * Convert ServiceName to ContainerName when container uses service name.
- * ServiceName pattern [a-z][a-z0-9-]* is subset of ContainerName pattern.
- */
+/** Safe because `[a-z][a-z0-9-]*` is a subset of `ContainerName`'s pattern. */
 export const serviceNameToContainerName = (name: ServiceName): ContainerName =>
   name as string as ContainerName;
 
-/**
- * Create a Username from a string literal.
- * For dynamic/user input, use decodeUsername() for runtime validation.
- */
+/** Branded literal constructor. For dynamic input, use `decodeUsername`. */
 export const username = <const S extends string>(literal: S): Username =>
   literal as string as Username;
 
-/**
- * Create a NetworkName from a string literal.
- * For dynamic/user input, use decodeNetworkName() for runtime validation.
- */
+/** Branded literal constructor. For dynamic input, use `decodeNetworkName`. */
 export const networkName = <const S extends string>(literal: S): NetworkName =>
   literal as string as NetworkName;
 
-/**
- * Create a VolumeName from a string literal.
- * For dynamic/user input, use decodeVolumeName() for runtime validation.
- */
+/** Branded literal constructor. For dynamic input, use `decodeVolumeName`. */
 export const volumeName = <const S extends string>(literal: S): VolumeName =>
   literal as string as VolumeName;
 
-/**
- * Join path segments with type preservation.
- *
- * When the base is an AbsolutePath, the result is also an AbsolutePath.
- * When the base is a plain string, the result is a plain string.
- *
- * This allows safe path construction without losing type information:
- *
- * @example
- * const dataDir: AbsolutePath = path("/srv/data");
- *
- * // Result is AbsolutePath (not string)
- * const configDir = pathJoin(dataDir, "config");
- * const backupPath = pathJoin(dataDir, "backups", "2024-01-01.tar.gz");
- *
- * // Multiple segments work
- * const deep = pathJoin(dataDir, "a", "b", "c", "file.txt");
- *
- * // Plain strings stay as strings
- * const relative = pathJoin("foo", "bar");  // string
- */
+/** Join path segments, preserving `AbsolutePath` brand when the base is branded. */
 export function pathJoin(base: AbsolutePath, ...segments: string[]): AbsolutePath;
 export function pathJoin(base: string, ...segments: string[]): string;
 export function pathJoin(base: string, ...segments: string[]): string {
-  // Short-circuit when no segments provided
-  return segments.length === 0
-    ? base
-    : // Normalize multiple slashes into single slashes
-      pipe([base, ...segments].join("/"), collapseChar("/"));
+  return segments.length === 0 ? base : pipe([base, ...segments].join("/"), collapseChar("/"));
 }
 
-/**
- * Append a suffix to a path (e.g., for temp files or backups).
- * Preserves AbsolutePath brand.
- *
- * @example
- * const file: AbsolutePath = path("/etc/config.toml");
- * const backup = pathWithSuffix(file, ".bak");      // "/etc/config.toml.bak"
- * const temp = pathWithSuffix(file, `.tmp.${id}`);  // "/etc/config.toml.tmp.123"
- */
+/** Append a suffix (e.g. `".bak"`), preserving `AbsolutePath` brand. */
 export function pathWithSuffix(base: AbsolutePath, suffix: string): AbsolutePath;
 export function pathWithSuffix(base: string, suffix: string): string;
 export function pathWithSuffix(base: string, suffix: string): string {

@@ -6,146 +6,54 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Environment file generation with proper shell escaping. Values
- * containing spaces, quotes, or dollar signs are escaped and quoted.
- * The state machine handles bidirectional escape/unescape correctly,
- * preserving newlines and special characters through round-trips.
- * Groups organize variables by purpose (database, redis, server).
+ * Environment file generation and parsing. Shell-sensitive characters
+ * are escaped via `envEscapeCodec` to ensure round-trip fidelity.
+ * Variables are organised into named groups for readable output.
  */
 
 import { Array as Arr, Match, Option, Predicate, pipe } from "effect";
-import { chars } from "../lib/str";
+import { envEscapeCodec } from "../lib/escape-codec";
 
-/** Characters requiring quoting in shell environment values */
+/** Characters that require the value to be double-quoted in shell env files. */
 const ENV_SPECIAL_CHARS = [" ", '"', "'", "$", "`", "\\", "\n"] as const;
 
-// ============================================================================
-// Escape/Unescape State Machine
-// ============================================================================
-
-/** Escape mapping: char -> escaped representation */
-const ESCAPE_MAP: ReadonlyMap<string, string> = new Map([
-  ["\\", "\\\\"],
-  ['"', '\\"'],
-  ["$", "\\$"],
-  ["`", "\\`"],
-  ["\n", "\\n"],
-]);
-
-/** Unescape mapping: char after backslash -> unescaped char */
-const UNESCAPE_MAP: ReadonlyMap<string, string> = new Map([
-  ["n", "\n"],
-  ['"', '"'],
-  ["$", "$"],
-  ["`", "`"],
-  ["\\", "\\"],
-]);
-
-/** Escape a single character (total: unmapped chars pass through) */
-const escapeChar = (c: string): string => ESCAPE_MAP.get(c) ?? c;
-
-/**
- * State for unescape processing.
- * - escaped: true if previous char was backslash
- * - result: accumulated output characters
- */
-type UnescapeState = {
-  readonly escaped: boolean;
-  readonly result: readonly string[];
-};
-
-/**
- * Step function for unescape state machine.
- */
-const unescapeStep = (state: UnescapeState, c: string): UnescapeState => {
-  if (state.escaped) {
-    // We're in escape mode: look up the char, or pass through
-    const unescaped = UNESCAPE_MAP.get(c) ?? c;
-    return { escaped: false, result: [...state.result, unescaped] };
-  }
-  if (c === "\\") {
-    // Enter escape mode
-    return { escaped: true, result: state.result };
-  }
-  // Normal char: accumulate
-  return { escaped: false, result: [...state.result, c] };
-};
-
-/**
- * Unescape string using state machine.
- * Handles: \n -> newline, \" -> ", \$ -> $, \` -> `, \\ -> \
- */
-const unescapeString = (s: string): string => {
-  const initial: UnescapeState = { escaped: false, result: [] };
-  const final = chars(s).reduce(unescapeStep, initial);
-  return final.result.join("");
-};
-
-/**
- * Environment variable group.
- */
 export interface EnvGroup {
-  /** Group name (used in comment) */
   name: string;
-  /** Environment variables */
   vars: Record<string, string | number | boolean | undefined>;
 }
 
-/**
- * Environment file configuration.
- */
 export interface EnvFileConfig {
-  /** Header comment */
   header?: string | undefined;
-  /** Variable groups */
   groups: EnvGroup[];
 }
 
-/**
- * Type-safe value-to-string conversion.
- */
 const formatValue = (value: string | number | boolean): string =>
   Match.value(value).pipe(
     Match.when(Match.boolean, (b) => (b ? "true" : "false")),
     Match.orElse((v) => String(v))
   );
 
-/**
- * Unquote and unescape a parsed env value.
- */
+/** Strip surrounding quotes then unescape the inner content. */
 const unquoteAndUnescape = (value: string): string => {
-  // Remove surrounding quotes if present
   const unquoted =
     (value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))
       ? value.slice(1, -1)
       : value;
 
-  return unescapeString(unquoted);
+  return envEscapeCodec.unescape(unquoted);
 };
 
-/**
- * Escape a value for environment file format.
- * Maps each character through ESCAPE_MAP.
- */
 export const escapeEnvValue = (value: string): string => {
-  // Early exit: no special chars -> return as-is
   if (!Arr.some(ENV_SPECIAL_CHARS, (char) => value.includes(char))) {
     return value;
   }
-  // Escape by mapping each char through ESCAPE_MAP
-  const escaped = chars(value).map(escapeChar).join("");
+  const escaped = envEscapeCodec.escape(value);
   return `"${escaped}"`;
 };
 
-/**
- * Format a single environment variable line.
- */
 export const formatEnvLine = (key: string, value: string | number | boolean): string =>
   `${key}=${escapeEnvValue(formatValue(value))}`;
 
-/**
- * Generate an environment file with grouped variables.
- */
 export const generateEnvFile = (config: EnvFileConfig): string => {
   const headerLines = pipe(
     Option.fromNullable(config.header),
@@ -180,9 +88,7 @@ export const generateEnvFile = (config: EnvFileConfig): string => {
   return [...headerLines, ...groupLines].join("\n");
 };
 
-/**
- * Generate an environment file from a flat record.
- */
+/** Convenience wrapper: wraps a flat record into a single unnamed group. */
 export const generateSimpleEnvFile = (
   vars: Record<string, string | number | boolean | undefined>,
   header?: string
@@ -193,9 +99,6 @@ export const generateSimpleEnvFile = (
   });
 };
 
-/**
- * Parse an environment file into a record.
- */
 export const parseEnvFile = (content: string): Record<string, string> =>
   pipe(
     content.split("\n"),
@@ -213,9 +116,7 @@ export const parseEnvFile = (content: string): Record<string, string> =>
     Object.fromEntries
   );
 
-/**
- * Merge multiple environment records.
- */
+/** Merge multiple env records, dropping `undefined` values. Later entries win. */
 export const mergeEnv = (
   ...envs: (Record<string, string | number | boolean | undefined> | undefined)[]
 ): Record<string, string> =>
@@ -232,14 +133,11 @@ export const mergeEnv = (
     Object.fromEntries
   );
 
-/**
- * Create common environment groups.
- */
+/** Pre-built group factories for common service dependencies. */
 export const CommonEnvGroups: Record<
   string,
   (config: Record<string, string | number | undefined>) => EnvGroup
 > = {
-  /** Database connection */
   database: (config: {
     host?: string;
     port?: number;
@@ -257,7 +155,6 @@ export const CommonEnvGroups: Record<
     },
   }),
 
-  /** Redis connection */
   redis: (config: { host?: string; port?: number; password?: string }): EnvGroup => ({
     name: "Redis Configuration",
     vars: {
@@ -267,7 +164,6 @@ export const CommonEnvGroups: Record<
     },
   }),
 
-  /** Basic server config */
   server: (config: { host?: string; port?: number; publicUrl?: string }): EnvGroup => ({
     name: "Server Configuration",
     vars: {

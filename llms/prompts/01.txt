@@ -115,13 +115,19 @@ ensure the plan is exhaustive and idempotent. do not leave any decisions for lat
 
 Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. If there are breaking changes ensure all the callers and tests are updated instead. 
 
+divban is unrelased software and currently has 0 users so we can introduce breaking changes. 
+
+tests are not real consumers. They can be rewritten or adapted as needed. 
+
 ---
 
  I still feel the plan is not optimal. 
 
-Think like a senior Ocaml/Haskell developer and then analyse the existing codebase and see if there is a way to make tthe plan more DRY, more composable and more FP-oriented way while still respecting my TS compiler settings @tsconfig.json
+Think like a senior Scala 3 developer using ZIO and then analyse the existing codebase and see if there is a way to make tthe plan more DRY, more composable and more FP-oriented way while still respecting my TS compiler settings @tsconfig.json
 
 The plan should aim for maximal code reuse 
+
+Launch  at least 6 async background coding agents which should all independently and in in parallel perform this analysis and provide you with the result of their work. Then synthesize all 6 analyses into a coherent and consistent plan which is optimal. 
 
 
 ---
@@ -132,12 +138,15 @@ Ensure you plan does not use any switch statements. "if" statemtns are only allo
 
 Ensure the plan is compatible with my compiler setting @tsconfig.json and ensuring that your plan is compatible with these strict TypeScript settings (I will not be making my settings loose)
 
+--- 
+
 Ensure the plan optimally leverages all the relevant facilities available in Effect
 
-Read @llms/effect.llms.headline.txt 
+First Read @llms/effect.llms.headline.txt in FULL. This file shows you just the headlines of what' available in Effect. 
 
-To find out the details of something in Effect, read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in your context so grep/search for the relevant sections and read those) 
+Analyse every piece of this documentatgion and ALL of the APIs this library provides and think logically about what APIs could be contained under each headline. . 
 
+Then launch a number of background async agents to analyse the relevant parts of Effect in full. Each agent should independently search for and read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in context so the background agent should grep/search for the relevant sections and read those). 
 
 Ensure the plan is fully in alignment with the error handling, retry mechanism, and type system used across the codebase. 
 
@@ -149,7 +158,9 @@ One by one, Open the 5 files which constitute
 Batch 20
 in this document. 
 
-Review all the comments in each file in detail. Examine the file does, how it fits in with the codebase, and what that particular function does. Rewrite the comments comprehensively to be concise and to follow software engineering best practices. The comment should describe why the code does what it does, not what it does (which is evident from the code anyway) Think of the libraries which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library itself and model the comments in these files after them. 
+Review all the comments in each file in detail. Examine the file does, how it fits in with the codebase, and what that particular function does. Rewrite the comments comprehensively to be concise and to follow software engineering best practices. The comment should describe why the code does what it does, not what it does (which is evident from the code anyway) Think of the libraries which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library and model the comments in these files after them.
+
+
 
 Once you have rewritten these comments in this batch, mark the files with a tickbox in @comment-catalogue.md  and then stop. Do not do anything about the other files. Do not change anything other than the commetns of these files. 
 
@@ -165,3 +176,14 @@ Say I want to give the AI agent a docker compose file I've found on the internet
 I've created two such documents already. Analayse the codebase and then determine which one is better in which regards. Then create an optimised, synthesided new document called
 divban-add-service-guide-06.md 
 which includes the best parts of the existing documents and removes their weak or incorrect parts. 
+
+
+--- 
+
+Analyse every single file under the @src directory which has been created or modified since the last commit to git. 
+
+Review all the comments in each file in detail. Examine the file does, how it fits in with the codebase, and what that particular function does. Rewrite the comments comprehensively to be concise and to follow software engineering best practices. The comment should describe why the code does what it does, not what it does (which is evident from the code anyway) Think of the libraries which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library and model the comments in these files after them.
+
+Comments should look like they are written by a senior software engineer, not by an LLM. Avoid intricate ASCII formatting, emojis, etc. 
+
+Rewrite the comments of all of these comprehensively based on the above rules. 

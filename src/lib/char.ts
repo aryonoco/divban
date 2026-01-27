@@ -6,38 +6,29 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Character predicates for validation without regex overhead.
- * Used with Str.all/any for input validation (e.g., isValidUsername).
- * Direct comparisons are faster than regex for simple character sets.
+ * Character predicates for validation. Range comparisons avoid regex
+ * overhead and compose with `all` / `Predicate.some` for string-level checks.
  */
 
-/** a-z */
-export const isLower = (c: string): boolean => c >= "a" && c <= "z";
+/** Predicate over a single character. */
+export type CharPred = (c: string) => boolean;
 
-/** A-Z */
-export const isUpper = (c: string): boolean => c >= "A" && c <= "Z";
+export const isLower: CharPred = (c) => c >= "a" && c <= "z";
 
-/** 0-9 */
-export const isDigit = (c: string): boolean => c >= "0" && c <= "9";
+export const isDigit: CharPred = (c) => c >= "0" && c <= "9";
 
-/** a-zA-Z */
-export const isAlpha = (c: string): boolean => isLower(c) || isUpper(c);
+export const isAlpha: CharPred = (c) => isLower(c) || (c >= "A" && c <= "Z");
 
-/** a-zA-Z0-9 */
-export const isAlphaNum = (c: string): boolean => isAlpha(c) || isDigit(c);
+export const isAlphaNum: CharPred = (c) => isAlpha(c) || isDigit(c);
 
-/** 0-9a-fA-F */
-export const isHexDigit = (c: string): boolean =>
+export const isHexDigit: CharPred = (c) =>
   isDigit(c) || (c >= "a" && c <= "f") || (c >= "A" && c <= "F");
 
-/** Lowercase hex: 0-9a-f */
-export const isLowerHex = (c: string): boolean => isDigit(c) || (c >= "a" && c <= "f");
+export const isLowerHex: CharPred = (c) => isDigit(c) || (c >= "a" && c <= "f");
 
-/** Space, tab, newline, carriage return */
-export const isWhitespace = (c: string): boolean =>
-  c === " " || c === "\t" || c === "\n" || c === "\r";
+export const isWhitespace: CharPred = (c) => c === " " || c === "\t" || c === "\n" || c === "\r";
 
 export const isOneOf =
-  (chars: string) =>
-  (c: string): boolean =>
+  (chars: string): CharPred =>
+  (c): boolean =>
     chars.includes(c);

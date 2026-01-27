@@ -14,7 +14,6 @@ import {
   isLower,
   isLowerHex,
   isOneOf,
-  isUpper,
   isWhitespace,
 } from "../../src/lib/char";
 
@@ -39,19 +38,6 @@ describe("char predicates", () => {
     test("returns false for special characters", () => {
       expect(isLower("_")).toBe(false);
       expect(isLower("-")).toBe(false);
-    });
-  });
-
-  describe("isUpper", () => {
-    test("returns true for uppercase letters", () => {
-      expect(isUpper("A")).toBe(true);
-      expect(isUpper("Z")).toBe(true);
-      expect(isUpper("M")).toBe(true);
-    });
-
-    test("returns false for lowercase letters", () => {
-      expect(isUpper("a")).toBe(false);
-      expect(isUpper("z")).toBe(false);
     });
   });
 

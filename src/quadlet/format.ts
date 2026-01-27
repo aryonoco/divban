@@ -6,24 +6,20 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * INI serialization with Quadlet section ordering.
- * Sections must appear in standard order (Unit, Container, Service,
- * Install) for systemd generator compatibility.
+ * INI serialization for systemd Quadlet files. Sections are ordered
+ * (Unit, Container, Service, Install) as the systemd generator expects.
  */
 
 import { Array as Arr, Order, pipe } from "effect";
-import { escapeWith } from "../lib/str-transform";
+import { quoteEscapeCodec } from "../lib/escape-codec";
 import type { Entry } from "./entry";
 
 export interface IniSection {
-  /** Section name (e.g., "Container", "Service") */
   readonly name: string;
-  /** Key-value entries */
   readonly entries: readonly Entry[];
 }
 
-const QUOTE_ESCAPE_MAP: ReadonlyMap<string, string> = new Map([['"', '\\"']]);
-const escapeQuotes = escapeWith(QUOTE_ESCAPE_MAP);
+const escapeQuotes = quoteEscapeCodec.escape;
 
 export const escapeIniValue = (value: string): string => {
   const needsQuoting =
@@ -58,7 +54,7 @@ export const SECTION_ORDER: readonly string[] = [
   "Install",
 ] as const satisfies readonly string[];
 
-/** Unknown sections go at the end. */
+/** Unknown sections sort after standard ones to avoid confusing the generator. */
 const sectionOrderIndex = (section: IniSection): number => {
   const index = SECTION_ORDER.indexOf(section.name as (typeof SECTION_ORDER)[number]);
   return index === -1 ? SECTION_ORDER.length : index;

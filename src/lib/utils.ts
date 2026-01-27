@@ -7,16 +7,16 @@
 
 import { peek } from "bun";
 import { pipe } from "effect";
-import { filterCharsToString, mapCharsToString } from "./str-transform";
+import { filterCharsToString, mapCharsToString } from "./str";
 
-/** UUIDv7 is time-sortable, useful for database primary keys and log correlation. */
+/** UUIDv7: time-sortable, suitable for database primary keys and log correlation. */
 export const generateId = (): string => Bun.randomUUIDv7();
 export const generateIdBuffer = (): Buffer => Bun.randomUUIDv7("buffer");
 export const generateIdBase64 = (): string => Bun.randomUUIDv7("base64url");
 export const generateUUID = (): string => Bun.randomUUIDv7();
 
 export const sleep = (ms: number): Promise<void> => Bun.sleep(ms);
-/** Blocks the event loop - use only for CLI initialization or tests. */
+/** Blocks the event loop — only for CLI initialization or tests. */
 export const sleepSync = (ms: number): void => Bun.sleepSync(ms);
 
 export interface StringWidthOptions {
@@ -24,27 +24,12 @@ export interface StringWidthOptions {
   readonly ambiguousIsNarrow?: boolean;
 }
 
-/**
- * Get the display width of a string in terminal columns.
- * Properly handles Unicode, emoji, and ANSI escape codes.
- *
- * @example
- * stringWidth("hello") // 5
- * stringWidth("\u001b[31mhello\u001b[0m") // 5 (ANSI codes not counted)
- * stringWidth("👋") // 2 (emoji is wide)
- */
+/** Display width in terminal columns, accounting for Unicode and ANSI escapes. */
 export const stringWidth = (text: string, options: StringWidthOptions = {}): number => {
   return Bun.stringWidth(text, options);
 };
 
-/**
- * Pad a string to a specific display width (right-pad with spaces).
- * Accounts for Unicode and emoji widths.
- *
- * @example
- * padEnd("hello", 10) // "hello     "
- * padEnd("👋", 5) // "👋   "
- */
+/** Right-pad to display width, accounting for wide characters. */
 export const padEnd = (text: string, width: number): string => {
   const currentWidth = Bun.stringWidth(text);
   const padding = Math.max(0, width - currentWidth);
@@ -65,14 +50,13 @@ export const center = (text: string, width: number): string => {
   return " ".repeat(leftPadding) + text + " ".repeat(rightPadding);
 };
 
-/** Truncation state - mutable to avoid O(n^2) spread in reduce */
+/** Mutable to avoid O(n^2) spread in reduce. */
 interface TruncateState {
   width: number;
   chars: string[];
   done: boolean;
 }
 
-/** Process single char in truncation - mutates state to avoid spread */
 const processChar = (state: TruncateState, char: string, targetWidth: number): TruncateState => {
   const charWidth = Bun.stringWidth(char);
   const wouldExceed = state.width + charWidth > targetWidth;
@@ -82,7 +66,6 @@ const processChar = (state: TruncateState, char: string, targetWidth: number): T
   return state;
 };
 
-/** Build truncated string using reduce with mutable accumulator */
 const buildTruncated = (chars: readonly string[], targetWidth: number, ellipsis: string): string =>
   chars
     .reduce((state, char) => processChar(state, char, targetWidth), {
@@ -103,26 +86,12 @@ export const truncate = (text: string, maxWidth: number, ellipsis = "..."): stri
         )
   );
 
-/**
- * Peek at a promise's value without awaiting (if already resolved).
- * Returns the value if resolved, the error if rejected, or the promise if pending.
- *
- * @example
- * const p = Promise.resolve(42);
- * peekPromise(p) // 42 (synchronously!)
- */
+/** Synchronously inspect a promise's value if already settled. */
 export const peekPromise = <T>(promise: Promise<T>): T | Promise<T> => {
   return peek(promise);
 };
 
-/**
- * Get the status of a promise without awaiting.
- * Returns "pending", "fulfilled", or "rejected".
- *
- * @example
- * const p = Promise.resolve(42);
- * promiseStatus(p) // "fulfilled"
- */
+/** Synchronously inspect a promise's status without awaiting. */
 export const promiseStatus = (promise: Promise<unknown>): "pending" | "fulfilled" | "rejected" => {
   return peek.status(promise);
 };
@@ -135,37 +104,14 @@ export const isFulfilled = (promise: Promise<unknown>): boolean =>
 export const isRejected = (promise: Promise<unknown>): boolean =>
   peek.status(promise) === "rejected";
 
-/**
- * Escape HTML special characters in a string.
- *
- * Escapes: & < > " '
- *
- * @example
- * escapeHTML('<script>alert("xss")</script>')
- * // "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;"
- */
 export const escapeHTML = (text: string): string => {
   return Bun.escapeHTML(text);
 };
 
-/**
- * Convert a file:// URL to an absolute path.
- *
- * @example
- * fileURLToPath(new URL("file:///home/user/file.txt"))
- * // "/home/user/file.txt"
- */
 export const fileURLToPath = (url: URL | string): string => {
   return Bun.fileURLToPath(url);
 };
 
-/**
- * Convert an absolute path to a file:// URL.
- *
- * @example
- * pathToFileURL("/home/user/file.txt")
- * // URL { href: "file:///home/user/file.txt" }
- */
 export const pathToFileURL = (path: string): URL => {
   return Bun.pathToFileURL(path);
 };
@@ -175,13 +121,6 @@ export const bunRevision = (): string => Bun.revision;
 export const isMain = (): boolean => import.meta.main;
 export const mainPath = (): string => Bun.main;
 
-/**
- * Resolve a module specifier to its absolute path.
- *
- * @example
- * resolveModule("zod", process.cwd())
- * // "/path/to/project/node_modules/zod/index"
- */
 export const resolveModule = (specifier: string, from: string): string => {
   return Bun.resolveSync(specifier, from);
 };
@@ -210,7 +149,7 @@ const stripPadding = filterCharsToString((c) => c !== "=");
 const URL_SAFE_MAP: Readonly<Record<string, string>> = { "+": "-", "/": "_" };
 const toUrlSafe = mapCharsToString((c) => URL_SAFE_MAP[c] ?? c);
 
-/** Strip padding then convert to URL-safe chars. */
+/** Strip `=` padding, then replace `+/` with `-_` for URL safety. */
 export const base64UrlEncode = (data: string): string => pipe(btoa(data), stripPadding, toUrlSafe);
 
 export const getAnsiColor = (
@@ -230,16 +169,7 @@ export interface BufferBuilderOptions {
   readonly stream?: boolean;
 }
 
-/**
- * Create an efficient buffer builder using ArrayBufferSink.
- * Useful for incrementally building binary data.
- *
- * @example
- * const builder = createBufferBuilder();
- * builder.write("hello ");
- * builder.write("world");
- * const result = builder.end(); // Uint8Array
- */
+/** Incremental binary data builder backed by `ArrayBufferSink`. */
 export const createBufferBuilder = (
   options: BufferBuilderOptions = {}
 ): {

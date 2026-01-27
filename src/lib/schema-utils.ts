@@ -6,14 +6,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Effect Schema utilities with parser-first validation design.
- * Parsers return Option<StructuredData> for safe extraction; validators
- * derive from parsers via Option.isSome. This avoids regex complexity
- * and provides useful parsed data when validation succeeds.
+ * Parser-first validation: each parser returns `Option<StructuredData>`,
+ * and validators derive from parsers via `Option.isSome`. This yields
+ * structured parsed data on success without regex complexity.
  */
 
-import { Effect, Either, Option, ParseResult, Schema, pipe } from "effect";
+import { Effect, Either, Option, ParseResult, Predicate, Schema, pipe } from "effect";
 import {
+  type CharPred,
   isAlphaNum,
   isDigit,
   isHexDigit,
@@ -34,7 +34,7 @@ export const formatSchemaError = (error: ParseResult.ParseError, context: string
   });
 };
 
-/** Use only when input is known valid (e.g., empty object with defaults). */
+/** Throws on invalid input — only safe for statically known-valid data. */
 export const decodeUnsafe = <A, I = A>(schema: Schema.Schema<A, I, never>, data: unknown): A =>
   Schema.decodeUnknownSync(schema)(data);
 
@@ -59,7 +59,7 @@ export const decodeToEffect = <A, I = A>(
   });
 };
 
-/** Returns None for empty, non-digit, or leading zeros (except "0"). */
+/** Parse a non-negative integer, rejecting leading zeros (except `"0"` itself). */
 export const parseNat = (s: string): Option.Option<number> =>
   pipe(
     Option.some(s),
@@ -180,9 +180,9 @@ export const parseEmail = (s: string): Option.Option<ParsedEmail> =>
 
 export const isValidEmail = (s: string): boolean => Option.isSome(parseEmail(s));
 
-const isPosixFirst = (c: string): boolean => isLower(c) || c === "_";
+const isPosixFirst: CharPred = Predicate.some([isLower, isOneOf("_")]);
 
-const isPosixRest = (c: string): boolean => isLower(c) || isDigit(c) || c === "_" || c === "-";
+const isPosixRest: CharPred = Predicate.some([isLower, isDigit, isOneOf("_-")]);
 
 export const parsePosixUsername = (s: string): Option.Option<string> =>
   pipe(
@@ -196,7 +196,7 @@ export const isValidPosixUsername = (s: string): boolean => Option.isSome(parseP
 
 const isServiceFirst = isLower;
 
-const isServiceRest = (c: string): boolean => isLower(c) || isDigit(c) || c === "-";
+const isServiceRest: CharPred = Predicate.some([isLower, isDigit, isOneOf("-")]);
 
 export const parseServiceName = (s: string): Option.Option<string> =>
   pipe(
@@ -210,13 +210,13 @@ export const isValidServiceName = (s: string): boolean => Option.isSome(parseSer
 
 const isContainerFirst = isAlphaNum;
 
-const isContainerRest = (c: string): boolean => isAlphaNum(c) || isOneOf("_.-")(c);
+const isContainerOrTagChar: CharPred = Predicate.some([isAlphaNum, isOneOf("_.-")]);
 
 export const parseContainerName = (s: string): Option.Option<string> =>
   pipe(
     uncons(s),
     Option.filter((tuple) => isContainerFirst(tuple[0])),
-    Option.filter((tuple) => all(isContainerRest)(tuple[1])),
+    Option.filter((tuple) => all(isContainerOrTagChar)(tuple[1])),
     Option.map(() => s)
   );
 
@@ -228,9 +228,7 @@ export interface ParsedContainerImage {
   readonly digest: Option.Option<string>;
 }
 
-const isImageNameChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_./-")(c);
-
-const isTagChar = (c: string): boolean => isAlphaNum(c) || isOneOf("_.-")(c);
+const isImageNameChar: CharPred = Predicate.some([isAlphaNum, isOneOf("_./-")]);
 
 interface ImageParserState {
   readonly remaining: string;
@@ -265,7 +263,7 @@ const extractTag = (state: ImageParserState): Option.Option<ImageParserState> =>
     ? Option.some(state)
     : pipe(
         Option.some(state.remaining.slice(colonIdx + 1)),
-        Option.filter((tagStr) => tagStr.length > 0 && all(isTagChar)(tagStr)),
+        Option.filter((tagStr) => tagStr.length > 0 && all(isContainerOrTagChar)(tagStr)),
         Option.map((tagStr) => ({
           remaining: state.remaining.slice(0, colonIdx),
           digest: state.digest,
@@ -305,20 +303,15 @@ export const isValidUrl = (s: string): boolean => {
   }
 };
 
-// Valid duration units - using const assertion for type safety
 const DURATION_UNITS = ["ms", "s", "m", "h", "d"] as const;
 type DurationUnit = (typeof DURATION_UNITS)[number];
 
-/** Structured representation of a parsed duration string. */
 export interface ParsedDuration {
   readonly value: number;
   readonly unit: DurationUnit;
 }
 
-/**
- * Extract the unit suffix from a duration string.
- * Checks multi-char "ms" first, then single-char units.
- */
+/** Must check `"ms"` before single-char units to avoid matching `"s"` alone. */
 const extractDurationUnit = (
   s: string
 ): Option.Option<{ unit: DurationUnit; numericPart: string }> =>
@@ -332,15 +325,7 @@ const extractDurationUnit = (
         Option.map((unit) => ({ unit, numericPart: s.slice(0, -1) }))
       );
 
-/**
- * Parse a duration string into structured data.
- * Valid formats: "10s", "5m", "1h", "30ms", "2d"
- *
- * Uses Option-chained pipeline with:
- * - Option.filter for validation gates
- * - Option.flatMap for dependent parsing steps
- * - parseNat for safe integer parsing (reuses existing infrastructure)
- */
+/** Accepts `"10s"`, `"5m"`, `"1h"`, `"30ms"`, `"2d"`. */
 export const parseDurationString = (s: string): Option.Option<ParsedDuration> =>
   pipe(
     Option.some(s),
@@ -355,5 +340,4 @@ export const parseDurationString = (s: string): Option.Option<ParsedDuration> =>
     )
   );
 
-/** Validator derived from parser per codebase convention. */
 export const isValidDurationString = (s: string): boolean => Option.isSome(parseDurationString(s));

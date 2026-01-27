@@ -5,20 +5,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Common backup infrastructure shared across service implementations.
- * Handles archive metadata, compression detection, and file collection.
- */
+/** Archive metadata, compression detection, and file collection shared by service backup implementations. */
 
 import { Glob } from "bun";
 import { Array as Arr, Effect, Option, pipe } from "effect";
 import type { ArchiveMetadata } from "../system/archive";
 import { CURRENT_BACKUP_SCHEMA_VERSION } from "./backup-compat";
 import { collectAsyncOrDie } from "./collection-utils";
-import { mapCharsToString } from "./str-transform";
+import { mapCharsToString } from "./str";
 import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "./version";
 
-/** Sanitize ISO timestamp for filenames: replace : and . with - */
+/** ISO timestamps contain `:` and `.` which are problematic in filenames. */
 const sanitizeTimestamp = mapCharsToString((c) => (c === ":" || c === "." ? "-" : c));
 
 export const createBackupTimestamp = (): string =>
@@ -36,7 +33,6 @@ export const createBackupMetadata = (
   files,
 });
 
-/** Compression format detection thresholds */
 const COMPRESSION_EXTENSIONS: readonly {
   readonly extensions: readonly string[];
   readonly format: "gzip" | "zstd";
