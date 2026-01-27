@@ -10,20 +10,20 @@ Most importantly, many parts are reimplementing from scratch what Effect provide
 
 
 Given this context, launch a number of async background agents to analyse 
-@cli
-In detail. The job of this analysis should be to holistically think about this module, not just the lines of code and what each file is trying to achieve, but the intent of it all. 
+Errir handling and error types 
+In detail. The job of this analysis should be to holistically think about this  not just the lines of code and what each file is trying to achieve, but the intent of it all. 
 
 Once you have this analysis, 
 Read @llms/effect.llms.headline.txt in FULL. This file shows you just the headlines of what' available in Effect. 
 
 Analyse every piece of this documentatgion and ALL of the APIs this library provides and think logically about what APIs could be contained under each headline. . 
 
-Then launch a number of background async agents to analyse the relevant parts of Effect in full. Each agent should independently search for and read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in context so the background agent should grep/search for the relevant sections and read those). 
+Then, again, launch a number of background async agents to analyse the relevant parts of Effect in full. Each agent should independently search for and read the relevant parts of llms/effect.llms.full.txt (this file is too big to fit in context so the background agent should grep/search for the relevant sections and read those). 
 
 
 Finally put this all together. 
 Think like a senior Haskell/OCaml/Scala 3 developer and how they would have composed such a functionality from scratch, and propose an optimal plan to comprehensively rewrite 
-@cli
+The hand rolled errpor classes with idiomatic Effect APIs and patterns 
 to achive that. 
 
 Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. If there are breaking changes ensure all the callers and tests are updated instead. 
