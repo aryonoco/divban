@@ -13,31 +13,30 @@
  */
 
 import { Effect, Either, Match, Option, pipe } from "effect";
-import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { toAbsolutePathEffect } from "../../lib/paths";
 import type { ExistentialService } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import type { ParsedArgs } from "../parser";
 import {
   createServiceLayer,
   findAndLoadConfig,
-  getContextOptions,
   getDataDirFromConfig,
   resolvePrerequisites,
 } from "./utils";
 
 export interface StatusOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly format: "pretty" | "json";
+  readonly dryRun: boolean;
+  readonly verbose: boolean;
+  readonly force: boolean;
+  readonly logger: Logger;
 }
 
 export const executeStatus = (options: StatusOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, format, dryRun, verbose, force, logger } = options;
 
     const username = yield* getServiceUsername(service.definition.name);
     const userResult = yield* Effect.either(getUserByName(username));
@@ -46,7 +45,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
     return yield* Either.match(userResult, {
       onLeft: (): MatchResultType =>
         pipe(
-          Match.value(args.format),
+          Match.value(format),
           Match.when("json", () =>
             Effect.sync(() =>
               logger.raw(
@@ -61,7 +60,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
           Match.when("pretty", () =>
             Effect.sync(() => {
               logger.warn(`Service '${service.definition.name}' is not configured.`);
-              logger.info(`Run 'divban ${service.definition.name} setup <config>' to set up.`);
+              logger.info(`Run 'divban setup ${service.definition.name} <config>' to set up.`);
             })
           ),
           Match.exhaustive
@@ -73,17 +72,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
           const status = yield* service.apply((s) =>
             Effect.gen(function* () {
               const configResult = yield* Effect.either(
-                pipe(
-                  Match.value(args.configPath),
-                  Match.when(undefined, () =>
-                    findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-                  ),
-                  Match.orElse((configPath) =>
-                    Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
-                      loadServiceConfig(path, s.configSchema)
-                    )
-                  )
-                )
+                findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
               );
 
               type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
@@ -105,7 +94,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                 config,
                 s.configTag,
                 { ...prereqs, paths: updatedPaths },
-                getContextOptions(args),
+                { dryRun, verbose, force },
                 logger
               );
 
@@ -114,7 +103,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
           );
 
           yield* pipe(
-            Match.value(args.format),
+            Match.value(format),
             Match.when("json", () =>
               Effect.sync(() =>
                 logger.raw(

@@ -13,29 +13,30 @@
  */
 
 import { Effect, Either, Match, pipe } from "effect";
-import { loadServiceConfig } from "../../config/loader";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { toAbsolutePathEffect } from "../../lib/paths";
 import type { ExistentialService } from "../../services/types";
-import type { ParsedArgs } from "../parser";
 import {
   createServiceLayer,
   findAndLoadConfig,
-  getContextOptions,
   getDataDirFromConfig,
   resolvePrerequisites,
 } from "./utils";
 
-export interface LogsCommandOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+export interface LogsOptions {
+  readonly service: ExistentialService;
+  readonly follow: boolean;
+  readonly lines: number;
+  readonly container: string | undefined;
+  readonly dryRun: boolean;
+  readonly verbose: boolean;
+  readonly force: boolean;
+  readonly logger: Logger;
 }
 
-export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, DivbanEffectError> =>
+export const executeLogs = (options: LogsOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, follow, lines, container, dryRun, verbose, force, logger } = options;
 
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -43,17 +44,7 @@ export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, Di
       Effect.gen(function* () {
         // Load config with typed schema (optional for logs)
         const configResult = yield* Effect.either(
-          pipe(
-            Match.value(args.configPath),
-            Match.when(undefined, () =>
-              findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-            ),
-            Match.orElse((configPath) =>
-              Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
-                loadServiceConfig(path, s.configSchema)
-              )
-            )
-          )
+          findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
         );
 
         type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
@@ -75,18 +66,18 @@ export const executeLogs = (options: LogsCommandOptions): Effect.Effect<void, Di
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
+          { dryRun, verbose, force },
           logger
         );
 
         yield* s
           .logs({
-            follow: args.follow,
-            lines: args.lines,
+            follow,
+            lines,
             ...pipe(
-              Match.value(args.container),
+              Match.value(container),
               Match.when(undefined, () => ({})),
-              Match.orElse((container) => ({ container }))
+              Match.orElse((c) => ({ container: c }))
             ),
           })
           .pipe(Effect.provide(layer));

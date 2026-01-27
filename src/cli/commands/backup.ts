@@ -13,30 +13,29 @@
  */
 
 import { Effect, Either, Match, Option, pipe } from "effect";
-import { loadServiceConfig } from "../../config/loader";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { toAbsolutePathEffect } from "../../lib/paths";
 import type { BackupResult, ExistentialService } from "../../services/types";
-import type { ParsedArgs } from "../parser";
 import {
   createServiceLayer,
   findAndLoadConfig,
   formatBytes,
-  getContextOptions,
   getDataDirFromConfig,
   resolvePrerequisites,
 } from "./utils";
 
 export interface BackupOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly dryRun: boolean;
+  readonly format: "pretty" | "json";
+  readonly verbose: boolean;
+  readonly force: boolean;
+  readonly logger: Logger;
 }
 
 export const executeBackup = (options: BackupOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, dryRun, format, verbose, force, logger } = options;
 
     // Check if service supports backup (must be done before context resolution)
     return yield* pipe(
@@ -51,7 +50,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
       ),
       Match.when(true, () =>
         pipe(
-          Match.value(args.dryRun),
+          Match.value(dryRun),
           Match.when(true, () =>
             Effect.sync(() => {
               logger.info("Dry run - would create backup");
@@ -64,29 +63,13 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
               // Resolve prerequisites without config
               const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
-              // Access service methods with proper config typing
               const result = yield* service.apply((s) =>
                 Effect.gen(function* () {
                   // Load config with typed schema (optional for backup)
                   const configResult = yield* Effect.either(
-                    pipe(
-                      Match.value(args.configPath),
-                      Match.when(undefined, () =>
-                        findAndLoadConfig(
-                          service.definition.name,
-                          prereqs.user.homeDir,
-                          s.configSchema
-                        )
-                      ),
-                      Match.orElse((configPath) =>
-                        Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
-                          loadServiceConfig(path, s.configSchema)
-                        )
-                      )
-                    )
+                    findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
                   );
 
-                  // Use empty config if not found
                   type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
                   type PathsType = typeof prereqs.paths;
                   const config = Either.match(configResult, {
@@ -94,7 +77,6 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     onRight: (cfg): ConfigType => cfg,
                   });
 
-                  // Update paths with config dataDir if available
                   const updatedPaths = Either.match(configResult, {
                     onLeft: (): PathsType => prereqs.paths,
                     onRight: (cfg): PathsType => ({
@@ -107,7 +89,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     config,
                     s.configTag,
                     { ...prereqs, paths: updatedPaths },
-                    getContextOptions(args),
+                    { dryRun, verbose, force },
                     logger
                   );
 
@@ -129,7 +111,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
               );
 
               yield* pipe(
-                Match.value(args.format),
+                Match.value(format),
                 Match.when("json", () =>
                   Effect.sync(() =>
                     logger.info(

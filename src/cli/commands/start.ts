@@ -12,47 +12,35 @@
  * then starts via systemctl --user.
  */
 
-import { Effect, Either, Match, pipe } from "effect";
-import { loadServiceConfig } from "../../config/loader";
+import { Effect, Either } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
-import { toAbsolutePathEffect } from "../../lib/paths";
 import type { ExistentialService } from "../../services/types";
-import type { ParsedArgs } from "../parser";
 import {
   createServiceLayer,
   findAndLoadConfig,
-  getContextOptions,
   getDataDirFromConfig,
   resolvePrerequisites,
 } from "./utils";
 
 export interface StartOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly dryRun: boolean;
+  readonly verbose: boolean;
+  readonly force: boolean;
+  readonly logger: Logger;
 }
 
 export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, dryRun, verbose, force, logger } = options;
 
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
     yield* service.apply((s) =>
       Effect.gen(function* () {
         const configResult = yield* Effect.either(
-          pipe(
-            Match.value(args.configPath),
-            Match.when(undefined, () =>
-              findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-            ),
-            Match.orElse((configPath) =>
-              Effect.flatMap(toAbsolutePathEffect(configPath), (path) =>
-                loadServiceConfig(path, s.configSchema)
-              )
-            )
-          )
+          findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
         );
 
         // Config is optional for start - service may have been set up with defaults
@@ -75,7 +63,7 @@ export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanE
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
+          { dryRun, verbose, force },
           logger
         );
         yield* s.start().pipe(Effect.provide(layer));

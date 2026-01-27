@@ -44,20 +44,6 @@ import {
 } from "../../services/context";
 import { isSELinuxEnforcing } from "../../system/selinux";
 import { getUserByName } from "../../system/user";
-import type { ParsedArgs } from "../parser";
-
-// ============================================================================
-// Service Options
-// ============================================================================
-
-export const getContextOptions = (
-  args: ParsedArgs
-): { dryRun: boolean; verbose: boolean; force: boolean } => ({
-  dryRun: args.dryRun,
-  verbose: args.verbose,
-  force: args.force,
-});
-
 // ============================================================================
 // Config Resolution
 // ============================================================================
@@ -265,7 +251,7 @@ export const resolveServiceUser = (
         Effect.fail(
           new ServiceError({
             code: ErrorCode.SERVICE_NOT_FOUND as 30,
-            message: `Service user '${username}' not found. Run 'divban ${serviceName} setup' first.`,
+            message: `Service user '${username}' not found. Run 'divban setup ${serviceName}' first.`,
             service: serviceName,
           })
         ),

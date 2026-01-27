@@ -12,8 +12,7 @@
  * service-specific handlers that know their data layout.
  */
 
-import { Effect, Either, Match, Option, type Schema, pipe } from "effect";
-import { loadServiceConfig } from "../../config/loader";
+import { Effect, Either, Match, Option, pipe } from "effect";
 import {
   type ConfigError,
   type DivbanEffectError,
@@ -22,22 +21,24 @@ import {
 } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
-import type { AbsolutePath, ServiceName } from "../../lib/types";
+import type { AbsolutePath } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
-import type { ParsedArgs } from "../parser";
 import {
   type Prerequisites,
   createServiceLayer,
   findAndLoadConfig,
-  getContextOptions,
   getDataDirFromConfig,
   resolvePrerequisites,
 } from "./utils";
 
 export interface RestoreOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly backupPath: string;
+  readonly dryRun: boolean;
+  readonly force: boolean;
+  readonly format: "pretty" | "json";
+  readonly verbose: boolean;
+  readonly logger: Logger;
 }
 
 interface RestoreContext {
@@ -91,78 +92,20 @@ const validateForceAndPath = (
     Match.exhaustive
   );
 
+/** Returns None for dry-run (already handled), Some(path) for real restore. */
 const processBackupPath = (
   backupPath: string,
-  args: ParsedArgs,
+  dryRun: boolean,
+  force: boolean,
   logger: Logger
 ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
   pipe(
-    Match.value(args.dryRun),
+    Match.value(dryRun),
     Match.when(true, () =>
       Effect.map(handleDryRunRestore(backupPath, logger), () => Option.none<AbsolutePath>())
     ),
-    Match.when(false, () => validateForceAndPath(backupPath, args.force, logger)),
+    Match.when(false, () => validateForceAndPath(backupPath, force, logger)),
     Match.exhaustive
-  );
-
-/** Returns None for dry-run (already handled), Some(path) for real restore. */
-const validateRestoreArgs = (
-  args: ParsedArgs,
-  logger: Logger
-): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-  pipe(
-    Option.fromNullable(args.backupPath),
-    Option.match({
-      onNone: (): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-        Effect.fail(
-          new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
-            message: "Backup path is required for restore command",
-          })
-        ),
-      onSome: (
-        backupPath
-      ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-        processBackupPath(backupPath, args, logger),
-    })
-  );
-
-const formatRestoreResult = (
-  serviceName: string,
-  format: "json" | "pretty",
-  logger: Logger
-): Effect.Effect<void> =>
-  pipe(
-    Match.value(format),
-    Match.when("json", () =>
-      Effect.sync(() => logger.info(JSON.stringify({ success: true, service: serviceName })))
-    ),
-    Match.when("pretty", () =>
-      Effect.sync(() => {
-        logger.success("Restore completed successfully");
-        logger.info(`You may need to restart the service: divban ${serviceName} restart`);
-      })
-    ),
-    Match.exhaustive
-  );
-
-const loadConfigForRestore = <C>(
-  configPath: string | undefined,
-  serviceName: ServiceName,
-  homeDir: AbsolutePath,
-  // biome-ignore lint/suspicious/noExplicitAny: Schema input varies per service - validated at runtime
-  configSchema: Schema.Schema<C, any, never>
-): Effect.Effect<C, DivbanEffectError> =>
-  pipe(
-    Option.fromNullable(configPath),
-    Option.match({
-      onNone: (): Effect.Effect<C, DivbanEffectError> =>
-        findAndLoadConfig(serviceName, homeDir, configSchema),
-      onSome: (path): Effect.Effect<C, DivbanEffectError> =>
-        Effect.flatMap(toAbsolutePathEffect(path), (absPath) =>
-          loadServiceConfig(absPath, configSchema)
-        ),
-    })
   );
 
 const buildConfigAndPaths = <C extends object>(
@@ -189,9 +132,29 @@ const buildConfigAndPaths = <C extends object>(
   return { config, paths };
 };
 
+const formatRestoreResult = (
+  serviceName: string,
+  format: "json" | "pretty",
+  logger: Logger
+): Effect.Effect<void> =>
+  pipe(
+    Match.value(format),
+    Match.when("json", () =>
+      Effect.sync(() => logger.info(JSON.stringify({ success: true, service: serviceName })))
+    ),
+    Match.when("pretty", () =>
+      Effect.sync(() => {
+        logger.success("Restore completed successfully");
+        logger.info(`You may need to restart the service: divban restart ${serviceName}`);
+      })
+    ),
+    Match.exhaustive
+  );
+
 const performRestore = (
   context: RestoreContext,
-  args: ParsedArgs
+  restoreOptions: { readonly dryRun: boolean; readonly verbose: boolean; readonly force: boolean },
+  format: "pretty" | "json"
 ): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
     const { service, logger, backupPath } = context;
@@ -202,12 +165,7 @@ const performRestore = (
     yield* service.apply((s) =>
       Effect.gen(function* () {
         const configResult = yield* Effect.either(
-          loadConfigForRestore(
-            args.configPath,
-            service.definition.name,
-            prereqs.user.homeDir,
-            s.configSchema
-          )
+          findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
         );
 
         const { config, paths: updatedPaths } = buildConfigAndPaths(
@@ -220,7 +178,7 @@ const performRestore = (
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          getContextOptions(args),
+          restoreOptions,
           logger
         );
 
@@ -241,19 +199,23 @@ const performRestore = (
       })
     );
 
-    yield* formatRestoreResult(service.definition.name, args.format, logger);
+    yield* formatRestoreResult(service.definition.name, format, logger);
   });
 
 export const executeRestore = (options: RestoreOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, backupPath, dryRun, force, format, verbose, logger } = options;
 
     yield* validateRestoreCapability(service);
-    const backupPathOption = yield* validateRestoreArgs(args, logger);
+    const backupPathOption = yield* processBackupPath(backupPath, dryRun, force, logger);
 
     yield* Option.match(backupPathOption, {
       onNone: (): Effect.Effect<void, DivbanEffectError> => Effect.void,
-      onSome: (backupPath): Effect.Effect<void, DivbanEffectError> =>
-        performRestore({ service, logger, backupPath }, args),
+      onSome: (validBackupPath): Effect.Effect<void, DivbanEffectError> =>
+        performRestore(
+          { service, logger, backupPath: validBackupPath },
+          { dryRun, verbose, force },
+          format
+        ),
     });
   });

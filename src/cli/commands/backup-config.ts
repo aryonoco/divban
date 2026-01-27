@@ -39,13 +39,14 @@ import {
   writeBytes,
 } from "../../system/fs";
 import { getUserByName } from "../../system/user";
-import type { ParsedArgs } from "../parser";
 import { formatBytes } from "./utils";
 
 export interface BackupConfigOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly outputPath: string | undefined;
+  readonly dryRun: boolean;
+  readonly format: "pretty" | "json";
+  readonly logger: Logger;
 }
 
 /** Tuple of [archive-relative path, raw bytes] for tar archive construction. */
@@ -216,7 +217,7 @@ const findConfigDir = (): Effect.Effect<
       Effect.fail(
         new ServiceError({
           code: ErrorCode.SERVICE_NOT_FOUND as 30,
-          message: "No configured services found. Run 'divban <service> setup' first.",
+          message: "No configured services found. Run 'divban setup <service>' first.",
           service: "all",
         })
       )
@@ -264,19 +265,19 @@ export const executeBackupConfig = (
   options: BackupConfigOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
-    const serviceName = service.definition.name;
-    const isAll = serviceName === "all";
+    const { service, outputPath, dryRun, format, logger } = options;
+    const svcName = service.definition.name;
+    const isAll = svcName === "all";
 
     // Step 1: Resolve config directory
-    const configDir = yield* resolveConfigDir(serviceName);
+    const configDir = yield* resolveConfigDir(svcName);
 
     // Step 2: Collect files (parallel I/O)
     logger.info("Collecting configuration files...");
     const files = yield* pipe(
       Match.value(isAll),
       Match.when(true, () => collectAllConfigFiles(configDir)),
-      Match.when(false, () => collectServiceConfigFiles(configDir, serviceName)),
+      Match.when(false, () => collectServiceConfigFiles(configDir, svcName)),
       Match.exhaustive
     );
 
@@ -288,21 +289,21 @@ export const executeBackupConfig = (
         Effect.fail(
           new GeneralError({
             code: ErrorCode.GENERAL_ERROR as 1,
-            message: `No configuration files found for ${serviceName}`,
+            message: `No configuration files found for ${svcName}`,
           })
         )
       ),
       Match.when(false, () =>
         Effect.gen(function* () {
           // Step 3: Prepare output path
-          const outputPath = yield* prepareOutputPath(configDir, serviceName, args.configPath);
+          const resolvedOutputPath = yield* prepareOutputPath(configDir, svcName, outputPath);
 
           return yield* pipe(
-            Match.value(args.dryRun),
+            Match.value(dryRun),
             // Step 4: Handle dry run
             Match.when(true, () =>
               Effect.gen(function* () {
-                logger.info(`Dry run - would create backup at: ${outputPath}`);
+                logger.info(`Dry run - would create backup at: ${resolvedOutputPath}`);
                 logger.info("Files to include:");
                 yield* Effect.forEach(
                   fileNames,
@@ -324,7 +325,7 @@ export const executeBackupConfig = (
                   schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
                   producer: DIVBAN_PRODUCER_NAME,
                   producerVersion: DIVBAN_VERSION,
-                  service: serviceName,
+                  service: svcName,
                   timestamp: new Date().toISOString(),
                   files: fileNames,
                 };
@@ -333,16 +334,16 @@ export const executeBackupConfig = (
                 const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
 
                 // Step 7: Write archive to disk
-                yield* writeBytes(outputPath, archiveData);
+                yield* writeBytes(resolvedOutputPath, archiveData);
 
                 // Step 8: Output result
                 yield* pipe(
-                  Match.value(args.format),
+                  Match.value(format),
                   Match.when("json", () =>
                     Effect.sync(() =>
                       logger.raw(
                         JSON.stringify({
-                          path: outputPath,
+                          path: resolvedOutputPath,
                           size: archiveData.length,
                           files: fileNames,
                           timestamp: metadata.timestamp,
@@ -352,7 +353,7 @@ export const executeBackupConfig = (
                   ),
                   Match.when("pretty", () =>
                     Effect.sync(() => {
-                      logger.success(`Configuration backup created: ${outputPath}`);
+                      logger.success(`Configuration backup created: ${resolvedOutputPath}`);
                       logger.info(`  Size: ${formatBytes(archiveData.length)}`);
                       logger.info(`  Files: ${fileNames.length}`);
                     })

@@ -182,7 +182,7 @@ which includes the best parts of the existing documents and removes their weak o
 
 Analyse every single file under the @src directory which has been created or modified since the last commit to git. 
 
-Review all the comments in each file in detail. Examine the file does, how it fits in with the codebase, and what that particular function does. Rewrite the comments comprehensively to be concise and to follow software engineering best practices. The comment should describe why the code does what it does, not what it does (which is evident from the code anyway) Think of the libraries which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library and model the comments in these files after them.
+Use a number of async background agents to review all the comments in each file in detail. Examine what the file does, how it fits in with the rest codebase, and what that particular module/function provides. Then propse a plan to rewrite the comments comprehensively to be concise and to follow software engineering best practices. Comments should describe why the code does what it does, not what it does (which is evident from reading the code anyway) Think of the projects which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library and model your comments to mimic their style. 
 
 Comments should look like they are written by a senior software engineer, not by an LLM. Avoid intricate ASCII formatting, emojis, etc. 
 

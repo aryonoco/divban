@@ -9,16 +9,18 @@
 /**
  * Divban - Unified Rootless Podman Service Manager
  *
- * Main entry point for the CLI application.
+ * Main entry point. Runs the @effect/cli command tree with BunContext
+ * providing platform services (Terminal, FileSystem, Path).
  * This is the "imperative shell" - the only place where Effect runtime is executed.
  */
 
+import { BunContext } from "@effect/platform-bun";
 import { Cause, Effect, Exit, Match, Option, pipe } from "effect";
-import { program } from "./cli/index";
+import { cli } from "./cli/index";
 
-const exitCodeFromExit = (exit: Exit.Exit<number, unknown>): number =>
+const exitCodeFromExit = (exit: Exit.Exit<void, unknown>): number =>
   Exit.match(exit, {
-    onSuccess: (code): number => code,
+    onSuccess: (): number => 0,
     onFailure: (cause): number =>
       Option.match(Cause.failureOption(cause), {
         onNone: (): number => 1,
@@ -26,30 +28,16 @@ const exitCodeFromExit = (exit: Exit.Exit<number, unknown>): number =>
           pipe(
             Match.value(value),
             Match.when(
+              (v: unknown): v is { exitCode: number } =>
+                typeof v === "object" && v !== null && "exitCode" in v,
+              (v: { exitCode: number }) => v.exitCode
+            ),
+            Match.when(
               (v: unknown): v is { code: number } =>
                 typeof v === "object" && v !== null && "code" in v,
-              (v: { code: number }) => v.code
+              (v: { code: number }) => Math.min(v.code, 125)
             ),
             Match.orElse(() => 1)
-          ),
-      }),
-  });
-
-const logExitError = (exit: Exit.Exit<number, unknown>): void =>
-  Exit.match(exit, {
-    onSuccess: (): void => undefined,
-    onFailure: (cause): void =>
-      Option.match(Cause.failureOption(cause), {
-        onNone: (): void => console.error("Unexpected error:", Cause.pretty(cause)),
-        onSome: (err: unknown): void =>
-          pipe(
-            Match.value(err),
-            Match.when(
-              (v: unknown): v is { message: string } =>
-                typeof v === "object" && v !== null && "message" in v,
-              (v: { message: string }) => console.error(`Error: ${v.message}`)
-            ),
-            Match.orElse(() => undefined)
           ),
       }),
   });
@@ -59,8 +47,9 @@ const logExitError = (exit: Exit.Exit<number, unknown>): void =>
  * Bytecode compilation requires CommonJS format which doesn't support top-level await.
  */
 async function main(): Promise<never> {
-  const exit = await Effect.runPromiseExit(program(Bun.argv.slice(2)));
-  logExitError(exit);
+  const exit = await Effect.runPromiseExit(
+    cli(process.argv).pipe(Effect.provide(BunContext.layer))
+  );
   process.exit(exitCodeFromExit(exit));
 }
 

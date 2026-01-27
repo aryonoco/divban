@@ -17,7 +17,7 @@ import { getServiceUsername } from "../../config/schema";
 import {
   ContainerError,
   ErrorCode,
-  GeneralError,
+  type GeneralError,
   type ServiceError,
   type SystemError,
 } from "../../lib/errors";
@@ -25,84 +25,56 @@ import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
 import { getServiceSecret, listServiceSecrets } from "../../system/secrets";
 import { getUserByName } from "../../system/user";
-import type { ParsedArgs } from "../parser";
 
-export interface SecretOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+export interface SecretShowOptions {
+  readonly service: ExistentialService;
+  readonly secretName: string;
+  readonly logger: Logger;
 }
 
-export const executeSecret = (
-  options: SecretOptions
-): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
-  pipe(
-    Match.value(options.args.subcommand),
-    Match.when("show", () => executeSecretShow(options)),
-    Match.when("list", () => executeSecretList(options)),
-    Match.orElse((cmd) =>
-      Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: `Unknown secret subcommand: ${cmd}`,
-        })
-      )
-    )
-  );
+export interface SecretListOptions {
+  readonly service: ExistentialService;
+  readonly format: "pretty" | "json";
+  readonly logger: Logger;
+}
 
-const executeSecretShow = (
-  options: SecretOptions
+export const executeSecretShow = (
+  options: SecretShowOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, secretName, logger } = options;
     const svcName = service.definition.name;
-    const secretName = args.secretName;
 
-    return yield* pipe(
-      Match.value(secretName),
-      Match.when(undefined, () =>
+    const username = yield* getServiceUsername(svcName);
+    const userResult = yield* Effect.either(getUserByName(username));
+
+    type ResultType = Effect.Effect<
+      void,
+      GeneralError | ContainerError | ServiceError | SystemError
+    >;
+    return yield* Either.match(userResult, {
+      onLeft: (): ResultType =>
         Effect.fail(
-          new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
-            message: "Secret name is required",
+          new ContainerError({
+            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            message: `Service '${svcName}' is not configured. Run setup first.`,
+            container: svcName,
           })
-        )
-      ),
-      Match.orElse((name) =>
+        ),
+      onRight: ({ homeDir }): ResultType =>
         Effect.gen(function* () {
-          const username = yield* getServiceUsername(svcName);
-          const userResult = yield* Effect.either(getUserByName(username));
-
-          type ResultType = Effect.Effect<
-            void,
-            GeneralError | ContainerError | ServiceError | SystemError
-          >;
-          return yield* Either.match(userResult, {
-            onLeft: (): ResultType =>
-              Effect.fail(
-                new ContainerError({
-                  code: ErrorCode.SECRET_NOT_FOUND as 46,
-                  message: `Service '${svcName}' is not configured. Run setup first.`,
-                  container: svcName,
-                })
-              ),
-            onRight: ({ homeDir }): ResultType =>
-              Effect.gen(function* () {
-                const secretValue = yield* getServiceSecret(svcName, name, homeDir);
-                // Output just the value (for scripting)
-                logger.raw(secretValue);
-              }),
-          });
-        })
-      )
-    );
+          const secretValue = yield* getServiceSecret(svcName, secretName, homeDir);
+          // Output just the value (for scripting)
+          logger.raw(secretValue);
+        }),
+    });
   });
 
-const executeSecretList = (
-  options: SecretOptions
+export const executeSecretList = (
+  options: SecretListOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, format, logger } = options;
     const svcName = service.definition.name;
 
     const username = yield* getServiceUsername(svcName);
@@ -126,7 +98,7 @@ const executeSecretList = (
           const secrets = yield* listServiceSecrets(svcName, homeDir);
 
           yield* pipe(
-            Match.value(args.format),
+            Match.value(format),
             Match.when("json", () =>
               Effect.sync(() => logger.raw(JSON.stringify({ service: svcName, secrets })))
             ),

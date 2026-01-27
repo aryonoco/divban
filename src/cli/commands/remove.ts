@@ -29,19 +29,20 @@ import { directoryExists } from "../../system/fs";
 import { disableLinger } from "../../system/linger";
 import { userExists } from "../../system/uid-allocator";
 import { deleteServiceUser, getUserByName, requireRoot } from "../../system/user";
-import type { ParsedArgs } from "../parser";
 
 export interface RemoveOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly dryRun: boolean;
+  readonly force: boolean;
+  readonly preserveData: boolean;
+  readonly logger: Logger;
 }
 
 export const executeRemove = (
   options: RemoveOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, dryRun, force, preserveData, logger } = options;
     const serviceName = service.definition.name;
 
     yield* requireRoot();
@@ -61,7 +62,7 @@ export const executeRemove = (
           const dataDir = yield* getServiceDataDir(serviceName);
           const { uid, homeDir } = yield* getUserByName(username);
 
-          return yield* Effect.if(args.dryRun, {
+          return yield* Effect.if(dryRun, {
             onTrue: (): RemoveResultEffect =>
               Effect.sync(() => {
                 logger.info("Dry-run mode - showing what would be done:");
@@ -73,7 +74,7 @@ export const executeRemove = (
                 logger.info(`  6. Kill all processes owned by ${username}`);
                 logger.info(`  7. Delete user ${username} (and home directory)`);
                 pipe(
-                  Match.value(args.preserveData),
+                  Match.value(preserveData),
                   Match.when(true, () => logger.info(`  8. Preserve data directory ${dataDir}`)),
                   Match.when(false, () => logger.info(`  8. Remove data directory ${dataDir}`)),
                   Match.exhaustive
@@ -82,7 +83,7 @@ export const executeRemove = (
             onFalse: (): RemoveResultEffect =>
               Effect.gen(function* () {
                 yield* pipe(
-                  Effect.succeed(args.force),
+                  Effect.succeed(force),
                   Effect.filterOrFail(
                     (f): f is true => f === true,
                     () => {
@@ -97,7 +98,15 @@ export const executeRemove = (
                   )
                 );
 
-                yield* doRemoveService(serviceName, username, uid, homeDir, dataDir, args, logger);
+                yield* doRemoveService(
+                  serviceName,
+                  username,
+                  uid,
+                  homeDir,
+                  dataDir,
+                  preserveData,
+                  logger
+                );
               }),
           });
         }),
@@ -110,11 +119,11 @@ const doRemoveService = (
   uid: UserId,
   homeDir: AbsolutePath,
   dataDir: AbsolutePath,
-  args: ParsedArgs,
+  preserveData: boolean,
   logger: Logger
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const totalSteps = args.preserveData ? 7 : 8;
+    const totalSteps = preserveData ? 7 : 8;
 
     // Step 1: Stop all containers
     logger.step(1, totalSteps, "Stopping containers...");
@@ -167,7 +176,7 @@ const doRemoveService = (
           onRight: (): void => undefined,
         });
       }),
-      () => !args.preserveData
+      () => !preserveData
     );
 
     logger.success(`Service ${serviceName} removed successfully`);

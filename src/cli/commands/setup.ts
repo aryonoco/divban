@@ -36,54 +36,35 @@ import {
 import { disableLinger, enableLingerTracked } from "../../system/linger";
 import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system/sysctl";
 import { acquireServiceUser, getUserByName, releaseServiceUser } from "../../system/user";
-import type { ParsedArgs } from "../parser";
-import {
-  createServiceLayer,
-  detectSystemCapabilities,
-  getContextOptions,
-  getDataDirFromConfig,
-} from "./utils";
+import { createServiceLayer, detectSystemCapabilities, getDataDirFromConfig } from "./utils";
 
 export interface SetupOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
-  globalConfig: GlobalConfig;
+  readonly service: ExistentialService;
+  readonly configPath: string;
+  readonly dryRun: boolean;
+  readonly force: boolean;
+  readonly verbose: boolean;
+  readonly logger: Logger;
+  readonly globalConfig: GlobalConfig;
 }
 
-/**
- * Execute the setup command.
- */
 export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger, globalConfig } = options;
-    const configPath = args.configPath;
+    const { service, configPath, dryRun, force, verbose, logger, globalConfig } = options;
 
-    // Get UID allocation settings from global config
     const uidSettings = getUserAllocationSettings(globalConfig);
-
-    if (!configPath) {
-      return yield* Effect.fail(
-        new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
-          message: "Config path is required for setup command",
-        })
-      );
-    }
 
     logger.info(`Setting up ${service.definition.name}...`);
 
-    // Validate path first
     const validConfigPath = yield* toAbsolutePathEffect(configPath);
 
-    // Get service username
     const username = yield* getServiceUsername(service.definition.name);
 
     // For caddy, check if privileged port binding needs to be configured
     const needsSysctl =
       service.definition.name === "caddy" && !(yield* isUnprivilegedPortEnabled());
 
-    if (args.dryRun) {
+    if (dryRun) {
       logger.info("Dry run mode - showing what would be done:");
       if (service.definition.name === "caddy") {
         logger.info("  1. Configure privileged port binding (sysctl)");
@@ -120,7 +101,6 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       Match.when(true, () => Effect.void),
       Match.when(false, () =>
         Effect.gen(function* () {
-          // Check if user already exists
           type CheckResultType = Effect.Effect<void, GeneralError>;
           const existingUser = yield* Effect.either(getUserByName(username));
           yield* Either.match(existingUser, {
@@ -152,13 +132,10 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       Match.orElse(() => Effect.void)
     );
 
-    // Access service methods with proper config typing
     yield* service.apply((s) =>
       Effect.gen(function* () {
-        // Load and validate config with typed schema
         const config = yield* loadServiceConfig(validConfigPath, s.configSchema);
 
-        // Use Effect.Ref for managed step counter state
         const stepRef = yield* Ref.make(0);
         const logStep = (message: string): Effect.Effect<void> =>
           Effect.gen(function* () {
@@ -246,7 +223,6 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                 })
             );
 
-            // Build service layer
             const system = yield* detectSystemCapabilities();
 
             const layer = createServiceLayer(
@@ -262,11 +238,11 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                   homeDir,
                 },
               },
-              getContextOptions(args),
+              { dryRun, verbose, force },
               logger
             );
 
-            // Step 6: Service-specific setup
+            // Step 6: Service-specific setup (quadlet generation, file writes, unit enablement)
             yield* logStep("Running service-specific setup...");
             yield* s.setup().pipe(Effect.provide(layer));
           })
@@ -276,7 +252,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
 
     logger.success(`${service.definition.name} setup completed successfully`);
     logger.info("Next steps:");
-    logger.info(`  Start service: divban ${service.definition.name} start`);
-    logger.info(`  Check status:  divban ${service.definition.name} status`);
-    logger.info(`  View logs:     divban ${service.definition.name} logs --follow`);
+    logger.info(`  Start service: divban start ${service.definition.name}`);
+    logger.info(`  Check status:  divban status ${service.definition.name}`);
+    logger.info(`  View logs:     divban logs ${service.definition.name} --follow`);
   });

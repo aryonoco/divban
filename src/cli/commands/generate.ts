@@ -12,9 +12,9 @@
  * without affecting the running system.
  */
 
-import { Effect, pipe } from "effect";
+import { Effect } from "effect";
 import { loadServiceConfig } from "../../config/loader";
-import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
+import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import {
   TEMP_PATHS,
@@ -27,32 +27,22 @@ import { writeGeneratedFilesPreview } from "../../services/helpers";
 import type { ExistentialService } from "../../services/types";
 import { getFileCount } from "../../services/types";
 import { ensureDirectory } from "../../system/fs";
-import type { ParsedArgs } from "../parser";
-import { createServiceLayer, detectSystemCapabilities, getContextOptions } from "./utils";
+import { createServiceLayer, detectSystemCapabilities } from "./utils";
 
 export interface GenerateOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly configPath: string;
+  readonly outputDir: string | undefined;
+  readonly dryRun: boolean;
+  readonly verbose: boolean;
+  readonly force: boolean;
+  readonly logger: Logger;
 }
 
 export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
-    const configPath = args.configPath;
-    const outputDir = args.outputDir ?? ".";
-
-    const validatedConfigPath = yield* pipe(
-      Effect.succeed(configPath),
-      Effect.filterOrFail(
-        (p): p is string => p !== undefined && p !== "",
-        () =>
-          new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
-            message: "Config path is required for generate command",
-          })
-      )
-    );
+    const { service, configPath, dryRun, verbose, force, logger } = options;
+    const outputDir = options.outputDir ?? ".";
 
     logger.info(`Generating files for ${service.definition.name}...`);
 
@@ -61,7 +51,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
     const uid = UserIdSchema.make(1000);
     const gid = GroupIdSchema.make(1000);
 
-    const validPath = yield* toAbsolutePathEffect(validatedConfigPath);
+    const validPath = yield* toAbsolutePathEffect(configPath);
     const quadletDir = yield* outputQuadletDir(outputDir);
     const configDir = yield* outputConfigDir(outputDir);
     const system = yield* detectSystemCapabilities();
@@ -70,7 +60,6 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
       Effect.gen(function* () {
         const config = yield* loadServiceConfig(validPath, s.configSchema);
 
-        // Build prerequisites for layer creation
         const prereqs = {
           user: { name: username, uid, gid, homeDir: TEMP_PATHS.generateDataDir },
           system,
@@ -86,7 +75,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
           config,
           s.configTag,
           prereqs,
-          getContextOptions(args),
+          { dryRun, verbose, force },
           logger
         );
 
@@ -118,7 +107,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
         logger.success(`Generated ${total} files in ${outputDir}/`);
       });
 
-    yield* Effect.if(args.dryRun, {
+    yield* Effect.if(dryRun, {
       onTrue: (): Effect.Effect<void, never> => dryRunLog(),
       onFalse: (): Effect.Effect<void, DivbanEffectError> => writeFiles(),
     });

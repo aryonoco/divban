@@ -20,12 +20,11 @@ import type { ServiceName, UserId, Username } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { exec } from "../../system/exec";
 import { getUserByName } from "../../system/user";
-import type { ParsedArgs } from "../parser";
 
 export interface UpdateOptions {
-  service: ExistentialService;
-  args: ParsedArgs;
-  logger: Logger;
+  readonly service: ExistentialService;
+  readonly dryRun: boolean;
+  readonly logger: Logger;
 }
 
 interface UpdateContext {
@@ -57,7 +56,7 @@ const resolveUpdateServiceUser = (
         () =>
           new ServiceError({
             code: ErrorCode.SERVICE_NOT_FOUND as 30,
-            message: `Service user '${username}' not found. Run 'divban ${serviceName}' setup first.`,
+            message: `Service user '${username}' not found. Run 'divban setup ${serviceName}' first.`,
             service: serviceName,
           })
       )
@@ -176,13 +175,13 @@ export const executeUpdate = (
   options: UpdateOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, args, logger } = options;
+    const { service, dryRun, logger } = options;
 
     const { username, uid } = yield* resolveUpdateServiceUser(service.definition.name);
     logger.info(`Updating ${service.definition.name} containers...`);
 
     yield* pipe(
-      Match.value(args.dryRun),
+      Match.value(dryRun),
       Match.when(true, () => handleDryRun(logger)),
       Match.when(false, () =>
         performUpdate({ username, uid, logger, serviceName: service.definition.name })
