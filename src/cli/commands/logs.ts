@@ -14,7 +14,6 @@
 
 import { Effect, Match, pipe } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
 import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
@@ -26,12 +25,11 @@ export interface LogsOptions {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeLogs = (options: LogsOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, follow, lines, container, dryRun, verbose, force, logger } = options;
+    const { service, follow, lines, container, dryRun, verbose, force } = options;
 
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -48,8 +46,7 @@ export const executeLogs = (options: LogsOptions): Effect.Effect<void, DivbanEff
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          { dryRun, verbose, force },
-          logger
+          { dryRun, verbose, force }
         );
 
         yield* s

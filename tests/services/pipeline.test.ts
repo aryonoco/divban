@@ -6,8 +6,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
-import { AppLogger } from "../../src/services/context";
+import { Effect, LogLevel, Logger } from "effect";
 import {
   type EmptyState,
   Outcome,
@@ -17,20 +16,7 @@ import {
   pipeline,
 } from "../../src/services/helpers";
 
-// Mock logger for tests - implements Logger interface
-const mockLogger = {
-  debug: (): undefined => undefined,
-  info: (): undefined => undefined,
-  warn: (): undefined => undefined,
-  error: (): undefined => undefined,
-  success: (): undefined => undefined,
-  fail: (): undefined => undefined,
-  step: (): undefined => undefined,
-  raw: (): undefined => undefined,
-  child: (): typeof mockLogger => mockLogger,
-};
-
-const TestAppLogger = Layer.succeed(AppLogger, mockLogger);
+const SilentLogger = Logger.minimumLogLevel(LogLevel.None);
 
 describe("PipelineBuilder", () => {
   describe("type inference", () => {
@@ -124,7 +110,7 @@ describe("PipelineBuilder", () => {
         .andThen(step3)
         .execute(emptyState);
 
-      await Effect.runPromise(Effect.provide(effect, TestAppLogger));
+      await Effect.runPromise(Effect.provide(effect, SilentLogger));
 
       expect(executionOrder).toEqual([1, 2, 3]);
     });
@@ -163,7 +149,7 @@ describe("PipelineBuilder", () => {
         .andThen(step3)
         .execute(emptyState);
 
-      await Effect.runPromise(Effect.provide(effect, TestAppLogger));
+      await Effect.runPromise(Effect.provide(effect, SilentLogger));
 
       expect(finalValue).toBe(20);
     });
@@ -184,7 +170,7 @@ describe("PipelineBuilder", () => {
       );
 
       const effect = pipeline<EmptyState>().andThen(step).execute(emptyState);
-      await Effect.runPromise(Effect.provide(effect, TestAppLogger));
+      await Effect.runPromise(Effect.provide(effect, SilentLogger));
 
       expect(releaseOutcome).toEqual(Outcome.success);
     });
@@ -214,7 +200,7 @@ describe("PipelineBuilder", () => {
 
       const effect = pipeline<EmptyState>().andThen(step1).andThen(step2).execute(emptyState);
 
-      await Effect.runPromiseExit(Effect.provide(effect, TestAppLogger));
+      await Effect.runPromiseExit(Effect.provide(effect, SilentLogger));
 
       expect(releaseOutcome).toEqual(Outcome.failure);
     });
@@ -266,7 +252,7 @@ describe("PipelineBuilder", () => {
         .andThen(step3)
         .execute(emptyState);
 
-      await Effect.runPromiseExit(Effect.provide(effect, TestAppLogger));
+      await Effect.runPromiseExit(Effect.provide(effect, SilentLogger));
 
       // Effect.scoped releases finalizers in reverse order (LIFO)
       expect(releaseOrder).toEqual([2, 1]);

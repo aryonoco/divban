@@ -14,7 +14,6 @@
 
 import { Effect } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
 import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
@@ -23,12 +22,11 @@ export interface StartOptions {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, dryRun, verbose, force, logger } = options;
+    const { service, dryRun, verbose, force } = options;
 
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -45,8 +43,7 @@ export const executeStart = (options: StartOptions): Effect.Effect<void, DivbanE
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          { dryRun, verbose, force },
-          logger
+          { dryRun, verbose, force }
         );
         yield* s.start().pipe(Effect.provide(layer));
       })

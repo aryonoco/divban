@@ -14,30 +14,25 @@
 
 import { Effect } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logFail, logSuccess } from "../../lib/log";
 import { toAbsolutePathEffect } from "../../lib/paths";
 import type { ExistentialService } from "../../services/types";
 
 export interface ValidateOptions {
   readonly service: ExistentialService;
   readonly configPath: string;
-  readonly logger: Logger;
 }
 
 export const executeValidate = (options: ValidateOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, configPath, logger } = options;
+    const { service, configPath } = options;
     const validPath = yield* toAbsolutePathEffect(configPath);
-    logger.info(`Validating configuration: ${validPath}`);
+    yield* Effect.logInfo(`Validating configuration: ${validPath}`);
 
     yield* service.apply((s) =>
       s
         .validate(validPath)
-        .pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() => logger.fail(`Validation failed: ${error.message}`))
-          )
-        )
+        .pipe(Effect.tapError((error) => logFail(`Validation failed: ${error.message}`)))
     );
-    logger.success("Configuration is valid");
+    yield* logSuccess("Configuration is valid");
   });

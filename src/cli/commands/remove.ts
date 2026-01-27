@@ -14,7 +14,7 @@
 import { Effect, Either, Match, pipe } from "effect";
 import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logStep, logSuccess } from "../../lib/log";
 import {
   type AbsolutePath,
   type ServiceName,
@@ -35,14 +35,13 @@ export interface RemoveOptions {
   readonly dryRun: boolean;
   readonly force: boolean;
   readonly preserveData: boolean;
-  readonly logger: Logger;
 }
 
 export const executeRemove = (
   options: RemoveOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, dryRun, force, preserveData, logger } = options;
+    const { service, dryRun, force, preserveData } = options;
     const serviceName = service.definition.name;
 
     yield* requireRoot();
@@ -53,9 +52,7 @@ export const executeRemove = (
     type RemoveResultEffect = Effect.Effect<void, GeneralError | ServiceError | SystemError>;
     return yield* Effect.if(!exists, {
       onTrue: (): RemoveResultEffect =>
-        Effect.sync(() => {
-          logger.warn(`Service user '${username}' does not exist. Nothing to remove.`);
-        }),
+        Effect.logWarning(`Service user '${username}' does not exist. Nothing to remove.`),
       onFalse: (): RemoveResultEffect =>
         Effect.gen(function* () {
           const dataDir = yield* getServiceDataDir(serviceName);
@@ -63,19 +60,19 @@ export const executeRemove = (
 
           return yield* Effect.if(dryRun, {
             onTrue: (): RemoveResultEffect =>
-              Effect.sync(() => {
-                logger.info("Dry-run mode - showing what would be done:");
-                logger.info(`  1. Stop all containers for ${username}`);
-                logger.info("  2. Remove all podman containers, volumes, networks");
-                logger.info(`  3. Disable linger for ${username}`);
-                logger.info(`  4. Stop systemd user service (user@${uid}.service)`);
-                logger.info(`  5. Remove container storage for ${username}`);
-                logger.info(`  6. Kill all processes owned by ${username}`);
-                logger.info(`  7. Delete user ${username} (and home directory)`);
-                pipe(
+              Effect.gen(function* () {
+                yield* Effect.logInfo("Dry-run mode - showing what would be done:");
+                yield* Effect.logInfo(`  1. Stop all containers for ${username}`);
+                yield* Effect.logInfo("  2. Remove all podman containers, volumes, networks");
+                yield* Effect.logInfo(`  3. Disable linger for ${username}`);
+                yield* Effect.logInfo(`  4. Stop systemd user service (user@${uid}.service)`);
+                yield* Effect.logInfo(`  5. Remove container storage for ${username}`);
+                yield* Effect.logInfo(`  6. Kill all processes owned by ${username}`);
+                yield* Effect.logInfo(`  7. Delete user ${username} (and home directory)`);
+                yield* pipe(
                   Match.value(preserveData),
-                  Match.when(true, () => logger.info(`  8. Preserve data directory ${dataDir}`)),
-                  Match.when(false, () => logger.info(`  8. Remove data directory ${dataDir}`)),
+                  Match.when(true, () => Effect.logInfo(`  8. Preserve data directory ${dataDir}`)),
+                  Match.when(false, () => Effect.logInfo(`  8. Remove data directory ${dataDir}`)),
                   Match.exhaustive
                 );
               }),
@@ -85,27 +82,20 @@ export const executeRemove = (
                   Effect.succeed(force),
                   Effect.filterOrFail(
                     (f): f is true => f === true,
-                    () => {
-                      logger.warn(
-                        `This will permanently remove ${serviceName} and delete user ${username}.`
-                      );
-                      return new GeneralError({
+                    () =>
+                      new GeneralError({
                         code: ErrorCode.GENERAL_ERROR,
                         message: "Use --force to confirm removal",
-                      });
-                    }
+                      })
+                  ),
+                  Effect.tapError(() =>
+                    Effect.logWarning(
+                      `This will permanently remove ${serviceName} and delete user ${username}.`
+                    )
                   )
                 );
 
-                yield* doRemoveService(
-                  serviceName,
-                  username,
-                  uid,
-                  homeDir,
-                  dataDir,
-                  preserveData,
-                  logger
-                );
+                yield* doRemoveService(serviceName, username, uid, homeDir, dataDir, preserveData);
               }),
           });
         }),
@@ -118,14 +108,13 @@ const doRemoveService = (
   uid: UserId,
   homeDir: AbsolutePath,
   dataDir: AbsolutePath,
-  preserveData: boolean,
-  logger: Logger
+  preserveData: boolean
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
     const totalSteps = preserveData ? 7 : 8;
 
     // Stop containers before removing resources they hold open
-    logger.step(1, totalSteps, "Stopping containers...");
+    yield* logStep(1, totalSteps, "Stopping containers...");
     yield* Effect.ignore(
       execAsUser(username, uid, ["podman", "stop", "--all", "-t", "10"], {
         captureStdout: true,
@@ -134,42 +123,40 @@ const doRemoveService = (
     );
 
     // Remove podman resources while user session is still active
-    logger.step(2, totalSteps, "Removing containers, volumes, and networks...");
+    yield* logStep(2, totalSteps, "Removing containers, volumes, and networks...");
     yield* cleanupPodmanResources(username, uid);
 
     // Disable linger before stopping user service to prevent auto-restart
-    logger.step(3, totalSteps, "Disabling linger...");
+    yield* logStep(3, totalSteps, "Disabling linger...");
     yield* disableLinger(username).pipe(
-      Effect.tapError((err) =>
-        Effect.sync(() => logger.warn(`Failed to disable linger: ${err.message}`))
-      ),
+      Effect.tapError((err) => Effect.logWarning(`Failed to disable linger: ${err.message}`)),
       Effect.ignore
     );
 
     // Stop systemd user slice; containers and linger must be gone first
-    logger.step(4, totalSteps, "Stopping systemd user service...");
+    yield* logStep(4, totalSteps, "Stopping systemd user service...");
     yield* stopUserService(uid);
 
     // Remove storage after systemd is down to avoid "device busy" errors
-    logger.step(5, totalSteps, "Removing container storage...");
-    yield* cleanupContainerStorage(homeDir, logger);
+    yield* logStep(5, totalSteps, "Removing container storage...");
+    yield* cleanupContainerStorage(homeDir);
 
     // Kill orphaned processes before deleting the user that owns them
-    logger.step(6, totalSteps, "Killing user processes...");
+    yield* logStep(6, totalSteps, "Killing user processes...");
     yield* killUserProcesses(uid);
 
     // Delete user last; userdel fails if processes or mounts remain
-    logger.step(7, totalSteps, "Deleting service user...");
+    yield* logStep(7, totalSteps, "Deleting service user...");
     yield* deleteServiceUser(serviceName);
 
     // Data dir removal is optional; all dependencies are already gone
 
     yield* Effect.when(
       Effect.gen(function* () {
-        logger.step(8, totalSteps, "Removing data directory...");
+        yield* logStep(8, totalSteps, "Removing data directory...");
         yield* removeDirectory(dataDir, true).pipe(
           Effect.tapError((err) =>
-            Effect.sync(() => logger.warn(`Failed to remove data directory: ${err.message}`))
+            Effect.logWarning(`Failed to remove data directory: ${err.message}`)
           ),
           Effect.ignore
         );
@@ -177,7 +164,7 @@ const doRemoveService = (
       () => !preserveData
     );
 
-    logger.success(`Service ${serviceName} removed successfully`);
+    yield* logSuccess(`Service ${serviceName} removed successfully`);
   });
 
 const stopUserService = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
@@ -247,8 +234,7 @@ const cleanupPodmanResources = (
   });
 
 const cleanupContainerStorage = (
-  homeDir: AbsolutePath,
-  logger: Logger
+  homeDir: AbsolutePath
 ): Effect.Effect<void, SystemError | GeneralError> =>
   pipe(
     directoryExists(pathJoin(homeDir, ".local/share/containers/storage")),
@@ -259,7 +245,7 @@ const cleanupContainerStorage = (
             const storageDir = pathJoin(homeDir, ".local/share/containers/storage");
             yield* removeDirectory(storageDir, true).pipe(
               Effect.tapError((err) =>
-                Effect.sync(() => logger.warn(`Failed to remove container storage: ${err.message}`))
+                Effect.logWarning(`Failed to remove container storage: ${err.message}`)
               ),
               Effect.ignore
             );

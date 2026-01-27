@@ -15,7 +15,7 @@
 import { Effect } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import type { DivbanEffectError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import {
   TEMP_PATHS,
   outputConfigDir,
@@ -36,15 +36,14 @@ export interface GenerateOptions {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, configPath, dryRun, verbose, force, logger } = options;
+    const { service, configPath, dryRun, verbose, force } = options;
     const outputDir = options.outputDir ?? ".";
 
-    logger.info(`Generating files for ${service.definition.name}...`);
+    yield* Effect.logInfo(`Generating files for ${service.definition.name}...`);
 
     // Create mock user for preview context (known-valid literals)
     const username = UsernameSchema.make("divban-preview");
@@ -71,13 +70,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
           },
         };
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          prereqs,
-          { dryRun, verbose, force },
-          logger
-        );
+        const layer = createServiceLayer(config, s.configTag, prereqs, { dryRun, verbose, force });
 
         return yield* s.generate().pipe(Effect.provide(layer));
       })
@@ -85,7 +78,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
 
     const dryRunLog = (): Effect.Effect<void, never> =>
       Effect.gen(function* () {
-        logger.info("Would generate the following files:");
+        yield* Effect.logInfo("Would generate the following files:");
         const logLines = [
           ...[...files.quadlets].map(([name]) => `  quadlets/${name}`),
           ...[...files.networks].map(([name]) => `  quadlets/${name}`),
@@ -93,7 +86,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
           ...[...files.environment].map(([name]) => `  config/${name}`),
           ...[...files.other].map(([name]) => `  config/${name}`),
         ];
-        yield* Effect.forEach(logLines, (line) => Effect.sync(() => logger.info(line)), {
+        yield* Effect.forEach(logLines, (line) => Effect.logInfo(line), {
           discard: true,
         });
       });
@@ -104,7 +97,7 @@ export const executeGenerate = (options: GenerateOptions): Effect.Effect<void, D
         yield* ensureDirectory(configDir);
         yield* writeGeneratedFilesPreview(files, quadletDir, configDir);
         const total = getFileCount(files);
-        logger.success(`Generated ${total} files in ${outputDir}/`);
+        yield* logSuccess(`Generated ${total} files in ${outputDir}/`);
       });
 
     yield* Effect.if(dryRun, {

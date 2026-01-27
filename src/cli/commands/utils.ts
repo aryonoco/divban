@@ -7,7 +7,7 @@
 
 /**
  * Command context resolution. Builds the Layer dependencies that
- * service methods need - user info, paths, capabilities, logger.
+ * service methods need - user info, paths, capabilities.
  * Centralizes the boilerplate so each command focuses on its
  * specific logic rather than context setup.
  */
@@ -23,7 +23,6 @@ import {
   ServiceError,
   type SystemError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect, userConfigDir, userDataDir, userQuadletDir } from "../../lib/paths";
 import {
   AbsolutePathSchema,
@@ -36,7 +35,6 @@ import {
   userIdToGroupId,
 } from "../../lib/types";
 import {
-  AppLogger,
   ServiceOptions,
   ServicePaths,
   ServiceUser,
@@ -316,15 +314,13 @@ export const createServiceLayer = <C, I, ConfigTag extends Context.Tag<I, C>>(
   config: C,
   configTag: ConfigTag,
   prereqs: Prerequisites,
-  options: { dryRun: boolean; verbose: boolean; force: boolean },
-  logger: Logger
+  options: { dryRun: boolean; verbose: boolean; force: boolean }
 ): Layer.Layer<
   | Context.Tag.Identifier<ConfigTag>
   | ServicePaths
   | ServiceUser
   | ServiceOptions
   | SystemCapabilities
-  | AppLogger
 > =>
   Layer.mergeAll(
     Layer.succeed(configTag, config),
@@ -335,6 +331,5 @@ export const createServiceLayer = <C, I, ConfigTag extends Context.Tag<I, C>>(
       gid: prereqs.user.gid,
     }),
     Layer.succeed(ServiceOptions, options),
-    Layer.succeed(SystemCapabilities, prereqs.system),
-    Layer.succeed(AppLogger, logger)
+    Layer.succeed(SystemCapabilities, prereqs.system)
   );

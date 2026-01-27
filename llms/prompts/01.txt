@@ -187,4 +187,19 @@ Use a number of async background agents to review all the comments in each file 
 
 Comments should look like they are written by a senior software engineer, not by an LLM. Avoid intricate ASCII formatting, emojis, etc. 
 
-Rewrite the comments of all of these comprehensively based on the above rules. 
+
+
+
+--- 
+
+Read the plan file 
+~/.claude/plans/fizzy-honking-sutherland.md 
+in full
+
+Launch a number of background async agents to determine the exact implementation of the current codebase especially around what the plan file mentions 
+
+Then provide a comprehensive report detailing which part of the plan are: 
+
+1. Fully implemented 
+2. Partially implemented 
+3. Not implemented 

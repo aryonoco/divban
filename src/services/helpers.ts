@@ -26,6 +26,7 @@ import {
 } from "effect";
 import { loadServiceConfig } from "../config/loader";
 import type { ConfigError, GeneralError, ServiceError, SystemError } from "../lib/errors";
+import { logStep, logSuccess } from "../lib/log";
 import { configFilePath, quadletFilePath } from "../lib/paths";
 import {
   type AbsolutePath,
@@ -47,7 +48,7 @@ import {
   startService,
   stopService,
 } from "../system/systemctl";
-import { AppLogger, ServicePaths, ServiceUser } from "./context";
+import { ServicePaths, ServiceUser } from "./context";
 import type { GeneratedFiles, LogOptions, ServiceStatus } from "./types";
 
 // ============================================================================
@@ -394,21 +395,9 @@ export interface SingleContainerConfig {
 }
 
 export interface SingleContainerOps {
-  start: () => Effect.Effect<
-    void,
-    ServiceError | SystemError | GeneralError,
-    ServiceUser | AppLogger
-  >;
-  stop: () => Effect.Effect<
-    void,
-    ServiceError | SystemError | GeneralError,
-    ServiceUser | AppLogger
-  >;
-  restart: () => Effect.Effect<
-    void,
-    ServiceError | SystemError | GeneralError,
-    ServiceUser | AppLogger
-  >;
+  start: () => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
+  stop: () => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
+  restart: () => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
   status: () => Effect.Effect<
     ServiceStatus,
     ServiceError | SystemError | GeneralError,
@@ -423,46 +412,31 @@ export const createSingleContainerOps = (config: SingleContainerConfig): SingleC
   const unit = `${config.containerName}.service`;
 
   return {
-    start: (): Effect.Effect<
-      void,
-      ServiceError | SystemError | GeneralError,
-      ServiceUser | AppLogger
-    > =>
+    start: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
       Effect.gen(function* () {
         const user = yield* ServiceUser;
-        const logger = yield* AppLogger;
 
-        logger.info(`Starting ${config.displayName}...`);
+        yield* Effect.logInfo(`Starting ${config.displayName}...`);
         yield* startService(unit, { user: user.name, uid: user.uid });
-        logger.success(`${config.displayName} started successfully`);
+        yield* logSuccess(`${config.displayName} started successfully`);
       }),
 
-    stop: (): Effect.Effect<
-      void,
-      ServiceError | SystemError | GeneralError,
-      ServiceUser | AppLogger
-    > =>
+    stop: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
       Effect.gen(function* () {
         const user = yield* ServiceUser;
-        const logger = yield* AppLogger;
 
-        logger.info(`Stopping ${config.displayName}...`);
+        yield* Effect.logInfo(`Stopping ${config.displayName}...`);
         yield* stopService(unit, { user: user.name, uid: user.uid });
-        logger.success(`${config.displayName} stopped successfully`);
+        yield* logSuccess(`${config.displayName} stopped successfully`);
       }),
 
-    restart: (): Effect.Effect<
-      void,
-      ServiceError | SystemError | GeneralError,
-      ServiceUser | AppLogger
-    > =>
+    restart: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
       Effect.gen(function* () {
         const user = yield* ServiceUser;
-        const logger = yield* AppLogger;
 
-        logger.info(`Restarting ${config.displayName}...`);
+        yield* Effect.logInfo(`Restarting ${config.displayName}...`);
         yield* restartService(unit, { user: user.name, uid: user.uid });
-        logger.success(`${config.displayName} restarted successfully`);
+        yield* logSuccess(`${config.displayName} restarted successfully`);
       }),
 
     status: (): Effect.Effect<
@@ -661,7 +635,7 @@ export interface PipelineBuilder<S, Acc, E, R> {
    * Execute the pipeline within a scope.
    * Registers finalizers for resource cleanup.
    */
-  readonly execute: (initialState: S) => Effect.Effect<void, E, R | AppLogger>;
+  readonly execute: (initialState: S) => Effect.Effect<void, E, R>;
 
   /**
    * Get the number of steps in the pipeline.
@@ -694,17 +668,16 @@ interface IndexedStep {
  * Uses Option.match for exhaustive handling of release presence.
  *
  * The cast is necessary because Effect.gen cannot infer the full context type
- * when mixing AppLogger with dynamic step requirements (unknown from StoredStep).
+ * when mixing Scope with dynamic step requirements (unknown from StoredStep).
  */
 const executeOneStep = (
   step: StoredStep,
   stateIn: object,
   stepNumber: number,
   totalSteps: number
-): Effect.Effect<object, unknown, Scope.Scope | AppLogger> =>
+): Effect.Effect<object, unknown, Scope.Scope> =>
   Effect.gen(function* () {
-    const logger = yield* AppLogger;
-    logger.step(stepNumber, totalSteps, step.message);
+    yield* logStep(stepNumber, totalSteps, step.message);
 
     // Immutable snapshot for release closure
     const capturedStateIn: object = { ...stateIn };
@@ -721,7 +694,7 @@ const executeOneStep = (
     );
 
     return { ...stateIn, ...output };
-  }) as Effect.Effect<object, unknown, Scope.Scope | AppLogger>;
+  }) as Effect.Effect<object, unknown, Scope.Scope>;
 
 /**
  * Execute all steps in sequence, building the Effect chain incrementally.
@@ -735,7 +708,7 @@ const executeOneStep = (
 const executePipeline = (
   steps: readonly StoredStep[],
   initialState: object
-): Effect.Effect<void, unknown, Scope.Scope | AppLogger> =>
+): Effect.Effect<void, unknown, Scope.Scope> =>
   Effect.gen(function* () {
     const totalSteps = steps.length;
 
@@ -752,7 +725,7 @@ const executePipeline = (
     const chainedEffect = pipe(
       indexedSteps,
       Arr.reduce(
-        Effect.succeed(initialState) as Effect.Effect<object, unknown, Scope.Scope | AppLogger>,
+        Effect.succeed(initialState) as Effect.Effect<object, unknown, Scope.Scope>,
         (accEffect, { step, index }) =>
           Effect.flatMap(accEffect, (currentState) =>
             executeOneStep(step, currentState, index, totalSteps)
@@ -762,8 +735,7 @@ const executePipeline = (
 
     yield* chainedEffect;
 
-    const logger = yield* AppLogger;
-    logger.success("Setup completed successfully");
+    yield* logSuccess("Setup completed successfully");
   });
 
 /**
@@ -791,12 +763,8 @@ const createBuilder = <S, Acc, E, R>(
       } satisfies StoredStep)
     ),
 
-  execute: (initialState: S): Effect.Effect<void, E, R | AppLogger> =>
-    Effect.scoped(executePipeline(steps, initialState as object)) as Effect.Effect<
-      void,
-      E,
-      R | AppLogger
-    >,
+  execute: (initialState: S): Effect.Effect<void, E, R> =>
+    Effect.scoped(executePipeline(steps, initialState as object)) as Effect.Effect<void, E, R>,
 });
 
 /**
@@ -851,8 +819,6 @@ export const writeGeneratedFilesPreview = (
     const otherOps = [...files.other].map(([filename, content]) =>
       writeFile(configFilePath(configDir, filename), content)
     );
-
-    // Execute all sequentially
     const allOps = [...quadletOps, ...networkOps, ...volumeOps, ...envOps, ...otherOps];
     yield* Effect.all(allOps, { concurrency: 1 });
   });

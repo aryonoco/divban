@@ -15,7 +15,7 @@
 import { Effect, Match, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, ServiceError, type SystemError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import type { ServiceName, UserId, Username } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
 import { exec } from "../../system/exec";
@@ -24,13 +24,11 @@ import { getUserByName } from "../../system/user";
 export interface UpdateOptions {
   readonly service: ExistentialService;
   readonly dryRun: boolean;
-  readonly logger: Logger;
 }
 
 interface UpdateContext {
   readonly username: Username;
   readonly uid: UserId;
-  readonly logger: Logger;
   readonly serviceName: ServiceName;
 }
 
@@ -142,24 +140,20 @@ const handleUpdateResult = (
 ): Effect.Effect<void, GeneralError | SystemError> =>
   pipe(
     Match.value(status),
-    Match.when({ kind: "NoUpdates" }, () =>
-      Effect.sync(() => context.logger.info("No updates available"))
-    ),
-    Match.when({ kind: "UpToDate" }, () =>
-      Effect.sync(() => context.logger.info("All images are up to date"))
-    ),
+    Match.when({ kind: "NoUpdates" }, () => Effect.logInfo("No updates available")),
+    Match.when({ kind: "UpToDate" }, () => Effect.logInfo("All images are up to date")),
     Match.when({ kind: "UpdatesAvailable" }, () =>
       Effect.gen(function* () {
-        context.logger.info("Updates available. Applying...");
+        yield* Effect.logInfo("Updates available. Applying...");
         yield* applyUpdates(context);
-        context.logger.success("Updates applied successfully");
+        yield* logSuccess("Updates applied successfully");
       })
     ),
     Match.exhaustive
   );
 
-const handleDryRun = (logger: Logger): Effect.Effect<void> =>
-  Effect.sync(() => logger.info("Dry run - would check for updates and restart if needed"));
+const handleDryRun = (): Effect.Effect<void> =>
+  Effect.logInfo("Dry run - would check for updates and restart if needed");
 
 const performUpdate = (context: UpdateContext): Effect.Effect<void, GeneralError | SystemError> =>
   Effect.gen(function* () {
@@ -172,14 +166,14 @@ export const executeUpdate = (
   options: UpdateOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, dryRun, logger } = options;
+    const { service, dryRun } = options;
 
     const { username, uid } = yield* resolveUpdateServiceUser(service.definition.name);
-    logger.info(`Updating ${service.definition.name} containers...`);
+    yield* Effect.logInfo(`Updating ${service.definition.name} containers...`);
 
     yield* Effect.if(dryRun, {
-      onTrue: (): Effect.Effect<void> => handleDryRun(logger),
+      onTrue: (): Effect.Effect<void> => handleDryRun(),
       onFalse: (): Effect.Effect<void, GeneralError | SystemError> =>
-        performUpdate({ username, uid, logger, serviceName: service.definition.name }),
+        performUpdate({ username, uid, serviceName: service.definition.name }),
     });
   });

@@ -28,7 +28,7 @@ import {
   generateVolumeQuadlet,
   processVolumes,
 } from "../../quadlet";
-import { AppLogger, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
+import { ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -246,7 +246,7 @@ const enableServicesStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  CaddyConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(generateStep)
@@ -257,16 +257,14 @@ const setup = (): Effect.Effect<
 const reload = (): Effect.Effect<
   void,
   ConfigError | ServiceError | SystemError | GeneralError,
-  CaddyConfigTag | ServiceUser | AppLogger
+  CaddyConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
     yield* reloadCaddy({
       user: user.name,
       uid: user.uid,
-      logger,
       containerName: "caddy",
     });
   });

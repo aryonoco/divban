@@ -25,7 +25,7 @@ import {
   ServiceError,
   type SystemError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess, writeOutput } from "../../lib/log";
 import { toAbsolutePathEffect, userConfigDir } from "../../lib/paths";
 import { type AbsolutePath, type ServiceName, pathJoin, serviceName } from "../../lib/types";
 import { DIVBAN_PRODUCER_NAME, DIVBAN_VERSION } from "../../lib/version";
@@ -46,7 +46,6 @@ export interface BackupConfigOptions {
   readonly outputPath: string | undefined;
   readonly dryRun: boolean;
   readonly format: "pretty" | "json";
-  readonly logger: Logger;
 }
 
 /** Tuple of [archive-relative path, raw bytes] for tar archive construction. */
@@ -241,13 +240,13 @@ export const executeBackupConfig = (
   options: BackupConfigOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>
   Effect.gen(function* () {
-    const { service, outputPath, dryRun, format, logger } = options;
+    const { service, outputPath, dryRun, format } = options;
     const svcName = service.definition.name;
     const isAll = svcName === "all";
 
     const configDir = yield* resolveConfigDir(svcName);
 
-    logger.info("Collecting configuration files...");
+    yield* Effect.logInfo("Collecting configuration files...");
     const files = yield* Effect.if(isAll, {
       onTrue: (): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
         collectAllConfigFiles(configDir),
@@ -272,18 +271,18 @@ export const executeBackupConfig = (
           return yield* Effect.if(dryRun, {
             onTrue: (): Effect.Effect<void> =>
               Effect.gen(function* () {
-                logger.info(`Dry run - would create backup at: ${resolvedOutputPath}`);
-                logger.info("Files to include:");
-                yield* Effect.forEach(
-                  fileNames,
-                  (file) => Effect.sync(() => logger.info(`  - ${file}`)),
-                  { discard: true }
-                );
+                yield* Effect.logInfo(`Dry run - would create backup at: ${resolvedOutputPath}`);
+                yield* Effect.logInfo("Files to include:");
+                yield* Effect.forEach(fileNames, (file) => Effect.logInfo(`  - ${file}`), {
+                  discard: true,
+                });
               }),
             onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
               Effect.gen(function* () {
-                logger.warn("WARNING: This backup contains encryption keys and secrets.");
-                logger.warn(
+                yield* Effect.logWarning(
+                  "WARNING: This backup contains encryption keys and secrets."
+                );
+                yield* Effect.logWarning(
                   "Treat this file like a password - store it securely and do not share it."
                 );
 
@@ -296,7 +295,7 @@ export const executeBackupConfig = (
                   files: fileNames,
                 };
 
-                logger.info("Creating archive...");
+                yield* Effect.logInfo("Creating archive...");
                 const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
 
                 yield* writeBytes(resolvedOutputPath, archiveData);
@@ -304,22 +303,20 @@ export const executeBackupConfig = (
                 yield* pipe(
                   Match.value(format),
                   Match.when("json", () =>
-                    Effect.sync(() =>
-                      logger.raw(
-                        JSON.stringify({
-                          path: resolvedOutputPath,
-                          size: archiveData.length,
-                          files: fileNames,
-                          timestamp: metadata.timestamp,
-                        })
-                      )
+                    writeOutput(
+                      JSON.stringify({
+                        path: resolvedOutputPath,
+                        size: archiveData.length,
+                        files: fileNames,
+                        timestamp: metadata.timestamp,
+                      })
                     )
                   ),
                   Match.when("pretty", () =>
-                    Effect.sync(() => {
-                      logger.success(`Configuration backup created: ${resolvedOutputPath}`);
-                      logger.info(`  Size: ${formatBytes(archiveData.length)}`);
-                      logger.info(`  Files: ${fileNames.length}`);
+                    Effect.gen(function* () {
+                      yield* logSuccess(`Configuration backup created: ${resolvedOutputPath}`);
+                      yield* Effect.logInfo(`  Size: ${formatBytes(archiveData.length)}`);
+                      yield* Effect.logInfo(`  Files: ${fileNames.length}`);
                     })
                   ),
                   Match.exhaustive

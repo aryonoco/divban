@@ -14,7 +14,6 @@ import type {
   ServiceError,
   SystemError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
 import { configFilePath } from "../../lib/paths";
 import {
   type AbsolutePath,
@@ -42,13 +41,7 @@ import {
   getPodmanSecretName,
 } from "../../system/secrets";
 import { journalctl } from "../../system/systemctl";
-import {
-  AppLogger,
-  ServiceOptions,
-  ServicePaths,
-  ServiceUser,
-  SystemCapabilities,
-} from "../context";
+import { ServiceOptions, ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -434,7 +427,7 @@ const enableServicesStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | ContainerError | GeneralError,
-  ImmichConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  ImmichConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(secretsStep)
@@ -447,12 +440,11 @@ const setup = (): Effect.Effect<
 const start = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | AppLogger
+  ImmichConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const baseContainers: StackContainer[] = [
@@ -472,18 +464,17 @@ const start = (): Effect.Effect<
     );
 
     const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
-    yield* startStack(stack, { user: user.name, uid: user.uid, logger });
+    yield* startStack(stack, { user: user.name, uid: user.uid });
   });
 
 const stop = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | AppLogger
+  ImmichConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
     const mlEnabled = config.containers?.machineLearning?.enabled !== false;
     const baseContainers: StackContainer[] = [
@@ -501,17 +492,16 @@ const stop = (): Effect.Effect<
     );
 
     const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
-    yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
+    yield* stopStack(stack, { user: user.name, uid: user.uid });
   });
 
 const restart = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | AppLogger
+  ImmichConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
-    const logger = yield* AppLogger;
-    logger.info("Restarting Immich...");
+    yield* Effect.logInfo("Restarting Immich...");
     yield* stop();
     yield* start();
   });
@@ -537,22 +527,9 @@ const status = (): Effect.Effect<
     );
 
     const stack = createStack({ name: SERVICE_NAME, containers: [...containers] });
-    // Note: getStackStatus requires logger but we can use a no-op one since status is just a query
-    const noopLogger: Logger = {
-      debug: () => undefined,
-      info: () => undefined,
-      warn: () => undefined,
-      error: () => undefined,
-      success: () => undefined,
-      fail: () => undefined,
-      step: () => undefined,
-      raw: () => undefined,
-      child: () => noopLogger,
-    };
     const containerStatuses = yield* getStackStatus(stack, {
       user: user.name,
       uid: user.uid,
-      logger: noopLogger,
     });
 
     const allRunning = containerStatuses.every((c) => c.running);
@@ -587,7 +564,7 @@ const logs = (
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | ServiceError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | ServiceOptions | AppLogger
+  ImmichConfigTag | ServiceUser | ServiceOptions
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;
@@ -610,7 +587,7 @@ const restore = (
 ): Effect.Effect<
   void,
   BackupError | ServiceError | SystemError | GeneralError,
-  ImmichConfigTag | ServiceUser | AppLogger
+  ImmichConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* ImmichConfigTag;

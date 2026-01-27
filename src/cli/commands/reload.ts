@@ -14,7 +14,7 @@
 
 import { Effect, Option } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import type { ExistentialService } from "../../services/types";
 import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
@@ -23,23 +23,19 @@ export interface ReloadOptions {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeReload = (options: ReloadOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, dryRun, verbose, force, logger } = options;
+    const { service, dryRun, verbose, force } = options;
 
     return yield* Effect.if(service.definition.capabilities.hasReload, {
       onTrue: (): Effect.Effect<void, DivbanEffectError> =>
         Effect.if(dryRun, {
-          onTrue: (): Effect.Effect<void> =>
-            Effect.sync(() => {
-              logger.info("Dry run - would reload configuration");
-            }),
+          onTrue: (): Effect.Effect<void> => Effect.logInfo("Dry run - would reload configuration"),
           onFalse: (): Effect.Effect<void, DivbanEffectError> =>
             Effect.gen(function* () {
-              logger.info(`Reloading ${service.definition.name} configuration...`);
+              yield* Effect.logInfo(`Reloading ${service.definition.name} configuration...`);
 
               const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -56,8 +52,7 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     config,
                     s.configTag,
                     { ...prereqs, paths: updatedPaths },
-                    { dryRun, verbose, force },
-                    logger
+                    { dryRun, verbose, force }
                   );
 
                   yield* Option.match(Option.fromNullable(s.reload), {
@@ -74,7 +69,7 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                 })
               );
 
-              logger.success("Configuration reloaded successfully");
+              yield* logSuccess("Configuration reloaded successfully");
             }),
         }),
       onFalse: (): Effect.Effect<void, GeneralError> =>

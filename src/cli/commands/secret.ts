@@ -21,7 +21,7 @@ import {
   type ServiceError,
   type SystemError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { writeOutput } from "../../lib/log";
 import type { ExistentialService } from "../../services/types";
 import { getServiceSecret, listServiceSecrets } from "../../system/secrets";
 import { getUserByName } from "../../system/user";
@@ -29,20 +29,18 @@ import { getUserByName } from "../../system/user";
 export interface SecretShowOptions {
   readonly service: ExistentialService;
   readonly secretName: string;
-  readonly logger: Logger;
 }
 
 export interface SecretListOptions {
   readonly service: ExistentialService;
   readonly format: "pretty" | "json";
-  readonly logger: Logger;
 }
 
 export const executeSecretShow = (
   options: SecretShowOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, secretName, logger } = options;
+    const { service, secretName } = options;
     const svcName = service.definition.name;
 
     const username = yield* getServiceUsername(svcName);
@@ -57,14 +55,14 @@ export const executeSecretShow = (
       )
     );
     const secretValue = yield* getServiceSecret(svcName, secretName, homeDir);
-    logger.raw(secretValue);
+    yield* writeOutput(secretValue);
   });
 
 export const executeSecretList = (
   options: SecretListOptions
 ): Effect.Effect<void, GeneralError | ContainerError | ServiceError | SystemError> =>
   Effect.gen(function* () {
-    const { service, format, logger } = options;
+    const { service, format } = options;
     const svcName = service.definition.name;
 
     const username = yield* getServiceUsername(svcName);
@@ -82,13 +80,11 @@ export const executeSecretList = (
 
     yield* pipe(
       Match.value(format),
-      Match.when("json", () =>
-        Effect.sync(() => logger.raw(JSON.stringify({ service: svcName, secrets })))
-      ),
+      Match.when("json", () => writeOutput(JSON.stringify({ service: svcName, secrets }))),
       Match.when("pretty", () =>
         Effect.gen(function* () {
-          logger.info(`Secrets for ${svcName}:`);
-          yield* Effect.forEach(secrets, (name) => Effect.sync(() => logger.raw(`  - ${name}`)), {
+          yield* Effect.logInfo(`Secrets for ${svcName}:`);
+          yield* Effect.forEach(secrets, (name) => writeOutput(`  - ${name}`), {
             discard: true,
           });
         })

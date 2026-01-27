@@ -66,13 +66,7 @@ export type {
 
 export { mkExistentialService } from "./types";
 
-export {
-  AppLogger,
-  ServiceOptions,
-  ServicePaths,
-  ServiceUser,
-  SystemCapabilities,
-} from "./context";
+export { ServiceOptions, ServicePaths, ServiceUser, SystemCapabilities } from "./context";
 
 export { createGeneratedFiles, getFileCount, mergeGeneratedFiles } from "./types";
 

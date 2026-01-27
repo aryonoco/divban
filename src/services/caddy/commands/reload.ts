@@ -19,7 +19,7 @@ import {
   ServiceError,
   SystemError,
 } from "../../../lib/errors";
-import type { Logger } from "../../../lib/logger";
+import { logSuccess } from "../../../lib/log";
 import { isTransientSystemError, systemRetrySchedule } from "../../../lib/retry";
 import type { UserId, Username } from "../../../lib/types";
 import { execAsUser } from "../../../system/exec";
@@ -29,8 +29,6 @@ export interface ReloadOptions {
   user: Username;
   /** Service user UID */
   uid: UserId;
-  /** Logger instance */
-  logger: Logger;
   /** Container name (default: caddy) */
   containerName?: string;
 }
@@ -41,10 +39,10 @@ export const reloadCaddy = (
   options: ReloadOptions
 ): Effect.Effect<void, ConfigError | ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger, user, uid, containerName = "caddy" } = options;
+    const { user, uid, containerName = "caddy" } = options;
     const containerCaddyfile = "/etc/caddy/Caddyfile";
 
-    logger.info("Validating Caddyfile...");
+    yield* Effect.logInfo("Validating Caddyfile...");
 
     const validateResult = yield* execAsUser(
       user,
@@ -74,7 +72,7 @@ export const reloadCaddy = (
       )
     );
 
-    logger.info("Caddyfile is valid, reloading...");
+    yield* Effect.logInfo("Caddyfile is valid, reloading...");
 
     const reloadResult = yield* execAsUser(
       user,
@@ -104,7 +102,7 @@ export const reloadCaddy = (
       )
     );
 
-    logger.success("Caddy configuration reloaded successfully");
+    yield* logSuccess("Caddy configuration reloaded successfully");
   });
 
 // Dry-run validation for CI pipelines or pre-reload checks

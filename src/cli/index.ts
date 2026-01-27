@@ -19,8 +19,9 @@ import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
+import { DivbanLoggerLive } from "../lib/effect-logger";
 import { type ConfigError, type DivbanEffectError, ErrorCode, GeneralError } from "../lib/errors";
-import { type Logger, createLogger } from "../lib/logger";
+import { logFail } from "../lib/log";
 import { toAbsolutePathEffect } from "../lib/paths";
 import type { AbsolutePath } from "../lib/types";
 import { DIVBAN_VERSION } from "../lib/version";
@@ -63,9 +64,10 @@ import {
 } from "./options";
 
 interface CommandContext {
-  readonly logger: Logger;
   readonly globalConfig: GlobalConfig;
   readonly format: "pretty" | "json";
+  readonly logLevel: "debug" | "info" | "warn" | "error";
+  readonly logFormat: "pretty" | "json";
 }
 
 // --- Context resolution ---
@@ -95,12 +97,7 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
     );
     const effectiveLogFormat = resolveLogFormat(format, envConfig, loggingSettings.format);
 
-    const logger = createLogger({
-      level: effectiveLogLevel,
-      format: effectiveLogFormat,
-    });
-
-    return { logger, globalConfig, format };
+    return { globalConfig, format, logLevel: effectiveLogLevel, logFormat: effectiveLogFormat };
   });
 
 // --- Error display ---
@@ -108,14 +105,20 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
 const isDivbanError = (err: unknown): err is DivbanEffectError =>
   typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
 
-const displayError = (err: unknown, logger: Logger, format: "pretty" | "json"): void => {
+const displayError = (err: unknown, format: "pretty" | "json"): void => {
   if (!isDivbanError(err)) {
     return;
   }
   pipe(
     Match.value(format),
-    Match.when("json", () => logger.raw(JSON.stringify({ error: err.message, code: err.code }))),
-    Match.when("pretty", () => logger.fail(err.message)),
+    Match.when("json", () =>
+      process.stdout.write(`${JSON.stringify({ error: err.message, code: err.code })}\n`)
+    ),
+    Match.when("pretty", () => {
+      const red = Bun.color("red", "ansi");
+      const prefix = red ? `${red}✗\x1b[0m` : "✗";
+      process.stderr.write(`${prefix} ${err.message}\n`);
+    }),
     Match.exhaustive
   );
 };
@@ -135,7 +138,13 @@ const runCommand = (
     const ctx = yield* resolveContext(globals);
     yield* pipe(
       handler(ctx),
-      Effect.tapError((err) => Effect.sync(() => displayError(err, ctx.logger, ctx.format)))
+      Effect.tapError((err) => Effect.sync(() => displayError(err, ctx.format))),
+      Effect.provide(
+        DivbanLoggerLive({
+          level: ctx.logLevel,
+          format: ctx.logFormat,
+        })
+      )
     );
   });
 
@@ -143,45 +152,45 @@ const runCommand = (
 
 const runServiceForAll = (
   serviceDef: ServiceDefinition,
-  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>,
-  logger: Logger
+  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>
 ): Effect.Effect<Option.Option<number>, never> =>
   Effect.gen(function* () {
     const serviceResult = yield* Effect.either(getService(serviceDef.name));
     return yield* Either.match(serviceResult, {
-      onLeft: (err): Effect.Effect<Option.Option<number>, never> => {
-        logger.warn(`Skipping ${serviceDef.name}: ${err.message}`);
-        return Effect.succeed(Option.none<number>());
-      },
+      onLeft: (err): Effect.Effect<Option.Option<number>, never> =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning(`Skipping ${serviceDef.name}: ${err.message}`);
+          return Option.none<number>();
+        }),
       onRight: (service): Effect.Effect<Option.Option<number>, never> =>
         Effect.gen(function* () {
-          logger.info(`\n=== ${serviceDef.name} ===`);
+          yield* Effect.logInfo(`\n=== ${serviceDef.name} ===`);
           const result = yield* Effect.either(runSingle(service));
-          return Either.match(result, {
-            onLeft: (e): Option.Option<number> => {
-              if (!isDivbanError(e)) {
-                logger.fail(`${serviceDef.name}: Unknown error`);
-                return Option.some(1);
-              }
-              logger.fail(`${serviceDef.name}: ${e.message}`);
-              return Option.some(e.code);
-            },
-            onRight: (): Option.Option<number> => Option.none(),
+          return yield* Either.match(result, {
+            onLeft: (e): Effect.Effect<Option.Option<number>, never> =>
+              Effect.gen(function* () {
+                if (!isDivbanError(e)) {
+                  yield* logFail(`${serviceDef.name}: Unknown error`);
+                  return Option.some(1);
+                }
+                yield* logFail(`${serviceDef.name}: ${e.message}`);
+                return Option.some(e.code);
+              }),
+            onRight: (): Effect.Effect<Option.Option<number>, never> =>
+              Effect.succeed(Option.none()),
           });
         }),
     });
   });
 
 const runOnAllServices = (
-  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>,
-  logger: Logger
+  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>
 ): Effect.Effect<void, GeneralError> =>
   Effect.gen(function* () {
     const services = listServices();
 
     yield* Effect.if(services.length === 0, {
-      onTrue: (): Effect.Effect<void, never> =>
-        Effect.sync(() => logger.warn("No services registered")),
+      onTrue: (): Effect.Effect<void, never> => Effect.logWarning("No services registered"),
       onFalse: (): Effect.Effect<void, GeneralError> =>
         Effect.gen(function* () {
           const firstError = yield* Effect.reduce(
@@ -189,7 +198,7 @@ const runOnAllServices = (
             Option.none<number>(),
             (acc, serviceDef) =>
               pipe(
-                runServiceForAll(serviceDef, runSingle, logger),
+                runServiceForAll(serviceDef, runSingle),
                 Effect.map((errorOpt) =>
                   Option.match(acc, {
                     onSome: (): Option.Option<number> => acc,
@@ -217,11 +226,10 @@ const runOnAllServices = (
 const requireServiceOrAll = (
   serviceOpt: Option.Option<string>,
   all: boolean,
-  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>,
-  logger: Logger
+  runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>
 ): Effect.Effect<void, unknown> =>
   Effect.if(all, {
-    onTrue: (): Effect.Effect<void, GeneralError> => runOnAllServices(runSingle, logger),
+    onTrue: (): Effect.Effect<void, GeneralError> => runOnAllServices(runSingle),
     onFalse: (): Effect.Effect<void, unknown> =>
       Option.match(serviceOpt, {
         onNone: (): Effect.Effect<void, GeneralError> =>
@@ -245,10 +253,10 @@ const validateCmd = Command.make(
   "validate",
   { ...globalOptions, service: serviceArg, config: configArg },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
-        yield* executeValidate({ service, configPath: args.config, logger: ctx.logger });
+        yield* executeValidate({ service, configPath: args.config });
       })
     )
 ).pipe(Command.withDescription("Validate a service configuration file"));
@@ -257,7 +265,7 @@ const generateCmd = Command.make(
   "generate",
   { ...globalOptions, service: serviceArg, config: configArg, outputDir },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeGenerate({
@@ -267,7 +275,6 @@ const generateCmd = Command.make(
           dryRun: args.dryRun,
           verbose: args.verbose,
           force: args.force,
-          logger: ctx.logger,
         });
       })
     )
@@ -277,7 +284,7 @@ const diffCmd = Command.make(
   "diff",
   { ...globalOptions, service: serviceArg, config: configArg },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeDiff({
@@ -286,7 +293,6 @@ const diffCmd = Command.make(
           verbose: args.verbose,
           dryRun: args.dryRun,
           force: args.force,
-          logger: ctx.logger,
         });
       })
     )
@@ -305,7 +311,6 @@ const setupCmd = Command.make(
           dryRun: args.dryRun,
           force: args.force,
           verbose: args.verbose,
-          logger: ctx.logger,
           globalConfig: ctx.globalConfig,
         });
       })
@@ -316,19 +321,14 @@ const startCmd = Command.make(
   "start",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeStart({
-            service,
-            dryRun: args.dryRun,
-            verbose: args.verbose,
-            force: args.force,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+    runCommand(args, (_ctx) =>
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeStart({
+          service,
+          dryRun: args.dryRun,
+          verbose: args.verbose,
+          force: args.force,
+        })
       )
     )
 ).pipe(Command.withDescription("Start a service"));
@@ -337,19 +337,14 @@ const stopCmd = Command.make(
   "stop",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeStop({
-            service,
-            dryRun: args.dryRun,
-            verbose: args.verbose,
-            force: args.force,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+    runCommand(args, (_ctx) =>
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeStop({
+          service,
+          dryRun: args.dryRun,
+          verbose: args.verbose,
+          force: args.force,
+        })
       )
     )
 ).pipe(Command.withDescription("Stop a service"));
@@ -358,25 +353,20 @@ const restartCmd = Command.make(
   "restart",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeRestart({
-            service,
-            dryRun: args.dryRun,
-            verbose: args.verbose,
-            force: args.force,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+    runCommand(args, (_ctx) =>
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeRestart({
+          service,
+          dryRun: args.dryRun,
+          verbose: args.verbose,
+          force: args.force,
+        })
       )
     )
 ).pipe(Command.withDescription("Restart a service"));
 
 const reloadCmd = Command.make("reload", { ...globalOptions, service: serviceArg }, (args) =>
-  runCommand(args, (ctx) =>
+  runCommand(args, (_ctx) =>
     Effect.gen(function* () {
       const service = yield* getService(args.service);
       yield* executeReload({
@@ -384,7 +374,6 @@ const reloadCmd = Command.make("reload", { ...globalOptions, service: serviceArg
         dryRun: args.dryRun,
         verbose: args.verbose,
         force: args.force,
-        logger: ctx.logger,
       });
     })
   )
@@ -395,19 +384,14 @@ const statusCmd = Command.make(
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
     runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeStatus({
-            service,
-            format: ctx.format,
-            dryRun: args.dryRun,
-            verbose: args.verbose,
-            force: args.force,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeStatus({
+          service,
+          format: ctx.format,
+          dryRun: args.dryRun,
+          verbose: args.verbose,
+          force: args.force,
+        })
       )
     )
 ).pipe(Command.withDescription("Show service status"));
@@ -416,7 +400,7 @@ const logsCmd = Command.make(
   "logs",
   { ...globalOptions, service: serviceArg, follow, lines, container },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeLogs({
@@ -427,7 +411,6 @@ const logsCmd = Command.make(
           dryRun: args.dryRun,
           verbose: args.verbose,
           force: args.force,
-          logger: ctx.logger,
         });
       })
     )
@@ -437,17 +420,12 @@ const updateCmd = Command.make(
   "update",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeUpdate({
-            service,
-            dryRun: args.dryRun,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+    runCommand(args, (_ctx) =>
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeUpdate({
+          service,
+          dryRun: args.dryRun,
+        })
       )
     )
 ).pipe(Command.withDescription("Check for and apply container image updates"));
@@ -457,19 +435,14 @@ const backupCmd = Command.make(
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
     runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeBackup({
-            service,
-            dryRun: args.dryRun,
-            format: ctx.format,
-            verbose: args.verbose,
-            force: args.force,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeBackup({
+          service,
+          dryRun: args.dryRun,
+          format: ctx.format,
+          verbose: args.verbose,
+          force: args.force,
+        })
       )
     )
 ).pipe(Command.withDescription("Create a service data backup"));
@@ -479,18 +452,13 @@ const backupConfigCmd = Command.make(
   { ...globalOptions, service: optionalServiceArg, outputPath: optionalConfigArg, all: allFlag },
   (args) =>
     runCommand(args, (ctx) =>
-      requireServiceOrAll(
-        args.service,
-        args.all,
-        (service) =>
-          executeBackupConfig({
-            service,
-            outputPath: Option.getOrUndefined(args.outputPath),
-            dryRun: args.dryRun,
-            format: ctx.format,
-            logger: ctx.logger,
-          }),
-        ctx.logger
+      requireServiceOrAll(args.service, args.all, (service) =>
+        executeBackupConfig({
+          service,
+          outputPath: Option.getOrUndefined(args.outputPath),
+          dryRun: args.dryRun,
+          format: ctx.format,
+        })
       )
     )
 ).pipe(Command.withDescription("Back up service configuration files"));
@@ -509,7 +477,6 @@ const restoreCmd = Command.make(
           force: args.force,
           format: ctx.format,
           verbose: args.verbose,
-          logger: ctx.logger,
         });
       })
     )
@@ -519,7 +486,7 @@ const removeCmd = Command.make(
   "remove",
   { ...globalOptions, service: serviceArg, preserveData },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeRemove({
@@ -527,7 +494,6 @@ const removeCmd = Command.make(
           dryRun: args.dryRun,
           force: args.force,
           preserveData: args.preserveData,
-          logger: ctx.logger,
         });
       })
     )
@@ -539,13 +505,12 @@ const secretShowCmd = Command.make(
   "show",
   { ...globalOptions, service: serviceArg, name: secretNameArg },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeSecretShow({
           service,
           secretName: args.name,
-          logger: ctx.logger,
         });
       })
     )
@@ -558,7 +523,6 @@ const secretListCmd = Command.make("list", { ...globalOptions, service: serviceA
       yield* executeSecretList({
         service,
         format: ctx.format,
-        logger: ctx.logger,
       });
     })
   )

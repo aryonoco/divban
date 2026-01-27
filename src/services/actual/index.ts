@@ -24,13 +24,7 @@ import {
 import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
-import {
-  type AppLogger,
-  ServiceOptions,
-  type ServicePaths,
-  ServiceUser,
-  SystemCapabilities,
-} from "../context";
+import { ServiceOptions, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -102,8 +96,6 @@ const generate = (): Effect.Effect<
           container: 5006,
         },
       ],
-
-      // Volumes
       volumes: relabelVolumes(
         [
           {
@@ -113,8 +105,6 @@ const generate = (): Effect.Effect<
         ],
         system.selinuxEnforcing
       ),
-
-      // User namespace
       userNs: {
         mode: "keep-id",
       },
@@ -250,7 +240,7 @@ const enableServicesStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  ActualConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  ActualConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(generateStep)
@@ -262,7 +252,7 @@ const setup = (): Effect.Effect<
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | ServiceError | SystemError | GeneralError,
-  ActualConfigTag | ServiceUser | ServiceOptions | AppLogger
+  ActualConfigTag | ServiceUser | ServiceOptions
 > =>
   Effect.gen(function* () {
     const config = yield* ActualConfigTag;
@@ -285,7 +275,7 @@ const restore = (
 ): Effect.Effect<
   void,
   BackupError | ServiceError | SystemError | GeneralError,
-  ActualConfigTag | ServiceUser | AppLogger
+  ActualConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* ActualConfigTag;

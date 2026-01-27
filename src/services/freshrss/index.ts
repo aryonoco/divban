@@ -17,13 +17,7 @@ import { type AbsolutePath, containerName, duration, pathJoin, serviceName } fro
 import { createHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
-import {
-  type AppLogger,
-  ServiceOptions,
-  type ServicePaths,
-  ServiceUser,
-  SystemCapabilities,
-} from "../context";
+import { ServiceOptions, type ServicePaths, ServiceUser, SystemCapabilities } from "../context";
 import {
   type EmptyState,
   type FilesWriteResult,
@@ -94,8 +88,6 @@ const generate = (): Effect.Effect<
           container: 80,
         },
       ],
-
-      // Volumes
       volumes: relabelVolumes(
         [
           {
@@ -109,15 +101,11 @@ const generate = (): Effect.Effect<
         ],
         system.selinuxEnforcing
       ),
-
-      // Environment variables
       environment: {
         TZ: config.timezone,
         ...(config.cronMinutes !== undefined && { CRON_MIN: config.cronMinutes }),
         ...(config.trustedProxy !== undefined && { TRUSTED_PROXY: config.trustedProxy }),
       },
-
-      // User namespace
       userNs: {
         mode: "keep-id",
       },
@@ -251,7 +239,7 @@ const enableServicesStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  FreshRssConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  FreshRssConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(generateStep)
@@ -263,7 +251,7 @@ const setup = (): Effect.Effect<
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | ServiceError | SystemError | GeneralError,
-  FreshRssConfigTag | ServiceUser | ServiceOptions | AppLogger
+  FreshRssConfigTag | ServiceUser | ServiceOptions
 > =>
   Effect.gen(function* () {
     const config = yield* FreshRssConfigTag;
@@ -286,7 +274,7 @@ const restore = (
 ): Effect.Effect<
   void,
   BackupError | ServiceError | SystemError | GeneralError,
-  FreshRssConfigTag | ServiceUser | AppLogger
+  FreshRssConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* FreshRssConfigTag;

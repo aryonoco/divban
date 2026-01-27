@@ -18,7 +18,7 @@ import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
 import { getServiceUsername } from "../../config/schema";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logStep, logSuccess } from "../../lib/log";
 import {
   configFilePath,
   toAbsolutePathEffect,
@@ -44,17 +44,16 @@ export interface SetupOptions {
   readonly dryRun: boolean;
   readonly force: boolean;
   readonly verbose: boolean;
-  readonly logger: Logger;
   readonly globalConfig: GlobalConfig;
 }
 
 export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, configPath, dryRun, force, verbose, logger, globalConfig } = options;
+    const { service, configPath, dryRun, force, verbose, globalConfig } = options;
 
     const uidSettings = getUserAllocationSettings(globalConfig);
 
-    logger.info(`Setting up ${service.definition.name}...`);
+    yield* Effect.logInfo(`Setting up ${service.definition.name}...`);
 
     const validConfigPath = yield* toAbsolutePathEffect(configPath);
 
@@ -65,24 +64,24 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       service.definition.name === "caddy" && !(yield* isUnprivilegedPortEnabled());
 
     if (dryRun) {
-      logger.info("Dry run mode - showing what would be done:");
+      yield* Effect.logInfo("Dry run mode - showing what would be done:");
       if (service.definition.name === "caddy") {
-        logger.info("  1. Configure privileged port binding (sysctl)");
-        logger.info(`  2. Create user: ${username}`);
-        logger.info(`  3. Enable linger for: ${username}`);
-        logger.info("  4. Create data directories");
-        logger.info("  5. Copy configuration file");
-        logger.info("  6. Generate and install quadlet files");
-        logger.info("  7. Reload systemd daemon");
-        logger.info("  8. Enable services");
+        yield* Effect.logInfo("  1. Configure privileged port binding (sysctl)");
+        yield* Effect.logInfo(`  2. Create user: ${username}`);
+        yield* Effect.logInfo(`  3. Enable linger for: ${username}`);
+        yield* Effect.logInfo("  4. Create data directories");
+        yield* Effect.logInfo("  5. Copy configuration file");
+        yield* Effect.logInfo("  6. Generate and install quadlet files");
+        yield* Effect.logInfo("  7. Reload systemd daemon");
+        yield* Effect.logInfo("  8. Enable services");
       } else {
-        logger.info(`  1. Create user: ${username}`);
-        logger.info(`  2. Enable linger for: ${username}`);
-        logger.info("  3. Create data directories");
-        logger.info("  4. Copy configuration file");
-        logger.info("  5. Generate and install quadlet files");
-        logger.info("  6. Reload systemd daemon");
-        logger.info("  7. Enable services");
+        yield* Effect.logInfo(`  1. Create user: ${username}`);
+        yield* Effect.logInfo(`  2. Enable linger for: ${username}`);
+        yield* Effect.logInfo("  3. Create data directories");
+        yield* Effect.logInfo("  4. Copy configuration file");
+        yield* Effect.logInfo("  5. Generate and install quadlet files");
+        yield* Effect.logInfo("  6. Reload systemd daemon");
+        yield* Effect.logInfo("  7. Enable services");
       }
       return;
     }
@@ -127,10 +126,10 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
         const config = yield* loadServiceConfig(validConfigPath, s.configSchema);
 
         const stepRef = yield* Ref.make(0);
-        const logStep = (message: string): Effect.Effect<void> =>
+        const nextStep = (message: string): Effect.Effect<void> =>
           Effect.gen(function* () {
             const step = yield* Ref.updateAndGet(stepRef, (n) => n + 1);
-            logger.step(step, totalSteps, message);
+            yield* logStep(step, totalSteps, message);
           });
 
         // Main scoped setup with automatic rollback on failure
@@ -140,14 +139,14 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             yield* Effect.if(needsSysctl, {
               onTrue: (): Effect.Effect<void, DivbanEffectError> =>
                 Effect.gen(function* () {
-                  yield* logStep("Configuring privileged port binding...");
+                  yield* nextStep("Configuring privileged port binding...");
                   yield* ensureUnprivilegedPorts(70, service.definition.name);
                 }),
               onFalse: (): Effect.Effect<void> => Effect.void,
             });
 
             // Only roll back user creation if we created it (idempotent re-run safety)
-            yield* logStep(`Creating service user: ${username}...`);
+            yield* nextStep(`Creating service user: ${username}...`);
             const userAcq = yield* Effect.acquireRelease(
               acquireServiceUser(service.definition.name, uidSettings),
               (acq, exit): Effect.Effect<void> =>
@@ -165,7 +164,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const gid = userIdToGroupId(uid);
 
             // Same conditional rollback: only disable linger if we just enabled it
-            yield* logStep("Enabling user linger...");
+            yield* nextStep("Enabling user linger...");
             yield* Effect.acquireRelease(
               enableLingerTracked(username, uid),
               (acq, exit): Effect.Effect<void> =>
@@ -181,7 +180,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Tracked directories enable precise rollback: only remove dirs we created
-            yield* logStep("Creating service directories...");
+            yield* nextStep("Creating service directories...");
             const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
             yield* Effect.acquireRelease(
               ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
@@ -194,7 +193,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Config copy creates .bak before overwriting; rollback restores from .bak
-            yield* logStep("Copying configuration file...");
+            yield* nextStep("Copying configuration file...");
             const configDestPath = configFilePath(
               userConfigDir(homeDir),
               `${service.definition.name}.toml`
@@ -223,21 +222,20 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                   homeDir,
                 },
               },
-              { dryRun, verbose, force },
-              logger
+              { dryRun, verbose, force }
             );
 
             // Service-specific setup runs last because it depends on user, directories, and config
-            yield* logStep("Running service-specific setup...");
+            yield* nextStep("Running service-specific setup...");
             yield* s.setup().pipe(Effect.provide(layer));
           })
         );
       })
     );
 
-    logger.success(`${service.definition.name} setup completed successfully`);
-    logger.info("Next steps:");
-    logger.info(`  Start service: divban start ${service.definition.name}`);
-    logger.info(`  Check status:  divban status ${service.definition.name}`);
-    logger.info(`  View logs:     divban logs ${service.definition.name} --follow`);
+    yield* logSuccess(`${service.definition.name} setup completed successfully`);
+    yield* Effect.logInfo("Next steps:");
+    yield* Effect.logInfo(`  Start service: divban start ${service.definition.name}`);
+    yield* Effect.logInfo(`  Check status:  divban status ${service.definition.name}`);
+    yield* Effect.logInfo(`  View logs:     divban logs ${service.definition.name} --follow`);
   });

@@ -14,7 +14,7 @@
 
 import { Effect, Match, Option, pipe } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import type { BackupResult, ExistentialService } from "../../services/types";
 import {
   createServiceLayer,
@@ -29,23 +29,19 @@ export interface BackupOptions {
   readonly format: "pretty" | "json";
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeBackup = (options: BackupOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, dryRun, format, verbose, force, logger } = options;
+    const { service, dryRun, format, verbose, force } = options;
 
     return yield* Effect.if(service.definition.capabilities.hasBackup, {
       onTrue: (): Effect.Effect<void, DivbanEffectError> =>
         Effect.if(dryRun, {
-          onTrue: (): Effect.Effect<void> =>
-            Effect.sync(() => {
-              logger.info("Dry run - would create backup");
-            }),
+          onTrue: (): Effect.Effect<void> => Effect.logInfo("Dry run - would create backup"),
           onFalse: (): Effect.Effect<void, DivbanEffectError> =>
             Effect.gen(function* () {
-              logger.info(`Creating backup for ${service.definition.name}...`);
+              yield* Effect.logInfo(`Creating backup for ${service.definition.name}...`);
 
               const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -62,8 +58,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     config,
                     s.configTag,
                     { ...prereqs, paths: updatedPaths },
-                    { dryRun, verbose, force },
-                    logger
+                    { dryRun, verbose, force }
                   );
 
                   return yield* Option.match(Option.fromNullable(s.backup), {
@@ -83,20 +78,18 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
               yield* pipe(
                 Match.value(format),
                 Match.when("json", () =>
-                  Effect.sync(() =>
-                    logger.info(
-                      JSON.stringify({
-                        path: result.path,
-                        size: result.size,
-                        timestamp: result.timestamp,
-                      })
-                    )
+                  Effect.logInfo(
+                    JSON.stringify({
+                      path: result.path,
+                      size: result.size,
+                      timestamp: result.timestamp,
+                    })
                   )
                 ),
                 Match.when("pretty", () =>
-                  Effect.sync(() => {
-                    logger.success(`Backup created: ${result.path}`);
-                    logger.info(`Size: ${formatBytes(result.size)}`);
+                  Effect.gen(function* () {
+                    yield* logSuccess(`Backup created: ${result.path}`);
+                    yield* Effect.logInfo(`Size: ${formatBytes(result.size)}`);
                   })
                 ),
                 Match.exhaustive

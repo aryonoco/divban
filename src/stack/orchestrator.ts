@@ -21,7 +21,7 @@ import {
   type ServiceError,
   type SystemError,
 } from "../lib/errors";
-import type { Logger } from "../lib/logger";
+import { logStep, logSuccess } from "../lib/log";
 import type { UserId, Username } from "../lib/types";
 import {
   type SystemctlOptions,
@@ -37,7 +37,6 @@ import type { Stack } from "./types";
 export interface OrchestratorOptions {
   user: Username;
   uid: UserId;
-  logger: Logger;
   parallel?: boolean;
 }
 
@@ -47,7 +46,6 @@ const toServiceUnit = (name: string): string => `${name}.service`;
 const processLevels = <E>(
   levels: readonly (readonly string[])[],
   operation: (name: string) => Effect.Effect<void, E>,
-  logger: Logger,
   actionVerb: string,
   parallel: boolean
 ): Effect.Effect<void, E> =>
@@ -55,9 +53,7 @@ const processLevels = <E>(
     levels,
     (level, i) =>
       pipe(
-        Effect.sync(() =>
-          logger.step(i + 1, levels.length, `${actionVerb} level ${i + 1}: ${level.join(", ")}`)
-        ),
+        logStep(i + 1, levels.length, `${actionVerb} level ${i + 1}: ${level.join(", ")}`),
         Effect.andThen(
           Effect.forEach(
             level,
@@ -77,23 +73,22 @@ export const startStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger, parallel = true } = options;
+    const { parallel = true } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
     const { levels } = yield* resolveStartOrder(stack.containers);
 
-    logger.info("Reloading systemd daemon...");
+    yield* Effect.logInfo("Reloading systemd daemon...");
     yield* daemonReload(systemctlOpts);
 
     yield* processLevels(
       levels,
       (name) => startService(toServiceUnit(name), systemctlOpts),
-      logger,
       "Starting",
       parallel
     );
 
-    logger.success(`Stack '${stack.name}' started successfully`);
+    yield* logSuccess(`Stack '${stack.name}' started successfully`);
   });
 
 /**
@@ -104,7 +99,7 @@ export const stopStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger, parallel = true } = options;
+    const { parallel = true } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
     const { levels } = yield* resolveStopOrder(stack.containers);
@@ -112,12 +107,11 @@ export const stopStack = (
     yield* processLevels(
       levels,
       (name) => stopService(toServiceUnit(name), systemctlOpts),
-      logger,
       "Stopping",
       parallel
     );
 
-    logger.success(`Stack '${stack.name}' stopped successfully`);
+    yield* logSuccess(`Stack '${stack.name}' stopped successfully`);
   });
 
 /**
@@ -128,9 +122,7 @@ export const restartStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger } = options;
-
-    logger.info(`Restarting stack '${stack.name}'...`);
+    yield* Effect.logInfo(`Restarting stack '${stack.name}'...`);
 
     // Stop then start (to maintain proper order)
     yield* stopStack(stack, options);
@@ -145,10 +137,9 @@ export const enableStack = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    logger.info(`Enabling stack '${stack.name}'...`);
+    yield* Effect.logInfo(`Enabling stack '${stack.name}'...`);
 
     yield* Effect.forEach(
       stack.containers,
@@ -156,7 +147,7 @@ export const enableStack = (
       { discard: true }
     );
 
-    logger.success(`Stack '${stack.name}' enabled successfully`);
+    yield* logSuccess(`Stack '${stack.name}' enabled successfully`);
   });
 
 /**
@@ -200,7 +191,6 @@ export const startContainer = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | ContainerError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
     yield* pipe(
@@ -220,10 +210,10 @@ export const startContainer = (
 
     yield* daemonReload(systemctlOpts);
 
-    logger.info(`Starting container '${containerName}'...`);
+    yield* Effect.logInfo(`Starting container '${containerName}'...`);
     yield* startService(toServiceUnit(containerName), systemctlOpts);
 
-    logger.success(`Container '${containerName}' started successfully`);
+    yield* logSuccess(`Container '${containerName}' started successfully`);
   });
 
 /**
@@ -235,11 +225,10 @@ export const stopContainer = (
   options: OrchestratorOptions
 ): Effect.Effect<void, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
-    const { logger } = options;
     const systemctlOpts: SystemctlOptions = { user: options.user, uid: options.uid };
 
-    logger.info(`Stopping container '${containerName}'...`);
+    yield* Effect.logInfo(`Stopping container '${containerName}'...`);
     yield* stopService(toServiceUnit(containerName), systemctlOpts);
 
-    logger.success(`Container '${containerName}' stopped successfully`);
+    yield* logSuccess(`Container '${containerName}' stopped successfully`);
   });

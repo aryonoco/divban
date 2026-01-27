@@ -16,7 +16,7 @@ import { Effect, Either, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError, GeneralError, SystemError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import {
   TEMP_PATHS,
   configFilePath,
@@ -43,15 +43,14 @@ export interface DiffOptions {
   readonly verbose: boolean;
   readonly dryRun: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, configPath, verbose, dryRun, force, logger } = options;
+    const { service, configPath, verbose, dryRun, force } = options;
 
     const validPath = yield* toAbsolutePathEffect(configPath);
-    logger.info(`Comparing configuration for ${service.definition.name}...`);
+    yield* Effect.logInfo(`Comparing configuration for ${service.definition.name}...`);
 
     const username = yield* getServiceUsername(service.definition.name);
 
@@ -70,25 +69,27 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       configDir: AbsolutePath;
       userInfo: UserInfoType;
     };
-    const { quadletDir, configDir, userInfo } = Either.match(userResult, {
-      onRight: (user): PathInfoType => ({
-        quadletDir: userQuadletDir(user.homeDir),
-        configDir: userConfigDir(user.homeDir),
-        userInfo: {
-          homeDir: user.homeDir,
-          uid: user.uid,
-          gid: user.gid,
-          username: user.username,
-        },
-      }),
-      onLeft: (): PathInfoType => {
-        logger.warn("Service user does not exist. Showing generated files only.");
-        return {
-          quadletDir: TEMP_PATHS.nonexistent,
-          configDir: TEMP_PATHS.nonexistent,
-          userInfo: undefined,
-        };
-      },
+    const { quadletDir, configDir, userInfo } = yield* Either.match(userResult, {
+      onRight: (user): Effect.Effect<PathInfoType, never> =>
+        Effect.succeed({
+          quadletDir: userQuadletDir(user.homeDir),
+          configDir: userConfigDir(user.homeDir),
+          userInfo: {
+            homeDir: user.homeDir,
+            uid: user.uid,
+            gid: user.gid,
+            username: user.username,
+          },
+        }),
+      onLeft: (): Effect.Effect<PathInfoType, never> =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning("Service user does not exist. Showing generated files only.");
+          return {
+            quadletDir: TEMP_PATHS.nonexistent,
+            configDir: TEMP_PATHS.nonexistent,
+            userInfo: undefined,
+          };
+        }),
     });
 
     // Diff generates files without an existing user; placeholders satisfy the type without affecting output
@@ -132,13 +133,7 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
           },
         };
 
-        const layer = createServiceLayer(
-          config,
-          s.configTag,
-          prereqs,
-          { dryRun, verbose, force },
-          logger
-        );
+        const layer = createServiceLayer(config, s.configTag, prereqs, { dryRun, verbose, force });
 
         return yield* s.generate().pipe(Effect.provide(layer));
       })
@@ -222,18 +217,16 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       ...unchangedFileLines,
     ];
 
-    yield* Effect.forEach(formatLines, (line) => Effect.sync(() => logger.info(line)), {
+    yield* Effect.forEach(formatLines, (line) => Effect.logInfo(line), {
       discard: true,
     });
 
-    logger.info("");
+    yield* Effect.logInfo("");
     yield* Effect.if(newFiles.length === 0 && modifiedFiles.length === 0, {
-      onTrue: (): Effect.Effect<void> => Effect.sync(() => logger.success("No changes detected")),
+      onTrue: (): Effect.Effect<void> => logSuccess("No changes detected"),
       onFalse: (): Effect.Effect<void> =>
-        Effect.sync(() =>
-          logger.info(
-            `Summary: ${newFiles.length} new, ${modifiedFiles.length} modified, ${unchangedFiles.length} unchanged`
-          )
+        Effect.logInfo(
+          `Summary: ${newFiles.length} new, ${modifiedFiles.length} modified, ${unchangedFiles.length} unchanged`
         ),
     });
   });

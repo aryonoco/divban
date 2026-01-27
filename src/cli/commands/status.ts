@@ -15,7 +15,7 @@
 import { Effect, Either, Match, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import type { DivbanEffectError } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { writeOutput } from "../../lib/log";
 import type { ExistentialService } from "../../services/types";
 import { getUserByName } from "../../system/user";
 import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
@@ -26,12 +26,11 @@ export interface StatusOptions {
   readonly dryRun: boolean;
   readonly verbose: boolean;
   readonly force: boolean;
-  readonly logger: Logger;
 }
 
 export const executeStatus = (options: StatusOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, format, dryRun, verbose, force, logger } = options;
+    const { service, format, dryRun, verbose, force } = options;
 
     const username = yield* getServiceUsername(service.definition.name);
     const userResult = yield* Effect.either(getUserByName(username));
@@ -42,20 +41,20 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
         pipe(
           Match.value(format),
           Match.when("json", () =>
-            Effect.sync(() =>
-              logger.raw(
-                JSON.stringify({
-                  service: service.definition.name,
-                  status: "not_configured",
-                  running: false,
-                })
-              )
+            writeOutput(
+              JSON.stringify({
+                service: service.definition.name,
+                status: "not_configured",
+                running: false,
+              })
             )
           ),
           Match.when("pretty", () =>
-            Effect.sync(() => {
-              logger.warn(`Service '${service.definition.name}' is not configured.`);
-              logger.info(`Run 'divban setup ${service.definition.name} <config>' to set up.`);
+            Effect.gen(function* () {
+              yield* Effect.logWarning(`Service '${service.definition.name}' is not configured.`);
+              yield* Effect.logInfo(
+                `Run 'divban setup ${service.definition.name} <config>' to set up.`
+              );
             })
           ),
           Match.exhaustive
@@ -77,8 +76,7 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                 config,
                 s.configTag,
                 { ...prereqs, paths: updatedPaths },
-                { dryRun, verbose, force },
-                logger
+                { dryRun, verbose, force }
               );
 
               return yield* s.status().pipe(Effect.provide(layer));
@@ -88,14 +86,12 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
           yield* pipe(
             Match.value(format),
             Match.when("json", () =>
-              Effect.sync(() =>
-                logger.raw(
-                  JSON.stringify({
-                    service: service.definition.name,
-                    running: status.running,
-                    containers: status.containers,
-                  })
-                )
+              writeOutput(
+                JSON.stringify({
+                  service: service.definition.name,
+                  running: status.running,
+                  containers: status.containers,
+                })
               )
             ),
             Match.when("pretty", () =>
@@ -114,13 +110,15 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                 );
                 const reset = "\x1b[0m";
 
-                logger.raw(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
+                yield* writeOutput(
+                  `${service.definition.name}: ${statusColor}${overallStatus}${reset}`
+                );
 
                 yield* Effect.if(status.containers.length > 0, {
                   onTrue: (): Effect.Effect<void> =>
                     Effect.gen(function* () {
-                      logger.raw("");
-                      logger.raw("Containers:");
+                      yield* writeOutput("");
+                      yield* writeOutput("Containers:");
 
                       const containerLines = status.containers.map((container) => {
                         const containerStatusColor = pipe(
@@ -137,11 +135,9 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                         return `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`;
                       });
 
-                      yield* Effect.forEach(
-                        containerLines,
-                        (line) => Effect.sync(() => logger.raw(line)),
-                        { discard: true }
-                      );
+                      yield* Effect.forEach(containerLines, (line) => writeOutput(line), {
+                        discard: true,
+                      });
                     }),
                   onFalse: (): Effect.Effect<void> => Effect.void,
                 });

@@ -22,13 +22,7 @@ import type {
   SystemError,
 } from "../lib/errors";
 import type { AbsolutePath, ServiceName } from "../lib/types";
-import type {
-  AppLogger,
-  ServiceOptions,
-  ServicePaths,
-  ServiceUser,
-  SystemCapabilities,
-} from "./context";
+import type { ServiceOptions, ServicePaths, ServiceUser, SystemCapabilities } from "./context";
 
 /**
  * Service definition metadata.
@@ -181,7 +175,6 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
     | ServiceUser
     | ServiceOptions
     | SystemCapabilities
-    | AppLogger
   >;
 
   // === Runtime Methods ===
@@ -193,7 +186,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   start(): Effect.Effect<
     void,
     ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
   >;
 
   /**
@@ -203,7 +196,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   stop(): Effect.Effect<
     void,
     ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
   >;
 
   /**
@@ -213,7 +206,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   restart(): Effect.Effect<
     void,
     ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
   >;
 
   /**
@@ -248,7 +241,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   reload?(): Effect.Effect<
     void,
     ConfigError | ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
   >;
 
   /**
@@ -258,7 +251,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   backup?(): Effect.Effect<
     BackupResult,
     BackupError | ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServiceOptions | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser | ServiceOptions
   >;
 
   /**
@@ -271,7 +264,7 @@ export interface ServiceEffect<C, I, ConfigTag extends Context.Tag<I, C>> {
   ): Effect.Effect<
     void,
     BackupError | ServiceError | SystemError | GeneralError,
-    Context.Tag.Identifier<ConfigTag> | ServiceUser | AppLogger
+    Context.Tag.Identifier<ConfigTag> | ServiceUser
   >;
 }
 

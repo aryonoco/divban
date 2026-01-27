@@ -12,7 +12,6 @@
  */
 
 import { Context } from "effect";
-import type { Logger } from "../../lib/logger";
 import type {
   AbsolutePath,
   ContainerName,
@@ -79,14 +78,6 @@ export interface SystemCapabilities {
 
 export const SystemCapabilities: Context.Tag<SystemCapabilities, SystemCapabilitiesValue> =
   Context.GenericTag<SystemCapabilities, SystemCapabilitiesValue>("divban/SystemCapabilities");
-
-export interface AppLogger {
-  readonly _tag: "AppLogger";
-}
-
-export const AppLogger: Context.Tag<AppLogger, Logger> = Context.GenericTag<AppLogger, Logger>(
-  "divban/AppLogger"
-);
 
 export interface RuntimeStateValue {
   readonly containers: readonly ContainerName[];

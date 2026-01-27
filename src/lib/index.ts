@@ -94,15 +94,8 @@ export {
 } from "./errors";
 export type { DivbanEffectError, ErrorCodeValue } from "./errors";
 
-export {
-  createLogger,
-  getLogger,
-  getLoggerEffect,
-  LoggerFiberRef,
-  setDefaultLogger,
-  withLogger,
-} from "./logger";
-export type { Logger, LoggerOptions, LogLevel } from "./logger";
+export { DivbanLoggerLive } from "./effect-logger";
+export { logFail, logStep, logSuccess, writeOutput } from "./log";
 
 export {
   assertEffect,

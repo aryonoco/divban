@@ -19,7 +19,7 @@ import {
   ErrorCode,
   GeneralError,
 } from "../../lib/errors";
-import type { Logger } from "../../lib/logger";
+import { logSuccess } from "../../lib/log";
 import { toAbsolutePathEffect } from "../../lib/paths";
 import type { AbsolutePath } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
@@ -32,12 +32,10 @@ export interface RestoreOptions {
   readonly force: boolean;
   readonly format: "pretty" | "json";
   readonly verbose: boolean;
-  readonly logger: Logger;
 }
 
 interface RestoreContext {
   readonly service: ExistentialService;
-  readonly logger: Logger;
   readonly backupPath: AbsolutePath;
 }
 
@@ -55,61 +53,54 @@ const validateRestoreCapability = (
       ),
   });
 
-const handleDryRunRestore = (backupPath: string, logger: Logger): Effect.Effect<void> =>
-  Effect.sync(() => {
-    logger.info(`Dry run - would restore from: ${backupPath}`);
-  });
+const handleDryRunRestore = (backupPath: string): Effect.Effect<void> =>
+  Effect.logInfo(`Dry run - would restore from: ${backupPath}`);
 
-const handleMissingForce = (logger: Logger): Effect.Effect<never, GeneralError> => {
-  logger.warn("This will overwrite existing data!");
-  logger.warn("Use --force to skip this warning.");
-  return Effect.fail(
-    new GeneralError({
-      code: ErrorCode.GENERAL_ERROR,
-      message: "Restore requires --force flag for safety",
-    })
-  );
-};
+const handleMissingForce = (): Effect.Effect<never, GeneralError> =>
+  Effect.gen(function* () {
+    yield* Effect.logWarning("This will overwrite existing data!");
+    yield* Effect.logWarning("Use --force to skip this warning.");
+    return yield* Effect.fail(
+      new GeneralError({
+        code: ErrorCode.GENERAL_ERROR,
+        message: "Restore requires --force flag for safety",
+      })
+    );
+  });
 
 const validateForceAndPath = (
   backupPath: string,
-  force: boolean,
-  logger: Logger
+  force: boolean
 ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
   Effect.if(force, {
     onTrue: (): Effect.Effect<Option.Option<AbsolutePath>, ConfigError> =>
       Effect.map(toAbsolutePathEffect(backupPath), Option.some),
-    onFalse: (): Effect.Effect<never, GeneralError> => handleMissingForce(logger),
+    onFalse: (): Effect.Effect<never, GeneralError> => handleMissingForce(),
   });
 
 /** Returns None for dry-run (already handled), Some(path) for real restore. */
 const processBackupPath = (
   backupPath: string,
   dryRun: boolean,
-  force: boolean,
-  logger: Logger
+  force: boolean
 ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
   Effect.if(dryRun, {
     onTrue: (): Effect.Effect<Option.Option<AbsolutePath>> =>
-      Effect.map(handleDryRunRestore(backupPath, logger), () => Option.none<AbsolutePath>()),
+      Effect.map(handleDryRunRestore(backupPath), () => Option.none<AbsolutePath>()),
     onFalse: (): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-      validateForceAndPath(backupPath, force, logger),
+      validateForceAndPath(backupPath, force),
   });
 
-const formatRestoreResult = (
-  serviceName: string,
-  format: "json" | "pretty",
-  logger: Logger
-): Effect.Effect<void> =>
+const formatRestoreResult = (serviceName: string, format: "json" | "pretty"): Effect.Effect<void> =>
   pipe(
     Match.value(format),
     Match.when("json", () =>
-      Effect.sync(() => logger.info(JSON.stringify({ success: true, service: serviceName })))
+      Effect.logInfo(JSON.stringify({ success: true, service: serviceName }))
     ),
     Match.when("pretty", () =>
-      Effect.sync(() => {
-        logger.success("Restore completed successfully");
-        logger.info(`You may need to restart the service: divban restart ${serviceName}`);
+      Effect.gen(function* () {
+        yield* logSuccess("Restore completed successfully");
+        yield* Effect.logInfo(`You may need to restart the service: divban restart ${serviceName}`);
       })
     ),
     Match.exhaustive
@@ -121,8 +112,8 @@ const performRestore = (
   format: "pretty" | "json"
 ): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, logger, backupPath } = context;
-    logger.info(`Restoring ${service.definition.name} from: ${backupPath}`);
+    const { service, backupPath } = context;
+    yield* Effect.logInfo(`Restoring ${service.definition.name} from: ${backupPath}`);
 
     const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
@@ -139,8 +130,7 @@ const performRestore = (
           config,
           s.configTag,
           { ...prereqs, paths: updatedPaths },
-          restoreOptions,
-          logger
+          restoreOptions
         );
 
         yield* pipe(
@@ -160,21 +150,21 @@ const performRestore = (
       })
     );
 
-    yield* formatRestoreResult(service.definition.name, format, logger);
+    yield* formatRestoreResult(service.definition.name, format);
   });
 
 export const executeRestore = (options: RestoreOptions): Effect.Effect<void, DivbanEffectError> =>
   Effect.gen(function* () {
-    const { service, backupPath, dryRun, force, format, verbose, logger } = options;
+    const { service, backupPath, dryRun, force, format, verbose } = options;
 
     yield* validateRestoreCapability(service);
-    const backupPathOption = yield* processBackupPath(backupPath, dryRun, force, logger);
+    const backupPathOption = yield* processBackupPath(backupPath, dryRun, force);
 
     yield* Option.match(backupPathOption, {
       onNone: (): Effect.Effect<void, DivbanEffectError> => Effect.void,
       onSome: (validBackupPath): Effect.Effect<void, DivbanEffectError> =>
         performRestore(
-          { service, logger, backupPath: validBackupPath },
+          { service, backupPath: validBackupPath },
           { dryRun, verbose, force },
           format
         ),
