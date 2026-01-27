@@ -78,6 +78,9 @@ Code must follow these constraints strictly. They are non-negotiable.
 - **No exceptions**: Never add linter ignore comments, disable rules, or loosen tsconfig - if code won't pass, revert with `git checkout` and find a different solution
 - **Spelling**: If cspell fails on technical terms, add them to `project-words.txt` (alphabetically in appropriate section) and re-run `just ci`
 
+### Git Commits
+- **No AI attribution**: Never add `Co-Authored-By`, `Generated-By`, or any other trailer, comment, or metadata referencing an AI agent to git commits. Commit messages must contain only the human author's intent with no mention of AI involvement.
+
 ## Key Patterns
 
 **Setup Flow:** `setup.ts` orchestrates service setup using `Effect.scoped` with nested `acquireRelease` calls for user creation, linger enablement, directory creation, config copying, and service-specific setup.
