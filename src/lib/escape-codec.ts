@@ -11,7 +11,7 @@
  * `unescape(escape(s)) === s` for all inputs containing mapped characters.
  */
 
-import { Array as Arr } from "effect";
+import { Array as Arr, Match, pipe } from "effect";
 
 import { escapeWith } from "./str";
 
@@ -23,10 +23,21 @@ export interface EscapeCodec {
 const mkUnescape =
   (prefix: string, mapping: ReadonlyMap<string, string>) =>
   (s: string): string => {
-    // State machine
-    const [, mapped] = Arr.mapAccum(Array.from(s), false, (escaped, c) =>
-      escaped ? [false, mapping.get(c) ?? c] : c === prefix ? [true, ""] : [false, c]
-    );
+    const step = (escaped: boolean, c: string): [boolean, string] =>
+      pipe(
+        Match.value(escaped),
+        Match.when(true, (): [boolean, string] => [false, mapping.get(c) ?? c]),
+        Match.when(false, (): [boolean, string] =>
+          pipe(
+            Match.value(c === prefix),
+            Match.when(true, (): [boolean, string] => [true, ""]),
+            Match.when(false, (): [boolean, string] => [false, c]),
+            Match.exhaustive
+          )
+        ),
+        Match.exhaustive
+      );
+    const [, mapped] = Arr.mapAccum(Array.from(s), false, step);
     return mapped.join("");
   };
 

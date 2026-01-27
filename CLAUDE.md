@@ -44,8 +44,9 @@ Code must follow these constraints strictly. They are non-negotiable.
 
 ### Functional Style
 - **No loops**: Use `Arr.map`, `Arr.filter`, `Arr.reduce`, `Arr.filterMap`, `Effect.forEach` instead of `for`/`while`
-- **No conditionals**: Use `Match.value().pipe(Match.when(...), Match.exhaustive)`, `Option.match`, `Exit.match` instead of `if`/`switch`
-  - **Exceptions**: Type guards (`value is T`), try-catch at API boundaries, and state machine parsers where Match would significantly reduce readability
+- **No conditionals**: Use exhaustive pattern matching instead of `if`/`switch`. Prefer `Match.value().pipe(Match.when(...), Match.exhaustive)`, `Option.match`, or `Exit.match`
+  - **Boolean reduction**: Any comparison (`===`, `!==`, `<`, etc.) evaluates to `boolean`, which is exhaustively matchable via `Match.when(true, ...)` + `Match.when(false, ...)` + `Match.exhaustive`. Nest these for multi-dimensional decisions 
+  - **Exceptions**: Type guards (`value is T`) and try-catch at API boundaries ONLY. 
 - **Immutable data**: All interfaces use `readonly`, collections use `ReadonlyMap`/`ReadonlyArray`
 - **Composition**: Use `pipe()` for chaining, `Effect.gen` for sequential operations
 
