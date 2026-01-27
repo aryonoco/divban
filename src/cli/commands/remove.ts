@@ -140,13 +140,12 @@ const doRemoveService = (
 
     // Step 3: Disable linger
     logger.step(3, totalSteps, "Disabling linger...");
-    const lingerResult = yield* Effect.either(disableLinger(username));
-    Either.match(lingerResult, {
-      onLeft: (err): void => {
-        logger.warn(`Failed to disable linger: ${err.message}`);
-      },
-      onRight: (): void => undefined,
-    });
+    yield* disableLinger(username).pipe(
+      Effect.tapError((err) =>
+        Effect.sync(() => logger.warn(`Failed to disable linger: ${err.message}`))
+      ),
+      Effect.ignore
+    );
 
     // Step 4: Stop systemd user service
     logger.step(4, totalSteps, "Stopping systemd user service...");
@@ -168,13 +167,12 @@ const doRemoveService = (
     yield* Effect.when(
       Effect.gen(function* () {
         logger.step(8, totalSteps, "Removing data directory...");
-        const rmResult = yield* Effect.either(removeDirectory(dataDir, true));
-        Either.match(rmResult, {
-          onLeft: (err): void => {
-            logger.warn(`Failed to remove data directory: ${err.message}`);
-          },
-          onRight: (): void => undefined,
-        });
+        yield* removeDirectory(dataDir, true).pipe(
+          Effect.tapError((err) =>
+            Effect.sync(() => logger.warn(`Failed to remove data directory: ${err.message}`))
+          ),
+          Effect.ignore
+        );
       }),
       () => !preserveData
     );
@@ -259,13 +257,12 @@ const cleanupContainerStorage = (
         onTrue: (): Effect.Effect<void, SystemError | GeneralError> =>
           Effect.gen(function* () {
             const storageDir = pathJoin(homeDir, ".local/share/containers/storage");
-            const result = yield* Effect.either(removeDirectory(storageDir, true));
-            Either.match(result, {
-              onLeft: (err): void => {
-                logger.warn(`Failed to remove container storage: ${err.message}`);
-              },
-              onRight: (): void => undefined,
-            });
+            yield* removeDirectory(storageDir, true).pipe(
+              Effect.tapError((err) =>
+                Effect.sync(() => logger.warn(`Failed to remove container storage: ${err.message}`))
+              ),
+              Effect.ignore
+            );
           }),
         onFalse: (): Effect.Effect<void> => Effect.void,
       })

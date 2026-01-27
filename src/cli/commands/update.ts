@@ -100,19 +100,16 @@ const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError 
     captureStderr: true,
   }).pipe(
     Effect.flatMap((result) =>
-      pipe(
-        Match.value(result.exitCode !== 0),
-        Match.when(true, () =>
+      Effect.if(result.exitCode !== 0, {
+        onTrue: (): Effect.Effect<never, GeneralError> =>
           Effect.fail(
             new GeneralError({
               code: ErrorCode.GENERAL_ERROR as 1,
               message: `Failed to apply updates: ${result.stderr}`,
             })
-          )
-        ),
-        Match.when(false, () => Effect.void),
-        Match.exhaustive
-      )
+          ),
+        onFalse: (): Effect.Effect<void> => Effect.void,
+      })
     ),
     Effect.mapError((err) =>
       err instanceof GeneralError
@@ -180,12 +177,9 @@ export const executeUpdate = (
     const { username, uid } = yield* resolveUpdateServiceUser(service.definition.name);
     logger.info(`Updating ${service.definition.name} containers...`);
 
-    yield* pipe(
-      Match.value(dryRun),
-      Match.when(true, () => handleDryRun(logger)),
-      Match.when(false, () =>
-        performUpdate({ username, uid, logger, serviceName: service.definition.name })
-      ),
-      Match.exhaustive
-    );
+    yield* Effect.if(dryRun, {
+      onTrue: (): Effect.Effect<void> => handleDryRun(logger),
+      onFalse: (): Effect.Effect<void, GeneralError | SystemError> =>
+        performUpdate({ username, uid, logger, serviceName: service.definition.name }),
+    });
   });

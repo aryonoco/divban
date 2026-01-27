@@ -13,7 +13,7 @@
  */
 
 import type { Context } from "effect";
-import { Array as Arr, Effect, Either, Layer, Option, Schema, pipe } from "effect";
+import { Array as Arr, Effect, Layer, Option, Schema, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getServiceUsername } from "../../config/schema";
 import {
@@ -181,6 +181,32 @@ export const getDataDirFromConfig = <C extends object>(
   );
 
 /**
+ * Load service config with fallback for commands that don't require it.
+ * On success: returns parsed config + updated paths (with dataDir from config).
+ * On failure: returns empty config + original paths (service still operable).
+ */
+export const loadConfigOrFallback = <C extends object>(
+  serviceName: ServiceName,
+  homeDir: AbsolutePathType,
+  // biome-ignore lint/suspicious/noExplicitAny: Schema input varies per service
+  schema: Schema.Schema<C, any, never>,
+  prereqs: Prerequisites
+): Effect.Effect<{ config: C; paths: Prerequisites["paths"] }, never> =>
+  findAndLoadConfig(serviceName, homeDir, schema).pipe(
+    Effect.map((cfg) => ({
+      config: cfg,
+      paths: {
+        ...prereqs.paths,
+        dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
+      },
+    })),
+    Effect.orElseSucceed(() => ({
+      config: {} as C,
+      paths: prereqs.paths,
+    }))
+  );
+
+/**
  * Pad text to a specific display width using Bun.stringWidth().
  * Handles Unicode and emoji correctly.
  */
@@ -243,26 +269,17 @@ export const resolveServiceUser = (
 ): Effect.Effect<ResolvedServiceUser, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-    const userInfoResult = yield* Effect.either(getUserByName(username));
-
-    type ResultType = Effect.Effect<ResolvedServiceUser, ServiceError>;
-    return yield* Either.match(userInfoResult, {
-      onLeft: (): ResultType =>
-        Effect.fail(
+    const { uid, homeDir } = yield* getUserByName(username).pipe(
+      Effect.mapError(
+        () =>
           new ServiceError({
             code: ErrorCode.SERVICE_NOT_FOUND as 30,
             message: `Service user '${username}' not found. Run 'divban setup ${serviceName}' first.`,
             service: serviceName,
           })
-        ),
-      onRight: ({ uid, homeDir }): ResultType =>
-        Effect.succeed({
-          name: username,
-          uid,
-          gid: userIdToGroupId(uid),
-          homeDir,
-        }),
-    });
+      )
+    );
+    return { name: username, uid, gid: userIdToGroupId(uid), homeDir };
   });
 
 // ============================================================================

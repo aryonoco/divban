@@ -12,7 +12,7 @@
  * service-specific handlers that know their data layout.
  */
 
-import { Effect, Either, Match, Option, pipe } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import {
   type ConfigError,
   type DivbanEffectError,
@@ -23,13 +23,7 @@ import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
 import type { AbsolutePath } from "../../lib/types";
 import type { ExistentialService } from "../../services/types";
-import {
-  type Prerequisites,
-  createServiceLayer,
-  findAndLoadConfig,
-  getDataDirFromConfig,
-  resolvePrerequisites,
-} from "./utils";
+import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
 export interface RestoreOptions {
   readonly service: ExistentialService;
@@ -50,19 +44,16 @@ interface RestoreContext {
 const validateRestoreCapability = (
   service: ExistentialService
 ): Effect.Effect<void, GeneralError> =>
-  pipe(
-    Match.value(service.definition.capabilities.hasRestore),
-    Match.when(true, () => Effect.void),
-    Match.when(false, () =>
+  Effect.if(service.definition.capabilities.hasRestore, {
+    onTrue: (): Effect.Effect<void> => Effect.void,
+    onFalse: (): Effect.Effect<never, GeneralError> =>
       Effect.fail(
         new GeneralError({
           code: ErrorCode.GENERAL_ERROR as 1,
           message: `Service '${service.definition.name}' does not support restore`,
         })
-      )
-    ),
-    Match.exhaustive
-  );
+      ),
+  });
 
 const handleDryRunRestore = (backupPath: string, logger: Logger): Effect.Effect<void> =>
   Effect.sync(() => {
@@ -85,12 +76,11 @@ const validateForceAndPath = (
   force: boolean,
   logger: Logger
 ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-  pipe(
-    Match.value(force),
-    Match.when(true, () => Effect.map(toAbsolutePathEffect(backupPath), Option.some)),
-    Match.when(false, () => handleMissingForce(logger)),
-    Match.exhaustive
-  );
+  Effect.if(force, {
+    onTrue: (): Effect.Effect<Option.Option<AbsolutePath>, ConfigError> =>
+      Effect.map(toAbsolutePathEffect(backupPath), Option.some),
+    onFalse: (): Effect.Effect<never, GeneralError> => handleMissingForce(logger),
+  });
 
 /** Returns None for dry-run (already handled), Some(path) for real restore. */
 const processBackupPath = (
@@ -99,38 +89,12 @@ const processBackupPath = (
   force: boolean,
   logger: Logger
 ): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
-  pipe(
-    Match.value(dryRun),
-    Match.when(true, () =>
-      Effect.map(handleDryRunRestore(backupPath, logger), () => Option.none<AbsolutePath>())
-    ),
-    Match.when(false, () => validateForceAndPath(backupPath, force, logger)),
-    Match.exhaustive
-  );
-
-const buildConfigAndPaths = <C extends object>(
-  configResult: Either.Either<C, DivbanEffectError>,
-  prereqs: Prerequisites,
-  configTag: { of: (config: C) => C }
-): { config: C; paths: Prerequisites["paths"] } => {
-  type ConfigType = Parameters<(typeof configTag)["of"]>[0];
-  type PathsType = typeof prereqs.paths;
-
-  const config = Either.match(configResult, {
-    onLeft: (): ConfigType => ({}) as ConfigType,
-    onRight: (cfg): ConfigType => cfg,
+  Effect.if(dryRun, {
+    onTrue: (): Effect.Effect<Option.Option<AbsolutePath>> =>
+      Effect.map(handleDryRunRestore(backupPath, logger), () => Option.none<AbsolutePath>()),
+    onFalse: (): Effect.Effect<Option.Option<AbsolutePath>, GeneralError | ConfigError> =>
+      validateForceAndPath(backupPath, force, logger),
   });
-
-  const paths = Either.match(configResult, {
-    onLeft: (): PathsType => prereqs.paths,
-    onRight: (cfg): PathsType => ({
-      ...prereqs.paths,
-      dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
-    }),
-  });
-
-  return { config, paths };
-};
 
 const formatRestoreResult = (
   serviceName: string,
@@ -164,14 +128,11 @@ const performRestore = (
 
     yield* service.apply((s) =>
       Effect.gen(function* () {
-        const configResult = yield* Effect.either(
-          findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
-        );
-
-        const { config, paths: updatedPaths } = buildConfigAndPaths(
-          configResult,
-          prereqs,
-          s.configTag
+        const { config, paths: updatedPaths } = yield* loadConfigOrFallback(
+          service.definition.name,
+          prereqs.user.homeDir,
+          s.configSchema,
+          prereqs
         );
 
         const layer = createServiceLayer(

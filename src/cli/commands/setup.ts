@@ -12,7 +12,7 @@
  * Safe to re-run: skips existing resources, updates changed files.
  */
 
-import { Effect, Either, Exit, Match, Ref, pipe } from "effect";
+import { Effect, Exit, Match, Ref, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
@@ -96,41 +96,32 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
 
     // Check if running as root (required for user creation and sysctl)
     const isRoot = process.getuid?.() === 0;
-    yield* pipe(
-      Match.value(isRoot),
-      Match.when(true, () => Effect.void),
-      Match.when(false, () =>
+    yield* Effect.if(isRoot, {
+      onTrue: (): Effect.Effect<void> => Effect.void,
+      onFalse: (): Effect.Effect<void, GeneralError> =>
         Effect.gen(function* () {
-          type CheckResultType = Effect.Effect<void, GeneralError>;
-          const existingUser = yield* Effect.either(getUserByName(username));
-          yield* Either.match(existingUser, {
-            onLeft: (): CheckResultType =>
-              Effect.fail(
+          yield* getUserByName(username).pipe(
+            Effect.mapError(
+              () =>
                 new GeneralError({
                   code: ErrorCode.ROOT_REQUIRED as 3,
                   message: "Root privileges required to create service user. Run with sudo.",
                 })
+            )
+          );
+          yield* Effect.if(needsSysctl, {
+            onTrue: (): Effect.Effect<void, GeneralError> =>
+              Effect.fail(
+                new GeneralError({
+                  code: ErrorCode.ROOT_REQUIRED as 3,
+                  message:
+                    "Root privileges required to configure privileged port binding. Run with sudo.",
+                })
               ),
-            onRight: (): CheckResultType =>
-              pipe(
-                Match.value(needsSysctl),
-                Match.when(true, () =>
-                  Effect.fail(
-                    new GeneralError({
-                      code: ErrorCode.ROOT_REQUIRED as 3,
-                      message:
-                        "Root privileges required to configure privileged port binding. Run with sudo.",
-                    })
-                  )
-                ),
-                Match.when(false, () => Effect.void),
-                Match.exhaustive
-              ),
+            onFalse: (): Effect.Effect<void> => Effect.void,
           });
-        })
-      ),
-      Match.orElse(() => Effect.void)
-    );
+        }),
+    });
 
     yield* service.apply((s) =>
       Effect.gen(function* () {
@@ -147,17 +138,14 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
         yield* Effect.scoped(
           Effect.gen(function* () {
             // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
-            yield* pipe(
-              Match.value(needsSysctl),
-              Match.when(true, () =>
+            yield* Effect.if(needsSysctl, {
+              onTrue: (): Effect.Effect<void, DivbanEffectError> =>
                 Effect.gen(function* () {
                   yield* logStep("Configuring privileged port binding...");
                   yield* ensureUnprivilegedPorts(70, service.definition.name);
-                })
-              ),
-              Match.when(false, () => Effect.void),
-              Match.exhaustive
-            );
+                }),
+              onFalse: (): Effect.Effect<void> => Effect.void,
+            });
 
             // Step 2: User - scoped resource with conditional rollback
             yield* logStep(`Creating service user: ${username}...`);
@@ -167,12 +155,11 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                 Exit.match(exit, {
                   onSuccess: (): Effect.Effect<void> => Effect.void,
                   onFailure: (): Effect.Effect<void> =>
-                    pipe(
-                      Match.value(acq.wasCreated),
-                      Match.when(true, () => releaseServiceUser(service.definition.name, true)),
-                      Match.when(false, () => Effect.void),
-                      Match.exhaustive
-                    ),
+                    Effect.if(acq.wasCreated, {
+                      onTrue: (): Effect.Effect<void> =>
+                        releaseServiceUser(service.definition.name, true),
+                      onFalse: (): Effect.Effect<void> => Effect.void,
+                    }),
                 })
             );
             const { uid, homeDir } = userAcq.value;
@@ -186,12 +173,11 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                 Exit.match(exit, {
                   onSuccess: (): Effect.Effect<void> => Effect.void,
                   onFailure: (): Effect.Effect<void> =>
-                    pipe(
-                      Match.value(acq.wasCreated),
-                      Match.when(true, () => disableLinger(username).pipe(Effect.ignore)),
-                      Match.when(false, () => Effect.void),
-                      Match.exhaustive
-                    ),
+                    Effect.if(acq.wasCreated, {
+                      onTrue: (): Effect.Effect<void> =>
+                        disableLinger(username).pipe(Effect.ignore),
+                      onFalse: (): Effect.Effect<void> => Effect.void,
+                    }),
                 })
             );
 

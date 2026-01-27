@@ -19,15 +19,7 @@ import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
-import {
-  type BackupError,
-  type ConfigError,
-  type ContainerError,
-  ErrorCode,
-  GeneralError,
-  type ServiceError,
-  type SystemError,
-} from "../lib/errors";
+import { type ConfigError, ErrorCode, GeneralError, isDivbanError } from "../lib/errors";
 import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
 import type { AbsolutePath } from "../lib/types";
@@ -69,18 +61,6 @@ import {
   secretNameArg,
   serviceArg,
 } from "./options";
-
-// ============================================================================
-// Types
-// ============================================================================
-
-export type DivbanEffectError =
-  | GeneralError
-  | ConfigError
-  | SystemError
-  | ServiceError
-  | ContainerError
-  | BackupError;
 
 interface CommandContext {
   readonly logger: Logger;
@@ -130,13 +110,13 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
 // ============================================================================
 
 const displayError = (err: unknown, logger: Logger, format: "pretty" | "json"): void => {
-  const typedErr = err as DivbanEffectError & { code: number };
+  if (!isDivbanError(err)) {
+    return;
+  }
   pipe(
     Match.value(format),
-    Match.when("json", () =>
-      logger.raw(JSON.stringify({ error: typedErr.message, code: typedErr.code }))
-    ),
-    Match.when("pretty", () => logger.fail(typedErr.message)),
+    Match.when("json", () => logger.raw(JSON.stringify({ error: err.message, code: err.code }))),
+    Match.when("pretty", () => logger.fail(err.message)),
     Match.exhaustive
   );
 };
@@ -184,9 +164,12 @@ const runServiceForAll = (
           const result = yield* Effect.either(runSingle(service));
           return Either.match(result, {
             onLeft: (e): Option.Option<number> => {
-              const typedErr = e as DivbanEffectError & { code: number };
-              logger.fail(`${serviceDef.name}: ${typedErr.message}`);
-              return Option.some(typedErr.code);
+              if (!isDivbanError(e)) {
+                logger.fail(`${serviceDef.name}: Unknown error`);
+                return Option.some(1);
+              }
+              logger.fail(`${serviceDef.name}: ${e.message}`);
+              return Option.some(e.code);
             },
             onRight: (): Option.Option<number> => Option.none(),
           });
@@ -245,29 +228,24 @@ const requireServiceOrAll = (
   runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>,
   logger: Logger
 ): Effect.Effect<void, unknown> =>
-  pipe(
-    Match.value(all),
-    Match.when(true, () => runOnAllServices(runSingle, logger)),
-    Match.when(
-      false,
-      (): Effect.Effect<void, unknown> =>
-        Option.match(serviceOpt, {
-          onNone: (): Effect.Effect<void, GeneralError> =>
-            Effect.fail(
-              new GeneralError({
-                code: ErrorCode.INVALID_ARGS as 2,
-                message: "Service name required (or use --all)",
-              })
-            ),
-          onSome: (name): Effect.Effect<void, unknown> =>
-            Effect.gen(function* () {
-              const service = yield* getService(name);
-              yield* runSingle(service);
-            }),
-        })
-    ),
-    Match.exhaustive
-  );
+  Effect.if(all, {
+    onTrue: (): Effect.Effect<void, GeneralError> => runOnAllServices(runSingle, logger),
+    onFalse: (): Effect.Effect<void, unknown> =>
+      Option.match(serviceOpt, {
+        onNone: (): Effect.Effect<void, GeneralError> =>
+          Effect.fail(
+            new GeneralError({
+              code: ErrorCode.INVALID_ARGS as 2,
+              message: "Service name required (or use --all)",
+            })
+          ),
+        onSome: (name): Effect.Effect<void, unknown> =>
+          Effect.gen(function* () {
+            const service = yield* getService(name);
+            yield* runSingle(service);
+          }),
+      }),
+  });
 
 // ============================================================================
 // Subcommand Definitions

@@ -326,6 +326,9 @@ export type DivbanEffectError =
   | ContainerError
   | BackupError;
 
+export const isDivbanError = (err: unknown): err is DivbanEffectError =>
+  typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
+
 export const getExitCode = (error: DivbanEffectError): number => error.exitCode;
 
 export const makeGeneralError = (

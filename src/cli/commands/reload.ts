@@ -12,16 +12,11 @@
  * directing users to use restart instead.
  */
 
-import { Effect, Either, Match, Option, pipe } from "effect";
+import { Effect, Option } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
-import {
-  createServiceLayer,
-  findAndLoadConfig,
-  getDataDirFromConfig,
-  resolvePrerequisites,
-} from "./utils";
+import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
 export interface ReloadOptions {
   readonly service: ExistentialService;
@@ -35,25 +30,14 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
   Effect.gen(function* () {
     const { service, dryRun, verbose, force, logger } = options;
 
-    return yield* pipe(
-      Match.value(service.definition.capabilities.hasReload),
-      Match.when(false, () =>
-        Effect.fail(
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Service '${service.definition.name}' does not support reload. Use 'restart' instead.`,
-          })
-        )
-      ),
-      Match.when(true, () =>
-        pipe(
-          Match.value(dryRun),
-          Match.when(true, () =>
+    return yield* Effect.if(service.definition.capabilities.hasReload, {
+      onTrue: (): Effect.Effect<void, DivbanEffectError> =>
+        Effect.if(dryRun, {
+          onTrue: (): Effect.Effect<void> =>
             Effect.sync(() => {
               logger.info("Dry run - would reload configuration");
-            })
-          ),
-          Match.when(false, () =>
+            }),
+          onFalse: (): Effect.Effect<void, DivbanEffectError> =>
             Effect.gen(function* () {
               logger.info(`Reloading ${service.definition.name} configuration...`);
 
@@ -61,24 +45,12 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
 
               yield* service.apply((s) =>
                 Effect.gen(function* () {
-                  const configResult = yield* Effect.either(
-                    findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+                  const { config, paths: updatedPaths } = yield* loadConfigOrFallback(
+                    service.definition.name,
+                    prereqs.user.homeDir,
+                    s.configSchema,
+                    prereqs
                   );
-
-                  type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
-                  type PathsType = typeof prereqs.paths;
-                  const config = Either.match(configResult, {
-                    onLeft: (): ConfigType => ({}) as ConfigType,
-                    onRight: (cfg): ConfigType => cfg,
-                  });
-
-                  const updatedPaths = Either.match(configResult, {
-                    onLeft: (): PathsType => prereqs.paths,
-                    onRight: (cfg): PathsType => ({
-                      ...prereqs.paths,
-                      dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
-                    }),
-                  });
 
                   const layer = createServiceLayer(
                     config,
@@ -88,29 +60,29 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     logger
                   );
 
-                  yield* pipe(
-                    Option.fromNullable(s.reload),
-                    Option.match({
-                      onNone: (): Effect.Effect<never, GeneralError> =>
-                        Effect.fail(
-                          new GeneralError({
-                            code: ErrorCode.GENERAL_ERROR as 1,
-                            message: `Service '${service.definition.name}' reload method not implemented`,
-                          })
-                        ),
-                      onSome: (reloadFn): Effect.Effect<void, DivbanEffectError> =>
-                        reloadFn().pipe(Effect.provide(layer)),
-                    })
-                  );
+                  yield* Option.match(Option.fromNullable(s.reload), {
+                    onNone: (): Effect.Effect<never, GeneralError> =>
+                      Effect.fail(
+                        new GeneralError({
+                          code: ErrorCode.GENERAL_ERROR as 1,
+                          message: `Service '${service.definition.name}' reload method not implemented`,
+                        })
+                      ),
+                    onSome: (reloadFn): Effect.Effect<void, DivbanEffectError> =>
+                      reloadFn().pipe(Effect.provide(layer)),
+                  });
                 })
               );
 
               logger.success("Configuration reloaded successfully");
-            })
-          ),
-          Match.orElse(() => Effect.void)
-        )
-      ),
-      Match.exhaustive
-    );
+            }),
+        }),
+      onFalse: (): Effect.Effect<void, GeneralError> =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Service '${service.definition.name}' does not support reload. Use 'restart' instead.`,
+          })
+        ),
+    });
   });

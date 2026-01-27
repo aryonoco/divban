@@ -27,10 +27,8 @@ export type SELinuxMode = "enforcing" | "permissive" | "disabled";
 export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
   Effect.gen(function* () {
     // Check if getenforce command exists (SELinux not installed on Debian/Ubuntu)
-    return yield* pipe(
-      Match.value(commandExists("getenforce")),
-      Match.when(false, () => Effect.succeed<SELinuxMode>("disabled")),
-      Match.when(true, () =>
+    return yield* Effect.if(commandExists("getenforce"), {
+      onTrue: (): Effect.Effect<SELinuxMode> =>
         pipe(
           Effect.either(exec(["getenforce"], { captureStdout: true })),
           Effect.map((result) =>
@@ -45,10 +43,9 @@ export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
                 ),
             })
           )
-        )
-      ),
-      Match.exhaustive
-    );
+        ),
+      onFalse: (): Effect.Effect<SELinuxMode> => Effect.succeed<SELinuxMode>("disabled"),
+    });
   });
 
 /**

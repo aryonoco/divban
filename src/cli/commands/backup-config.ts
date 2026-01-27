@@ -13,7 +13,7 @@
  */
 
 import { Glob } from "bun";
-import { Effect, Either, Match, Option, pipe } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import { CURRENT_BACKUP_SCHEMA_VERSION } from "../../lib/backup-compat";
 import { createBackupTimestamp } from "../../lib/backup-utils";
@@ -162,39 +162,30 @@ const getServiceConfigDir = (
 ): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
   Effect.gen(function* () {
     const username = yield* getServiceUsername(serviceName);
-    const userResult = yield* Effect.either(getUserByName(username));
-
-    type ResultType = Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError>;
-    return yield* Either.match(userResult, {
-      onLeft: (): ResultType =>
-        Effect.fail(
+    const { homeDir } = yield* getUserByName(username).pipe(
+      Effect.mapError(
+        () =>
           new ServiceError({
             code: ErrorCode.SERVICE_NOT_FOUND as 30,
             message: `Service '${serviceName}' not set up`,
             service: serviceName,
           })
+      )
+    );
+    const configDir = userConfigDir(homeDir);
+    const exists = yield* directoryExists(configDir);
+    yield* Effect.if(!exists, {
+      onTrue: (): Effect.Effect<void, ServiceError> =>
+        Effect.fail(
+          new ServiceError({
+            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            message: `Config directory not found for ${serviceName}`,
+            service: serviceName,
+          })
         ),
-      onRight: ({ homeDir }): ResultType =>
-        Effect.gen(function* () {
-          const configDir = userConfigDir(homeDir);
-          const exists = yield* directoryExists(configDir);
-
-          return yield* pipe(
-            Match.value(exists),
-            Match.when(false, () =>
-              Effect.fail(
-                new ServiceError({
-                  code: ErrorCode.SERVICE_NOT_FOUND as 30,
-                  message: `Config directory not found for ${serviceName}`,
-                  service: serviceName,
-                })
-              )
-            ),
-            Match.when(true, () => Effect.succeed(configDir)),
-            Match.exhaustive
-          );
-        }),
+      onFalse: (): Effect.Effect<void> => Effect.void,
     });
+    return configDir;
   });
 
 /**
@@ -274,34 +265,31 @@ export const executeBackupConfig = (
 
     // Step 2: Collect files (parallel I/O)
     logger.info("Collecting configuration files...");
-    const files = yield* pipe(
-      Match.value(isAll),
-      Match.when(true, () => collectAllConfigFiles(configDir)),
-      Match.when(false, () => collectServiceConfigFiles(configDir, svcName)),
-      Match.exhaustive
-    );
+    const files = yield* Effect.if(isAll, {
+      onTrue: (): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
+        collectAllConfigFiles(configDir),
+      onFalse: (): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
+        collectServiceConfigFiles(configDir, svcName),
+    });
 
     const fileNames = Object.keys(files);
 
-    return yield* pipe(
-      Match.value(fileNames.length === 0),
-      Match.when(true, () =>
+    return yield* Effect.if(fileNames.length === 0, {
+      onTrue: (): Effect.Effect<never, GeneralError> =>
         Effect.fail(
           new GeneralError({
             code: ErrorCode.GENERAL_ERROR as 1,
             message: `No configuration files found for ${svcName}`,
           })
-        )
-      ),
-      Match.when(false, () =>
+        ),
+      onFalse: (): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>
         Effect.gen(function* () {
           // Step 3: Prepare output path
           const resolvedOutputPath = yield* prepareOutputPath(configDir, svcName, outputPath);
 
-          return yield* pipe(
-            Match.value(dryRun),
+          return yield* Effect.if(dryRun, {
             // Step 4: Handle dry run
-            Match.when(true, () =>
+            onTrue: (): Effect.Effect<void> =>
               Effect.gen(function* () {
                 logger.info(`Dry run - would create backup at: ${resolvedOutputPath}`);
                 logger.info("Files to include:");
@@ -310,9 +298,8 @@ export const executeBackupConfig = (
                   (file) => Effect.sync(() => logger.info(`  - ${file}`)),
                   { discard: true }
                 );
-              })
-            ),
-            Match.when(false, () =>
+              }),
+            onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
               Effect.gen(function* () {
                 // Step 5: Warn about sensitive content
                 logger.warn("WARNING: This backup contains encryption keys and secrets.");
@@ -360,12 +347,8 @@ export const executeBackupConfig = (
                   ),
                   Match.exhaustive
                 );
-              })
-            ),
-            Match.orElse(() => Effect.void)
-          );
-        })
-      ),
-      Match.exhaustive
-    );
+              }),
+          });
+        }),
+    });
   });

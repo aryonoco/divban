@@ -12,7 +12,7 @@
  * before deployment.
  */
 
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import { toAbsolutePathEffect } from "../../lib/paths";
@@ -30,18 +30,14 @@ export const executeValidate = (options: ValidateOptions): Effect.Effect<void, D
     const validPath = yield* toAbsolutePathEffect(configPath);
     logger.info(`Validating configuration: ${validPath}`);
 
-    // validate() is context-free, use apply() to access the method
-    const result = yield* service.apply((s) => Effect.either(s.validate(validPath)));
-
-    type ResultType = Effect.Effect<void, DivbanEffectError>;
-    return yield* Either.match(result, {
-      onLeft: (err): ResultType => {
-        logger.fail(`Validation failed: ${err.message}`);
-        return Effect.fail(err);
-      },
-      onRight: (): ResultType => {
-        logger.success("Configuration is valid");
-        return Effect.void;
-      },
-    });
+    yield* service.apply((s) =>
+      s
+        .validate(validPath)
+        .pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() => logger.fail(`Validation failed: ${error.message}`))
+          )
+        )
+    );
+    logger.success("Configuration is valid");
   });

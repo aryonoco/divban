@@ -18,12 +18,7 @@ import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
 import { getUserByName } from "../../system/user";
-import {
-  createServiceLayer,
-  findAndLoadConfig,
-  getDataDirFromConfig,
-  resolvePrerequisites,
-} from "./utils";
+import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
 export interface StatusOptions {
   readonly service: ExistentialService;
@@ -71,24 +66,12 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
 
           const status = yield* service.apply((s) =>
             Effect.gen(function* () {
-              const configResult = yield* Effect.either(
-                findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+              const { config, paths: updatedPaths } = yield* loadConfigOrFallback(
+                service.definition.name,
+                prereqs.user.homeDir,
+                s.configSchema,
+                prereqs
               );
-
-              type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
-              type PathsType = typeof prereqs.paths;
-              const config = Either.match(configResult, {
-                onLeft: (): ConfigType => ({}) as ConfigType,
-                onRight: (cfg): ConfigType => cfg,
-              });
-
-              const updatedPaths = Either.match(configResult, {
-                onLeft: (): PathsType => prereqs.paths,
-                onRight: (cfg): PathsType => ({
-                  ...prereqs.paths,
-                  dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
-                }),
-              });
 
               const layer = createServiceLayer(
                 config,
@@ -133,9 +116,8 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
 
                 logger.raw(`${service.definition.name}: ${statusColor}${overallStatus}${reset}`);
 
-                yield* pipe(
-                  Match.value(status.containers.length > 0),
-                  Match.when(true, () =>
+                yield* Effect.if(status.containers.length > 0, {
+                  onTrue: (): Effect.Effect<void> =>
                     Effect.gen(function* () {
                       logger.raw("");
                       logger.raw("Containers:");
@@ -162,11 +144,9 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                         (line) => Effect.sync(() => logger.raw(line)),
                         { discard: true }
                       );
-                    })
-                  ),
-                  Match.when(false, () => Effect.void),
-                  Match.exhaustive
-                );
+                    }),
+                  onFalse: (): Effect.Effect<void> => Effect.void,
+                });
               })
             ),
             Match.exhaustive

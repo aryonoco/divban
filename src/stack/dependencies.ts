@@ -70,19 +70,16 @@ export const validateDependencies = (
 
   return pipe(
     Effect.forEach(depPairs, ({ nodeName, dep }) =>
-      pipe(
-        Match.value(HashSet.has(names, dep)),
-        Match.when(true, () => Effect.void),
-        Match.when(false, () =>
+      Effect.if(HashSet.has(names, dep), {
+        onTrue: (): Effect.Effect<void> => Effect.void,
+        onFalse: (): Effect.Effect<never, GeneralError> =>
           Effect.fail(
             new GeneralError({
               code: ErrorCode.GENERAL_ERROR as 1,
               message: `Container '${nodeName}' depends on unknown container '${dep}'`,
             })
-          )
-        ),
-        Match.exhaustive
-      )
+          ),
+      })
     ),
     Effect.asVoid
   );

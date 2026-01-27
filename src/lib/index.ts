@@ -88,6 +88,7 @@ export {
   errorMessage,
   GeneralError,
   getErrorCodeName,
+  isDivbanError,
   ServiceError,
   SystemError,
   toExitCode,

@@ -12,7 +12,7 @@
  * in the config directory.
  */
 
-import { Effect, Either, Match, pipe } from "effect";
+import { Effect, Match, pipe } from "effect";
 import { getServiceUsername } from "../../config/schema";
 import {
   ContainerError,
@@ -46,28 +46,18 @@ export const executeSecretShow = (
     const svcName = service.definition.name;
 
     const username = yield* getServiceUsername(svcName);
-    const userResult = yield* Effect.either(getUserByName(username));
-
-    type ResultType = Effect.Effect<
-      void,
-      GeneralError | ContainerError | ServiceError | SystemError
-    >;
-    return yield* Either.match(userResult, {
-      onLeft: (): ResultType =>
-        Effect.fail(
+    const { homeDir } = yield* getUserByName(username).pipe(
+      Effect.mapError(
+        () =>
           new ContainerError({
             code: ErrorCode.SECRET_NOT_FOUND as 46,
             message: `Service '${svcName}' is not configured. Run setup first.`,
             container: svcName,
           })
-        ),
-      onRight: ({ homeDir }): ResultType =>
-        Effect.gen(function* () {
-          const secretValue = yield* getServiceSecret(svcName, secretName, homeDir);
-          // Output just the value (for scripting)
-          logger.raw(secretValue);
-        }),
-    });
+      )
+    );
+    const secretValue = yield* getServiceSecret(svcName, secretName, homeDir);
+    logger.raw(secretValue);
   });
 
 export const executeSecretList = (
@@ -78,42 +68,31 @@ export const executeSecretList = (
     const svcName = service.definition.name;
 
     const username = yield* getServiceUsername(svcName);
-    const userResult = yield* Effect.either(getUserByName(username));
-
-    type ResultType = Effect.Effect<
-      void,
-      GeneralError | ContainerError | ServiceError | SystemError
-    >;
-    return yield* Either.match(userResult, {
-      onLeft: (): ResultType =>
-        Effect.fail(
+    const { homeDir } = yield* getUserByName(username).pipe(
+      Effect.mapError(
+        () =>
           new ContainerError({
             code: ErrorCode.SECRET_NOT_FOUND as 46,
             message: `Service '${svcName}' is not configured. Run setup first.`,
             container: svcName,
           })
-        ),
-      onRight: ({ homeDir }): ResultType =>
-        Effect.gen(function* () {
-          const secrets = yield* listServiceSecrets(svcName, homeDir);
+      )
+    );
+    const secrets = yield* listServiceSecrets(svcName, homeDir);
 
-          yield* pipe(
-            Match.value(format),
-            Match.when("json", () =>
-              Effect.sync(() => logger.raw(JSON.stringify({ service: svcName, secrets })))
-            ),
-            Match.when("pretty", () =>
-              Effect.gen(function* () {
-                logger.info(`Secrets for ${svcName}:`);
-                yield* Effect.forEach(
-                  secrets,
-                  (name) => Effect.sync(() => logger.raw(`  - ${name}`)),
-                  { discard: true }
-                );
-              })
-            ),
-            Match.exhaustive
-          );
-        }),
-    });
+    yield* pipe(
+      Match.value(format),
+      Match.when("json", () =>
+        Effect.sync(() => logger.raw(JSON.stringify({ service: svcName, secrets })))
+      ),
+      Match.when("pretty", () =>
+        Effect.gen(function* () {
+          logger.info(`Secrets for ${svcName}:`);
+          yield* Effect.forEach(secrets, (name) => Effect.sync(() => logger.raw(`  - ${name}`)), {
+            discard: true,
+          });
+        })
+      ),
+      Match.exhaustive
+    );
   });

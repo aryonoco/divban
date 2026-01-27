@@ -12,16 +12,11 @@
  * systemctl restart.
  */
 
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import type { DivbanEffectError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { ExistentialService } from "../../services/types";
-import {
-  createServiceLayer,
-  findAndLoadConfig,
-  getDataDirFromConfig,
-  resolvePrerequisites,
-} from "./utils";
+import { createServiceLayer, loadConfigOrFallback, resolvePrerequisites } from "./utils";
 
 export interface RestartOptions {
   readonly service: ExistentialService;
@@ -39,24 +34,12 @@ export const executeRestart = (options: RestartOptions): Effect.Effect<void, Div
 
     yield* service.apply((s) =>
       Effect.gen(function* () {
-        const configResult = yield* Effect.either(
-          findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+        const { config, paths: updatedPaths } = yield* loadConfigOrFallback(
+          service.definition.name,
+          prereqs.user.homeDir,
+          s.configSchema,
+          prereqs
         );
-
-        type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
-        type PathsType = typeof prereqs.paths;
-        const config = Either.match(configResult, {
-          onLeft: (): ConfigType => ({}) as ConfigType,
-          onRight: (cfg): ConfigType => cfg,
-        });
-
-        const updatedPaths = Either.match(configResult, {
-          onLeft: (): PathsType => prereqs.paths,
-          onRight: (cfg): PathsType => ({
-            ...prereqs.paths,
-            dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
-          }),
-        });
 
         const layer = createServiceLayer(
           config,

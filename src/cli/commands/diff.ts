@@ -229,18 +229,15 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
     });
 
     logger.info("");
-    yield* pipe(
-      Match.value(newFiles.length === 0 && modifiedFiles.length === 0),
-      Match.when(true, () => Effect.sync(() => logger.success("No changes detected"))),
-      Match.when(false, () =>
+    yield* Effect.if(newFiles.length === 0 && modifiedFiles.length === 0, {
+      onTrue: (): Effect.Effect<void> => Effect.sync(() => logger.success("No changes detected")),
+      onFalse: (): Effect.Effect<void> =>
         Effect.sync(() =>
           logger.info(
             `Summary: ${newFiles.length} new, ${modifiedFiles.length} modified, ${unchangedFiles.length} unchanged`
           )
-        )
-      ),
-      Match.exhaustive
-    );
+        ),
+    });
   });
 
 const compareFile = (
@@ -253,10 +250,8 @@ const compareFile = (
   Effect.gen(function* () {
     const exists = yield* fileExists(path);
 
-    return yield* pipe(
-      Match.value(exists),
-      Match.when(false, () => Effect.succeed({ status: "new" as const })),
-      Match.when(true, () =>
+    return yield* Effect.if(exists, {
+      onTrue: (): Effect.Effect<{ status: "new" | "modified" | "unchanged"; diff?: string }> =>
         Effect.gen(function* () {
           const oldResult = yield* Effect.either(readFile(path));
 
@@ -274,10 +269,10 @@ const compareFile = (
                 Match.exhaustive
               ),
           });
-        })
-      ),
-      Match.exhaustive
-    );
+        }),
+      onFalse: (): Effect.Effect<{ status: "new" | "modified" | "unchanged"; diff?: string }> =>
+        Effect.succeed({ status: "new" as const }),
+    });
   });
 
 const compareLine = (oldLine: string | undefined, newLine: string | undefined): string | null =>

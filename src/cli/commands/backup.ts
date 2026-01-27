@@ -12,15 +12,14 @@
  * support before attempting - not all services implement backup.
  */
 
-import { Effect, Either, Match, Option, pipe } from "effect";
+import { Effect, Match, Option, pipe } from "effect";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
 import type { Logger } from "../../lib/logger";
 import type { BackupResult, ExistentialService } from "../../services/types";
 import {
   createServiceLayer,
-  findAndLoadConfig,
   formatBytes,
-  getDataDirFromConfig,
+  loadConfigOrFallback,
   resolvePrerequisites,
 } from "./utils";
 
@@ -38,25 +37,14 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
     const { service, dryRun, format, verbose, force, logger } = options;
 
     // Check if service supports backup (must be done before context resolution)
-    return yield* pipe(
-      Match.value(service.definition.capabilities.hasBackup),
-      Match.when(false, () =>
-        Effect.fail(
-          new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
-            message: `Service '${service.definition.name}' does not support backup`,
-          })
-        )
-      ),
-      Match.when(true, () =>
-        pipe(
-          Match.value(dryRun),
-          Match.when(true, () =>
+    return yield* Effect.if(service.definition.capabilities.hasBackup, {
+      onTrue: (): Effect.Effect<void, DivbanEffectError> =>
+        Effect.if(dryRun, {
+          onTrue: (): Effect.Effect<void> =>
             Effect.sync(() => {
               logger.info("Dry run - would create backup");
-            })
-          ),
-          Match.when(false, () =>
+            }),
+          onFalse: (): Effect.Effect<void, DivbanEffectError> =>
             Effect.gen(function* () {
               logger.info(`Creating backup for ${service.definition.name}...`);
 
@@ -65,25 +53,12 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
 
               const result = yield* service.apply((s) =>
                 Effect.gen(function* () {
-                  // Load config with typed schema (optional for backup)
-                  const configResult = yield* Effect.either(
-                    findAndLoadConfig(service.definition.name, prereqs.user.homeDir, s.configSchema)
+                  const { config, paths: updatedPaths } = yield* loadConfigOrFallback(
+                    service.definition.name,
+                    prereqs.user.homeDir,
+                    s.configSchema,
+                    prereqs
                   );
-
-                  type ConfigType = Parameters<(typeof s.configTag)["of"]>[0];
-                  type PathsType = typeof prereqs.paths;
-                  const config = Either.match(configResult, {
-                    onLeft: (): ConfigType => ({}) as ConfigType,
-                    onRight: (cfg): ConfigType => cfg,
-                  });
-
-                  const updatedPaths = Either.match(configResult, {
-                    onLeft: (): PathsType => prereqs.paths,
-                    onRight: (cfg): PathsType => ({
-                      ...prereqs.paths,
-                      dataDir: getDataDirFromConfig(cfg, prereqs.paths.dataDir),
-                    }),
-                  });
 
                   const layer = createServiceLayer(
                     config,
@@ -93,20 +68,17 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     logger
                   );
 
-                  return yield* pipe(
-                    Option.fromNullable(s.backup),
-                    Option.match({
-                      onNone: (): Effect.Effect<never, GeneralError> =>
-                        Effect.fail(
-                          new GeneralError({
-                            code: ErrorCode.GENERAL_ERROR as 1,
-                            message: `Service '${service.definition.name}' backup method not implemented`,
-                          })
-                        ),
-                      onSome: (backupFn): Effect.Effect<BackupResult, DivbanEffectError> =>
-                        backupFn().pipe(Effect.provide(layer)),
-                    })
-                  );
+                  return yield* Option.match(Option.fromNullable(s.backup), {
+                    onNone: (): Effect.Effect<never, GeneralError> =>
+                      Effect.fail(
+                        new GeneralError({
+                          code: ErrorCode.GENERAL_ERROR as 1,
+                          message: `Service '${service.definition.name}' backup method not implemented`,
+                        })
+                      ),
+                    onSome: (backupFn): Effect.Effect<BackupResult, DivbanEffectError> =>
+                      backupFn().pipe(Effect.provide(layer)),
+                  });
                 })
               );
 
@@ -131,11 +103,14 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                 ),
                 Match.exhaustive
               );
-            })
-          ),
-          Match.orElse(() => Effect.void)
-        )
-      ),
-      Match.exhaustive
-    );
+            }),
+        }),
+      onFalse: (): Effect.Effect<never, GeneralError> =>
+        Effect.fail(
+          new GeneralError({
+            code: ErrorCode.GENERAL_ERROR as 1,
+            message: `Service '${service.definition.name}' does not support backup`,
+          })
+        ),
+    });
   });
