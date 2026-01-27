@@ -41,18 +41,9 @@ export interface OrchestratorOptions {
   parallel?: boolean;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/** Build service unit name from container name */
 const toServiceUnit = (name: string): string => `${name}.service`;
 
-// ============================================================================
-// Level Processing
-// ============================================================================
-
-/** Process levels sequentially, containers within level based on parallel flag */
+/** Levels run sequentially; within a level, containers may run concurrently (no interdependencies). */
 const processLevels = <E>(
   levels: readonly (readonly string[])[],
   operation: (name: string) => Effect.Effect<void, E>,
@@ -77,10 +68,6 @@ const processLevels = <E>(
       ),
     { discard: true }
   );
-
-// ============================================================================
-// Stack Operations
-// ============================================================================
 
 /**
  * Start all containers in a stack in dependency order.
@@ -195,9 +182,6 @@ export const getStackStatus = (
     )
   );
 
-/**
- * Check if all containers in a stack are running.
- */
 export const isStackRunning = (
   stack: Stack,
   options: OrchestratorOptions
@@ -206,10 +190,6 @@ export const isStackRunning = (
     getStackStatus(stack, options),
     Effect.map((statuses) => statuses.every((s) => s.running))
   );
-
-// ============================================================================
-// Single Container Operations
-// ============================================================================
 
 /**
  * Start a single container in a stack.
@@ -229,7 +209,7 @@ export const startContainer = (
         onNone: (): Effect.Effect<void, ContainerError> =>
           Effect.fail(
             new ContainerError({
-              code: ErrorCode.CONTAINER_NOT_FOUND as 44,
+              code: ErrorCode.CONTAINER_NOT_FOUND,
               message: `Container '${containerName}' not found in stack`,
               container: containerName,
             })

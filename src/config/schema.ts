@@ -448,7 +448,7 @@ export const serviceBaseSchema: Schema.Schema<ServiceBaseConfig, ServiceBaseConf
     }),
   });
 
-/** Pattern: divban-<service> (e.g., divban-caddy, divban-immich) */
+/** Prefix prevents collision with system users and clarifies service ownership */
 export const getServiceUsername = (
   serviceName: ServiceName
 ): Effect.Effect<Username, GeneralError> =>
@@ -458,7 +458,7 @@ export const getServiceUsername = (
       isValidPosixUsername,
       () =>
         new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
+          code: ErrorCode.INVALID_ARGS,
           message: `Invalid service name for username: ${serviceName}. Must match [a-z_][a-z0-9_-]*`,
         })
     ),
@@ -466,7 +466,7 @@ export const getServiceUsername = (
       (u): u is string => u.length <= 32,
       (u) =>
         new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
+          code: ErrorCode.INVALID_ARGS,
           message: `Service name too long: ${serviceName}. Username would be ${u.length} chars (max 32)`,
         })
     ),

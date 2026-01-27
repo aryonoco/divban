@@ -70,7 +70,7 @@ const tryLoadConfigFromPath = <C>(
           )
         : Effect.fail(
             new ConfigError({
-              code: ErrorCode.CONFIG_NOT_FOUND as 10,
+              code: ErrorCode.CONFIG_NOT_FOUND,
               message: `Config not found at ${path}`,
             })
           )
@@ -91,7 +91,7 @@ export const findAndLoadConfig = <C>(
     Effect.catchAll(() =>
       Effect.fail(
         new ConfigError({
-          code: ErrorCode.CONFIG_NOT_FOUND as 10,
+          code: ErrorCode.CONFIG_NOT_FOUND,
           message: `No configuration file found for ${serviceName}. Searched: ${getConfigPaths(serviceName, homeDir).join(", ")}`,
         })
       )
@@ -254,7 +254,7 @@ export const resolveServiceUser = (
       Effect.mapError(
         () =>
           new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            code: ErrorCode.SERVICE_NOT_FOUND,
             message: `Service user '${username}' not found. Run 'divban setup ${serviceName}' first.`,
             service: serviceName,
           })

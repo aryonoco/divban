@@ -34,7 +34,6 @@ type LexState =
 const initialState: LexState = { phase: "digits", digits: "", hasDecimal: false };
 
 const lexStep = (state: LexState, c: string): LexState => {
-  // Terminal states
   if (state.phase === "error" || state.phase === "done") {
     return state;
   }
@@ -46,7 +45,6 @@ const lexStep = (state: LexState, c: string): LexState => {
     if (c === "." && !state.hasDecimal) {
       return { ...state, digits: state.digits + c, hasDecimal: true };
     }
-    // Transition to unit phase
     if (state.digits.length === 0) {
       return { phase: "error" };
     }
@@ -55,7 +53,6 @@ const lexStep = (state: LexState, c: string): LexState => {
       return { phase: "error" };
     }
 
-    // Handle this char as potential unit
     if (isWhitespace(c)) {
       return { phase: "unit", value, unit: "" };
     }
@@ -70,7 +67,7 @@ const lexStep = (state: LexState, c: string): LexState => {
 
   if (state.phase === "unit") {
     if (isWhitespace(c)) {
-      return state; // skip whitespace
+      return state;
     }
     if ("kmgtKMGT".includes(c) && state.unit === "") {
       return { ...state, unit: c.toLowerCase() };
@@ -95,19 +92,16 @@ const parseMemorySizeString = (s: string): Option.Option<ParsedMemory> => {
 
   const finalState = chars(trimmed).reduce(lexStep, initialState);
 
-  // Extract result based on final state
   if (finalState.phase === "error") {
     return Option.none();
   }
   if (finalState.phase === "digits") {
-    // String was all digits
     if (finalState.digits.length === 0) {
       return Option.none();
     }
     const value = Number.parseFloat(finalState.digits);
     return Number.isNaN(value) ? Option.none() : Option.some({ value, unit: "" });
   }
-  // "unit" or "done" phase
   return Option.some({ value: finalState.value, unit: finalState.unit });
 };
 
@@ -163,7 +157,7 @@ export const parseMemorySize = (size: string): Effect.Effect<number, GeneralErro
       onNone: (): Effect.Effect<number, GeneralError> =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.INVALID_ARGS as 2,
+            code: ErrorCode.INVALID_ARGS,
             message: `Invalid memory size: ${size}. Expected format: <number>[k|m|g|t][b] (e.g., "512m", "2g")`,
           })
         ),

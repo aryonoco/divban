@@ -16,7 +16,7 @@ import { ErrorCode, GeneralError, type GeneralErrorCode } from "./errors";
 export const assertEffect = (
   condition: boolean,
   message: string,
-  code: GeneralErrorCode = ErrorCode.GENERAL_ERROR as 1
+  code: GeneralErrorCode = ErrorCode.GENERAL_ERROR
 ): Effect.Effect<void, GeneralError> =>
   condition ? Effect.void : Effect.fail(new GeneralError({ code, message }));
 
@@ -53,7 +53,7 @@ export const assertNonEmptyEffect = <T>(
 ): Effect.Effect<NonEmptyArray<T>, GeneralError> =>
   isNonEmptyArray(arr)
     ? Effect.succeed(arr)
-    : Effect.fail(new GeneralError({ code: ErrorCode.GENERAL_ERROR as 1, message }));
+    : Effect.fail(new GeneralError({ code: ErrorCode.GENERAL_ERROR, message }));
 
 export const toNonEmpty = <T>(arr: readonly T[]): Option.Option<NonEmptyArray<T>> =>
   isNonEmptyArray(arr) ? Option.some(arr) : Option.none();

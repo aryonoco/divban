@@ -14,7 +14,6 @@
 
 import { Effect, Either, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS } from "../lib/paths";
 import { execOutput, execSuccess } from "./exec";
 import { writeFile } from "./fs";
@@ -34,9 +33,9 @@ export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | 
       Effect.mapError(
         (err) =>
           new SystemError({
-            code: ErrorCode.EXEC_FAILED as 26,
+            code: ErrorCode.EXEC_FAILED,
             message: `Failed to read sysctl ${SYSCTL_KEY}: ${err.message}`,
-            ...extractCauseProps(err),
+            ...(err instanceof Error ? { cause: err } : {}),
           })
       )
     ),
@@ -45,7 +44,7 @@ export const getUnprivilegedPortStart = (): Effect.Effect<number, SystemError | 
       ({ value }) => !Number.isNaN(value),
       ({ output }) =>
         new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
+          code: ErrorCode.EXEC_FAILED,
           message: `Invalid sysctl value for ${SYSCTL_KEY}: ${output}`,
         })
     ),
@@ -81,9 +80,9 @@ const doConfigureSysctl = (threshold: number): Effect.Effect<void, SystemError |
       Effect.mapError(
         (err) =>
           new SystemError({
-            code: ErrorCode.FILE_WRITE_FAILED as 28,
+            code: ErrorCode.FILE_WRITE_FAILED,
             message: `Failed to write sysctl configuration: ${err.message}`,
-            ...extractCauseProps(err),
+            ...(err instanceof Error ? { cause: err } : {}),
           })
       )
     ),
@@ -93,9 +92,9 @@ const doConfigureSysctl = (threshold: number): Effect.Effect<void, SystemError |
         Effect.mapError(
           (err) =>
             new SystemError({
-              code: ErrorCode.EXEC_FAILED as 26,
+              code: ErrorCode.EXEC_FAILED,
               message: `Failed to apply sysctl ${SYSCTL_KEY}=${threshold}: ${err.message}`,
-              ...extractCauseProps(err),
+              ...(err instanceof Error ? { cause: err } : {}),
             })
         )
       )
@@ -133,9 +132,9 @@ export const ensureUnprivilegedPorts = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
+          code: ErrorCode.EXEC_FAILED,
           message: `Failed to configure unprivileged port binding${context}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );

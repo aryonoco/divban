@@ -16,7 +16,6 @@ import { mkdir, writeFile as nodeWriteFile, rename, rm } from "node:fs/promises"
 import { type FileSink, Glob } from "bun";
 import { Effect, Option, pipe } from "effect";
 import { ErrorCode, SystemError, errorMessage } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
 /**
@@ -24,9 +23,9 @@ import { type AbsolutePath, pathWithSuffix } from "../lib/types";
  */
 const fileReadError = (path: string, e: unknown): SystemError =>
   new SystemError({
-    code: ErrorCode.FILE_READ_FAILED as 27,
+    code: ErrorCode.FILE_READ_FAILED,
     message: `Failed to read file: ${path}: ${errorMessage(e)}`,
-    ...extractCauseProps(e),
+    ...(e instanceof Error ? { cause: e } : {}),
   });
 
 /**
@@ -34,9 +33,9 @@ const fileReadError = (path: string, e: unknown): SystemError =>
  */
 const fileWriteError = (path: string, e: unknown): SystemError =>
   new SystemError({
-    code: ErrorCode.FILE_WRITE_FAILED as 28,
+    code: ErrorCode.FILE_WRITE_FAILED,
     message: `Failed to write file: ${path}: ${errorMessage(e)}`,
-    ...extractCauseProps(e),
+    ...(e instanceof Error ? { cause: e } : {}),
   });
 
 /**
@@ -44,9 +43,9 @@ const fileWriteError = (path: string, e: unknown): SystemError =>
  */
 const directoryError = (path: string, e: unknown): SystemError =>
   new SystemError({
-    code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+    code: ErrorCode.DIRECTORY_CREATE_FAILED,
     message: `Failed to create directory: ${path}: ${errorMessage(e)}`,
-    ...extractCauseProps(e),
+    ...(e instanceof Error ? { cause: e } : {}),
   });
 
 /**
@@ -64,7 +63,7 @@ export const readFile = (path: AbsolutePath): Effect.Effect<string, SystemError>
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.FILE_READ_FAILED as 27,
+            code: ErrorCode.FILE_READ_FAILED,
             message: `File not found: ${path}`,
           })
       )
@@ -97,7 +96,7 @@ export const readBytes = (path: AbsolutePath): Effect.Effect<Uint8Array, SystemE
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.FILE_READ_FAILED as 27,
+            code: ErrorCode.FILE_READ_FAILED,
             message: `File not found: ${path}`,
           })
       )
@@ -237,7 +236,7 @@ export const copyFile = (
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.FILE_READ_FAILED as 27,
+            code: ErrorCode.FILE_READ_FAILED,
             message: `Source file not found: ${source}`,
           })
       )
@@ -247,9 +246,9 @@ export const copyFile = (
       try: (): Promise<number> => Bun.write(dest, sourceFile),
       catch: (e): SystemError =>
         new SystemError({
-          code: ErrorCode.FILE_WRITE_FAILED as 28,
+          code: ErrorCode.FILE_WRITE_FAILED,
           message: `Failed to copy file from ${source} to ${dest}: ${errorMessage(e)}`,
-          ...extractCauseProps(e),
+          ...(e instanceof Error ? { cause: e } : {}),
         }),
     });
   });
@@ -298,9 +297,9 @@ export const renameFile = (
     try: (): Promise<void> => rename(source, dest),
     catch: (e): SystemError =>
       new SystemError({
-        code: ErrorCode.FILE_WRITE_FAILED as 28,
+        code: ErrorCode.FILE_WRITE_FAILED,
         message: `Failed to rename ${source} to ${dest}: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -331,7 +330,7 @@ export const getFileSize = (path: AbsolutePath): Effect.Effect<number, SystemErr
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.FILE_READ_FAILED as 27,
+            code: ErrorCode.FILE_READ_FAILED,
             message: `File not found: ${path}`,
           })
       )
@@ -449,9 +448,9 @@ export const deleteDirectory = (path: AbsolutePath): Effect.Effect<void, SystemE
     try: (): Promise<void> => rm(path, { recursive: true, force: true }),
     catch: (e): SystemError =>
       new SystemError({
-        code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+        code: ErrorCode.DIRECTORY_CREATE_FAILED,
         message: `Failed to delete directory: ${path}: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -481,7 +480,7 @@ export const sha256File = (path: AbsolutePath): Effect.Effect<string, SystemErro
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.FILE_READ_FAILED as 27,
+            code: ErrorCode.FILE_READ_FAILED,
             message: `File not found: ${path}`,
           })
       )

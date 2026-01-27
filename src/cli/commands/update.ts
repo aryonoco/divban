@@ -55,7 +55,7 @@ const resolveUpdateServiceUser = (
       Effect.mapError(
         () =>
           new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            code: ErrorCode.SERVICE_NOT_FOUND,
             message: `Service user '${username}' not found. Run 'divban setup ${serviceName}' first.`,
             service: serviceName,
           })
@@ -87,7 +87,7 @@ const checkForUpdates = (
     Effect.mapError(
       (err) =>
         new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
+          code: ErrorCode.GENERAL_ERROR,
           message: "Failed to check for updates",
           cause: err,
         })
@@ -104,7 +104,7 @@ const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError 
         onTrue: (): Effect.Effect<never, GeneralError> =>
           Effect.fail(
             new GeneralError({
-              code: ErrorCode.GENERAL_ERROR as 1,
+              code: ErrorCode.GENERAL_ERROR,
               message: `Failed to apply updates: ${result.stderr}`,
             })
           ),
@@ -115,7 +115,7 @@ const applyUpdates = (context: UpdateContext): Effect.Effect<void, GeneralError 
       err instanceof GeneralError
         ? err
         : new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: "Failed to apply updates",
             cause: err,
           })

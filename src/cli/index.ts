@@ -19,7 +19,7 @@ import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from
 import { loadGlobalConfig } from "../config/loader";
 import { getLoggingSettings } from "../config/merge";
 import type { GlobalConfig } from "../config/schema";
-import { type ConfigError, ErrorCode, GeneralError, isDivbanError } from "../lib/errors";
+import { type ConfigError, type DivbanEffectError, ErrorCode, GeneralError } from "../lib/errors";
 import { type Logger, createLogger } from "../lib/logger";
 import { toAbsolutePathEffect } from "../lib/paths";
 import type { AbsolutePath } from "../lib/types";
@@ -68,9 +68,7 @@ interface CommandContext {
   readonly format: "pretty" | "json";
 }
 
-// ============================================================================
-// Context Resolution
-// ============================================================================
+// --- Context resolution ---
 
 const resolveGlobalConfigPath = (
   globals: GlobalOptions
@@ -105,9 +103,10 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
     return { logger, globalConfig, format };
   });
 
-// ============================================================================
-// Error Display
-// ============================================================================
+// --- Error display ---
+
+const isDivbanError = (err: unknown): err is DivbanEffectError =>
+  typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
 
 const displayError = (err: unknown, logger: Logger, format: "pretty" | "json"): void => {
   if (!isDivbanError(err)) {
@@ -121,9 +120,7 @@ const displayError = (err: unknown, logger: Logger, format: "pretty" | "json"): 
   );
 };
 
-// ============================================================================
-// Command Runner
-// ============================================================================
+// --- Command runner ---
 
 /**
  * Wraps a command handler with service initialization, context resolution,
@@ -142,9 +139,7 @@ const runCommand = (
     );
   });
 
-// ============================================================================
-// All-Services Support
-// ============================================================================
+// --- All-services support ---
 
 const runServiceForAll = (
   serviceDef: ServiceDefinition,
@@ -232,7 +227,7 @@ const requireServiceOrAll = (
         onNone: (): Effect.Effect<void, GeneralError> =>
           Effect.fail(
             new GeneralError({
-              code: ErrorCode.INVALID_ARGS as 2,
+              code: ErrorCode.INVALID_ARGS,
               message: "Service name required (or use --all)",
             })
           ),
@@ -244,9 +239,7 @@ const requireServiceOrAll = (
       }),
   });
 
-// ============================================================================
-// Subcommand Definitions
-// ============================================================================
+// --- Subcommand definitions ---
 
 const validateCmd = Command.make(
   "validate",
@@ -540,9 +533,7 @@ const removeCmd = Command.make(
     )
 ).pipe(Command.withDescription("Remove a service and its user"));
 
-// ============================================================================
-// Secret Subcommands
-// ============================================================================
+// --- Secret subcommands ---
 
 const secretShowCmd = Command.make(
   "show",
@@ -578,9 +569,7 @@ const secretCmd = Command.make("secret").pipe(
   Command.withSubcommands([secretShowCmd, secretListCmd])
 );
 
-// ============================================================================
-// Root Command
-// ============================================================================
+// --- Root command ---
 
 const divban = Command.make("divban").pipe(
   Command.withDescription("Unified Rootless Podman Service Manager"),

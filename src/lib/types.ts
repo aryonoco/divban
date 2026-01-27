@@ -248,7 +248,7 @@ export const decodeContainerImage: (
 export const parseErrorToGeneralError = (error: ParseResult.ParseError): GeneralError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
   return new GeneralError({
-    code: ErrorCode.INVALID_ARGS as 2,
+    code: ErrorCode.INVALID_ARGS,
     message: formatted,
   });
 };
@@ -313,7 +313,7 @@ export const joinPath = (...segments: string[]): Effect.Effect<AbsolutePath, Gen
   segments.length === 0
     ? Effect.fail(
         new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
+          code: ErrorCode.INVALID_ARGS,
           message: "No path segments provided",
         })
       )

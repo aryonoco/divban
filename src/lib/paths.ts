@@ -129,7 +129,7 @@ export const toAbsolutePathEffect = (p: string): Effect.Effect<AbsolutePathType,
   hasNullByte(p)
     ? Effect.fail(
         new ConfigError({
-          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+          code: ErrorCode.CONFIG_VALIDATION_ERROR,
           message: `Invalid path contains null byte: ${p}`,
         })
       )

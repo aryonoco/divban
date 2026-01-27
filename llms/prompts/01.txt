@@ -173,14 +173,14 @@ I'm now trying to develop a prompt, or an instruction document that I can give t
 
 Say I want to give the AI agent a docker compose file I've found on the internet. And I want to tell it to "Add support for X" to divban. And then I want the LLM agent to do everyting correctly, generate the appropriate divban-x.toml file from the docker compose and store it in @examples and then follow all the rules, register things properly, setup all the required commands properly, create all the required services and types and interfaces and anything else that's required so divban then also supports x
 
-I've created two such documents already. Analayse the codebase and then determine which one is better in which regards. Then create an optimised, synthesided new document called
+I've created two such documents already. Analayse the codebase and then determine which one is better in which regards. Then create an optimised, synthesided new document called 
 divban-add-service-guide-06.md 
 which includes the best parts of the existing documents and removes their weak or incorrect parts. 
 
 
 --- 
 
-Analyse every single file under the @src directory which has been created or modified since commit ID 
+Analyse every single file under the @src directory which has been created or modified since the last commit to git
 
 
 Use a number of async background agents to review all the comments in each file in detail. Examine what the file does, how it fits in with the rest codebase, and what that particular module/function provides. Then propse a plan to rewrite the comments comprehensively to be concise and to follow software engineering best practices. Comments should describe why the code does what it does, not what it does (which is evident from reading the code anyway) Think of the projects which are known for their high quality comments such as Zod, the TypeScript compiler itself and the Effect library and model your comments to mimic their style. 

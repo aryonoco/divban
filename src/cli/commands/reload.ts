@@ -64,7 +64,7 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
                     onNone: (): Effect.Effect<never, GeneralError> =>
                       Effect.fail(
                         new GeneralError({
-                          code: ErrorCode.GENERAL_ERROR as 1,
+                          code: ErrorCode.GENERAL_ERROR,
                           message: `Service '${service.definition.name}' reload method not implemented`,
                         })
                       ),
@@ -80,7 +80,7 @@ export const executeReload = (options: ReloadOptions): Effect.Effect<void, Divba
       onFalse: (): Effect.Effect<void, GeneralError> =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: `Service '${service.definition.name}' does not support reload. Use 'restart' instead.`,
           })
         ),

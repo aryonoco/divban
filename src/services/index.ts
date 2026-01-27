@@ -33,7 +33,7 @@ export const getService = (name: string): Effect.Effect<ExistentialService, Serv
         const available = [...services.keys()].join(", ");
         return Effect.fail(
           new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            code: ErrorCode.SERVICE_NOT_FOUND,
             message: `Unknown service: '${name}'. Available services: ${available || "none"}`,
           })
         );

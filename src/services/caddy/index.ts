@@ -6,8 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Caddy reverse proxy service implementation.
- * Uses Effect's context system - dependencies accessed via yield*.
+ * Caddy reverse proxy service. Context system provides DI; pasta network
+ * mode allows rootless binding of privileged ports 80/443.
  */
 
 import { Effect, Option, ParseResult, pipe } from "effect";
@@ -98,7 +98,7 @@ const generate = (): Effect.Effect<
             Effect.mapError(
               (e) =>
                 new ServiceError({
-                  code: ErrorCode.SERVICE_NOT_FOUND as 30,
+                  code: ErrorCode.SERVICE_NOT_FOUND,
                   message: `Invalid mapHostLoopback IP: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
                 })
             )

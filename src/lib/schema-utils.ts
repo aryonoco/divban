@@ -28,7 +28,7 @@ import { all, last, uncons } from "./str";
 export const formatSchemaError = (error: ParseResult.ParseError, context: string): ConfigError => {
   const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
   return new ConfigError({
-    code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+    code: ErrorCode.CONFIG_VALIDATION_ERROR,
     message: `Configuration validation failed for ${context}:\n${formatted}`,
     path: context,
   });
@@ -49,7 +49,7 @@ export const decodeToEffect = <A, I = A>(
       const formatted = ParseResult.TreeFormatter.formatErrorSync(error);
       return Effect.fail(
         new ConfigError({
-          code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+          code: ErrorCode.CONFIG_VALIDATION_ERROR,
           message: `Configuration validation failed for ${context}:\n${formatted}`,
           path: context,
         })

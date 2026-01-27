@@ -15,7 +15,6 @@
 
 import { Config, Effect, Option, type Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, SystemError, errorMessage } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { toAbsolutePathEffect } from "../lib/paths";
 import { decodeToEffect, decodeUnsafe } from "../lib/schema-utils";
 import type { AbsolutePath, ServiceName } from "../lib/types";
@@ -36,7 +35,7 @@ export const loadTomlFile = <A, I = A>(
         (exists): exists is true => exists === true,
         () =>
           new ConfigError({
-            code: ErrorCode.CONFIG_NOT_FOUND as 10,
+            code: ErrorCode.CONFIG_NOT_FOUND,
             message: `Configuration file not found: ${filePath}`,
             path: filePath,
           })
@@ -47,9 +46,9 @@ export const loadTomlFile = <A, I = A>(
       try: (): Promise<string> => file.text(),
       catch: (e): SystemError =>
         new SystemError({
-          code: ErrorCode.FILE_READ_FAILED as 27,
+          code: ErrorCode.FILE_READ_FAILED,
           message: `Failed to read ${filePath}: ${errorMessage(e)}`,
-          ...extractCauseProps(e),
+          ...(e instanceof Error ? { cause: e } : {}),
         }),
     });
 
@@ -57,10 +56,10 @@ export const loadTomlFile = <A, I = A>(
       try: (): unknown => Bun.TOML.parse(content),
       catch: (e): ConfigError =>
         new ConfigError({
-          code: ErrorCode.CONFIG_PARSE_ERROR as 11,
+          code: ErrorCode.CONFIG_PARSE_ERROR,
           message: `Failed to parse TOML in ${filePath}: ${errorMessage(e)}`,
           path: filePath,
-          ...extractCauseProps(e),
+          ...(e instanceof Error ? { cause: e } : {}),
         }),
     });
 
@@ -101,7 +100,7 @@ export const loadGlobalConfigWithHome = (
               onFalse: (): Effect.Effect<GlobalConfig, ConfigError> =>
                 Effect.fail(
                   new ConfigError({
-                    code: ErrorCode.CONFIG_NOT_FOUND as 10,
+                    code: ErrorCode.CONFIG_NOT_FOUND,
                     message: `File not found: ${p}`,
                   })
                 ),
@@ -170,7 +169,7 @@ export const findServiceConfig = (
               onFalse: (): Effect.Effect<AbsolutePath, ConfigError> =>
                 Effect.fail(
                   new ConfigError({
-                    code: ErrorCode.CONFIG_NOT_FOUND as 10,
+                    code: ErrorCode.CONFIG_NOT_FOUND,
                     message: `Not found: ${p}`,
                   })
                 ),
@@ -186,7 +185,7 @@ export const findServiceConfig = (
     Effect.mapError(
       () =>
         new ConfigError({
-          code: ErrorCode.CONFIG_NOT_FOUND as 10,
+          code: ErrorCode.CONFIG_NOT_FOUND,
           message: `No configuration found for service '${serviceName}'. Searched: ${paths.join(", ")}`,
         })
     )

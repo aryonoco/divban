@@ -35,10 +35,6 @@ import type { DivbanBackUpSchemaVersion, DivbanProducerVersion } from "../versio
 import { freshRssCliStrategy, postgresStrategy, sqliteStopStrategy } from "./strategies";
 import type { BackupConfig, BackupStrategy } from "./types";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 export interface BackupOptions {
   readonly serviceName: ServiceName;
   readonly dataDir: AbsolutePath;
@@ -54,15 +50,7 @@ export interface RestoreOptions {
   readonly uid: UserId;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Error Types
-// ─────────────────────────────────────────────────────────────────────────────
-
 type BackupWorkflowError = BackupError | ServiceError | SystemError | GeneralError;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Generic Backup Implementation
-// ─────────────────────────────────────────────────────────────────────────────
 
 const executeBackup = <C extends BackupConfig>(
   config: C,
@@ -98,10 +86,6 @@ const executeBackup = <C extends BackupConfig>(
     return backupPath;
   });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Generic Restore Implementation
-// ─────────────────────────────────────────────────────────────────────────────
-
 const executeRestore = <C extends BackupConfig>(
   backupPath: AbsolutePath,
   config: C,
@@ -117,7 +101,7 @@ const executeRestore = <C extends BackupConfig>(
         (exists): exists is true => exists === true,
         (): BackupError =>
           new BackupError({
-            code: ErrorCode.BACKUP_NOT_FOUND as 52,
+            code: ErrorCode.BACKUP_NOT_FOUND,
             message: `Backup file not found: ${backupPath}`,
             path: backupPath,
           })
@@ -141,7 +125,7 @@ const executeRestore = <C extends BackupConfig>(
         (bytes): bytes is Uint8Array => bytes !== undefined,
         (): BackupError =>
           new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
+            code: ErrorCode.RESTORE_FAILED,
             message: `Invalid backup: missing ${BACKUP_METADATA_FILENAME}`,
           })
       ),
@@ -152,7 +136,7 @@ const executeRestore = <C extends BackupConfig>(
               JSON.parse(new TextDecoder().decode(bytes)) as ArchiveMetadata,
             catch: (): BackupError =>
               new BackupError({
-                code: ErrorCode.RESTORE_FAILED as 51,
+                code: ErrorCode.RESTORE_FAILED,
                 message: `Invalid backup: malformed ${BACKUP_METADATA_FILENAME}`,
               }),
           })
@@ -161,7 +145,7 @@ const executeRestore = <C extends BackupConfig>(
         (meta): meta is ArchiveMetadata => meta.producer === "divban",
         (meta): BackupError =>
           new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
+            code: ErrorCode.RESTORE_FAILED,
             message: `Backup was created by '${meta.producer ?? "unknown"}', not 'divban'`,
           })
       ),
@@ -169,7 +153,7 @@ const executeRestore = <C extends BackupConfig>(
         (meta): meta is ArchiveMetadata => meta.service === serviceName,
         (meta): BackupError =>
           new BackupError({
-            code: ErrorCode.RESTORE_FAILED as 51,
+            code: ErrorCode.RESTORE_FAILED,
             message: `Backup is for '${meta.service}', not '${serviceName}'`,
           })
       ),
@@ -185,10 +169,6 @@ const executeRestore = <C extends BackupConfig>(
 
     yield* strategy.restoreData(config, { serviceName, dataDir, user, uid, files });
   });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Public Dispatchers (Match.exhaustive ensures all cases handled)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const backupService = (
   config: BackupConfig,

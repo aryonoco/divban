@@ -117,7 +117,7 @@ export const allocateUid = (
           onNone: (): Effect.Effect<UserId, SystemError> =>
             Effect.fail(
               new SystemError({
-                code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+                code: ErrorCode.UID_RANGE_EXHAUSTED,
                 message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
               })
             ),
@@ -147,7 +147,7 @@ export const allocateUidInternal = (
         onNone: (): Effect.Effect<UserId, SystemError> =>
           Effect.fail(
             new SystemError({
-              code: ErrorCode.UID_RANGE_EXHAUSTED as 24,
+              code: ErrorCode.UID_RANGE_EXHAUSTED,
               message: `No available UIDs in range ${start}-${end}. All ${end - start + 1} UIDs are in use.`,
             })
           ),
@@ -181,7 +181,7 @@ export const allocateSubuidRange = (
           onNone: (): Effect.Effect<{ start: SubordinateId; size: number }, SystemError> =>
             Effect.fail(
               new SystemError({
-                code: ErrorCode.SUBUID_RANGE_EXHAUSTED as 25,
+                code: ErrorCode.SUBUID_RANGE_EXHAUSTED,
                 message: `No available subuid range of size ${rangeSize} starting from ${rangeStart}`,
               })
             ),
@@ -212,7 +212,7 @@ export const getUidByUsername = (
       onLeft: (): UidResult =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: `User ${username} not found`,
           })
         ),
@@ -224,7 +224,7 @@ export const getUidByUsername = (
             onNone: (): UidResult =>
               Effect.fail(
                 new GeneralError({
-                  code: ErrorCode.GENERAL_ERROR as 1,
+                  code: ErrorCode.GENERAL_ERROR,
                   message: `Invalid UID for user ${username}`,
                 })
               ),
@@ -263,7 +263,7 @@ export const getExistingSubuidStart = (
           onNone: (): Effect.Effect<SubordinateId, GeneralError> =>
             Effect.fail(
               new GeneralError({
-                code: ErrorCode.GENERAL_ERROR as 1,
+                code: ErrorCode.GENERAL_ERROR,
                 message: `No subuid range found for ${username}`,
               })
             ),

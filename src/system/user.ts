@@ -15,7 +15,6 @@
 import { Array as Arr, Effect, Exit, Option, Schedule, pipe } from "effect";
 import { getServiceUsername } from "../config/schema";
 import { ErrorCode, GeneralError, ServiceError, SystemError } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS, userHomeDir } from "../lib/paths";
 import { systemRetrySchedule } from "../lib/retry";
 import type {
@@ -60,7 +59,7 @@ const parsePasswdEntry = (
       (parts): parts is string[] => parts.length >= 7,
       () =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `Invalid passwd entry for ${username}`,
         })
     ),
@@ -90,7 +89,7 @@ const verifyUserConfig = (
       (result) => result.exitCode === 0,
       () =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `Failed to verify user ${username}`,
         })
     ),
@@ -99,7 +98,7 @@ const verifyUserConfig = (
       (entry) => Number(entry.uid) === expectedUid,
       (entry) =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `User ${username} exists with UID ${entry.uid}, expected ${expectedUid}`,
         })
     ),
@@ -107,7 +106,7 @@ const verifyUserConfig = (
       (entry) => entry.homeDir === expectedHome,
       (entry) =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `User ${username} has home ${entry.homeDir}, expected ${expectedHome}`,
         })
     ),
@@ -115,7 +114,7 @@ const verifyUserConfig = (
       (entry) => isNologinShell(entry.shell),
       (entry) =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `User ${username} has interactive shell ${entry.shell}, expected nologin`,
         })
     ),
@@ -175,9 +174,9 @@ const appendSubidEntry = (
       Effect.mapError(
         (e) =>
           new SystemError({
-            code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
+            code: ErrorCode.SUBUID_CONFIG_FAILED,
             message: `Failed to configure ${file}`,
-            ...extractCauseProps(e),
+            ...(e instanceof Error ? { cause: e } : {}),
           })
       )
     );
@@ -232,9 +231,9 @@ const removeSubidEntry = (
       Effect.mapError(
         (e) =>
           new SystemError({
-            code: ErrorCode.SUBUID_CONFIG_FAILED as 21,
+            code: ErrorCode.SUBUID_CONFIG_FAILED,
             message: `Failed to remove ${username} from ${file}`,
-            ...extractCauseProps(e),
+            ...(e instanceof Error ? { cause: e } : {}),
           })
       )
     );
@@ -276,9 +275,9 @@ export const deleteServiceUser = (
             Effect.mapError(
               (err) =>
                 new GeneralError({
-                  code: ErrorCode.GENERAL_ERROR as 1,
+                  code: ErrorCode.GENERAL_ERROR,
                   message: `Failed to delete user ${username}: ${err.message}`,
-                  ...extractCauseProps(err),
+                  ...(err instanceof Error ? { cause: err } : {}),
                 })
             )
           ),
@@ -327,9 +326,9 @@ const createUserWithUid = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.USER_CREATE_FAILED as 20,
+          code: ErrorCode.USER_CREATE_FAILED,
           message: `Failed to create user ${username}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -496,7 +495,7 @@ export const getUserByName = (
       (exists): exists is true => exists === true,
       () =>
         new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          code: ErrorCode.SERVICE_NOT_FOUND,
           message: `User not found: ${username}`,
         })
     ),
@@ -526,16 +525,14 @@ export const requireRoot = (): Effect.Effect<void, GeneralError> =>
       (root): root is true => root === true,
       () =>
         new GeneralError({
-          code: ErrorCode.ROOT_REQUIRED as 3,
+          code: ErrorCode.ROOT_REQUIRED,
           message: "This operation requires root privileges. Please run with sudo.",
         })
     ),
     Effect.asVoid
   );
 
-// ============================================================================
-// Tracked User Operations
-// ============================================================================
+// --- Tracked user operations ---
 
 /**
  * Acquire service user with creation tracking.

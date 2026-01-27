@@ -13,7 +13,6 @@
 
 import { Array as Arr, Effect, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, SystemError } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import { type AbsolutePath, type GroupId, type UserId, pathJoin } from "../lib/types";
 import { execSuccess } from "./exec";
@@ -52,9 +51,9 @@ export const ensureDirectory = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+          code: ErrorCode.DIRECTORY_CREATE_FAILED,
           message: `Failed to create directory ${path}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -96,9 +95,9 @@ export const chown = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
+          code: ErrorCode.EXEC_FAILED,
           message: `Failed to change ownership of ${path}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -123,9 +122,9 @@ export const chmod = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
+          code: ErrorCode.EXEC_FAILED,
           message: `Failed to change permissions of ${path}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -192,16 +191,14 @@ export const removeDirectory = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+          code: ErrorCode.DIRECTORY_CREATE_FAILED,
           message: `Failed to remove directory ${path}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
 
-// ============================================================================
-// Tracked Directory Operations (Functional Pattern)
-// ============================================================================
+// --- Tracked directory operations ---
 
 /**
  * Ensure directories with tracking.

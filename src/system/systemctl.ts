@@ -13,7 +13,6 @@
 
 import { Effect, Either, Option, pipe } from "effect";
 import { ErrorCode, type GeneralError, ServiceError, SystemError } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { heavyRetrySchedule, isTransientSystemError, systemRetrySchedule } from "../lib/retry";
 import type { UserId, Username } from "../lib/types";
 import { execAsUser } from "./exec";
@@ -86,7 +85,7 @@ export const systemctl = (
         onFalse: (): Effect.Effect<string, SystemError> =>
           Effect.fail(
             new SystemError({
-              code: ErrorCode.EXEC_FAILED as 26,
+              code: ErrorCode.EXEC_FAILED,
               message: `systemctl ${cmd} ${unit ?? ""} failed: ${result.stderr.trim()}`,
             })
           ),
@@ -111,10 +110,10 @@ export const startService = (
     Effect.mapError(
       (err) =>
         new ServiceError({
-          code: ErrorCode.SERVICE_START_FAILED as 31,
+          code: ErrorCode.SERVICE_START_FAILED,
           message: `Failed to start ${unit}: ${err.message}`,
           service: unit,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -136,10 +135,10 @@ export const stopService = (
     Effect.mapError(
       (err) =>
         new ServiceError({
-          code: ErrorCode.SERVICE_STOP_FAILED as 32,
+          code: ErrorCode.SERVICE_STOP_FAILED,
           message: `Failed to stop ${unit}: ${err.message}`,
           service: unit,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -161,10 +160,10 @@ export const restartService = (
     Effect.mapError(
       (err) =>
         new ServiceError({
-          code: ErrorCode.SERVICE_START_FAILED as 31, // No RESTART_FAILED code, using START
+          code: ErrorCode.SERVICE_START_FAILED, // No RESTART_FAILED code, using START
           message: `Failed to restart ${unit}: ${err.message}`,
           service: unit,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -186,10 +185,10 @@ export const reloadService = (
     Effect.mapError(
       (err) =>
         new ServiceError({
-          code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
+          code: ErrorCode.SERVICE_RELOAD_FAILED,
           message: `Failed to reload ${unit}: ${err.message}`,
           service: unit,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );

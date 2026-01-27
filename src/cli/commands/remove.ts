@@ -90,7 +90,7 @@ export const executeRemove = (
                         `This will permanently remove ${serviceName} and delete user ${username}.`
                       );
                       return new GeneralError({
-                        code: ErrorCode.GENERAL_ERROR as 1,
+                        code: ErrorCode.GENERAL_ERROR,
                         message: "Use --force to confirm removal",
                       });
                     }
@@ -210,7 +210,7 @@ const cleanupPodmanResources = (
       })
     );
 
-    // List and remove networks (except podman default)
+    // Podman default network is built-in and cannot be deleted
     const networksResult = yield* Effect.either(
       execAsUser(username, uid, ["podman", "network", "ls", "--format", "{{.Name}}"], {
         captureStdout: true,

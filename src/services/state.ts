@@ -37,7 +37,7 @@ import {
 import { globFiles, readFile } from "../system/fs";
 import type { RuntimeStateValue } from "./context";
 
-/** Extract basename without extension: "/path/to/foo.container" -> "foo" */
+/** Derive resource name from quadlet filename for branded-type decoding */
 const basenameWithoutExt = (filePath: string, ext: string): string =>
   pipe(
     filePath.split("/"),
@@ -79,7 +79,7 @@ const parseBindMounts = (content: string): readonly string[] =>
     Arr.filter((mountPath): boolean => mountPath.startsWith("/"))
   );
 
-/** Extract dataDir from quadlet bind mounts. */
+/** Infer service data directory from bind mount paths, enabling backup/restore without config */
 const discoverDataDir = (
   quadletDir: AbsolutePath,
   containers: readonly ContainerName[]
@@ -113,7 +113,7 @@ const discoverDataDir = (
         onNone: (): Effect.Effect<AbsolutePath, ConfigError> =>
           Effect.fail(
             new ConfigError({
-              code: ErrorCode.CONFIG_NOT_FOUND as 10,
+              code: ErrorCode.CONFIG_NOT_FOUND,
               message: "No bind mounts found in quadlet files to determine dataDir",
             })
           ),
@@ -141,7 +141,7 @@ export const discoverRuntimeState = (
           ? Effect.void
           : Effect.fail(
               new ConfigError({
-                code: ErrorCode.CONFIG_NOT_FOUND as 10,
+                code: ErrorCode.CONFIG_NOT_FOUND,
                 message: `No containers found in ${quadletDir}. Run 'divban <service> setup' first.`,
               })
             )

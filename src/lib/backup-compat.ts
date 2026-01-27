@@ -6,8 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Backup-specific compatibility checking.
- * Uses generic utilities from versioning/check.ts.
+ * Backup-specific compatibility checking, separate from config compatibility
+ * because backup and config formats have independent versioning and support policies.
  */
 
 import { Data, Effect, Match, pipe } from "effect";
@@ -20,10 +20,6 @@ import {
   schemaVersion,
 } from "./versioning";
 import { checkVersionInList, formatVersionList } from "./versioning/check";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Backup-Specific Constants
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Current backup schema version.
@@ -51,10 +47,6 @@ export const SUPPORTED_BACKUP_SCHEMA_VERSIONS: readonly DivbanBackUpSchemaVersio
  */
 export const BACKUP_METADATA_FILENAME = "divban.backup.metadata.json" as const;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Producer Version Check (Backup-Specific - compares versions)
-// ─────────────────────────────────────────────────────────────────────────────
-
 export type ProducerCheckResult = Data.TaggedEnum<{
   producerOlderOrEqual: object;
   producerNewer: { readonly version: DivbanProducerVersion };
@@ -70,10 +62,6 @@ export const checkProducerVersion = (
     ? ProducerCheck.producerNewer({ version: backupProducer })
     : ProducerCheck.producerOlderOrEqual();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Backup Compatibility Validation (Effectful)
-// ─────────────────────────────────────────────────────────────────────────────
-
 /**
  * Validate backup compatibility for restore.
  *
@@ -86,7 +74,6 @@ export const validateBackupCompatibility = (
   currentProducer: DivbanProducerVersion
 ): Effect.Effect<void, BackupError> =>
   Effect.gen(function* () {
-    // Use generic checker
     const schemaResult = checkVersionInList(backupSchema, SUPPORTED_BACKUP_SCHEMA_VERSIONS);
 
     yield* pipe(
@@ -98,7 +85,7 @@ export const validateBackupCompatibility = (
         ({ version }): Effect.Effect<void, BackupError> =>
           Effect.fail(
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: `Backup schema version ${version} is not supported. Supported versions: ${formatVersionList(SUPPORTED_BACKUP_SCHEMA_VERSIONS)}`,
             })
           )
@@ -106,7 +93,6 @@ export const validateBackupCompatibility = (
       Match.exhaustive
     );
 
-    // Producer version check (backup-specific)
     yield* pipe(
       checkProducerVersion(backupProducer, currentProducer),
       Match.value,

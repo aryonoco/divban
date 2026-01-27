@@ -151,7 +151,7 @@ const getServiceConfigDir = (
       Effect.mapError(
         () =>
           new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            code: ErrorCode.SERVICE_NOT_FOUND,
             message: `Service '${serviceName}' not set up`,
             service: serviceName,
           })
@@ -163,7 +163,7 @@ const getServiceConfigDir = (
       onTrue: (): Effect.Effect<void, ServiceError> =>
         Effect.fail(
           new ServiceError({
-            code: ErrorCode.SERVICE_NOT_FOUND as 30,
+            code: ErrorCode.SERVICE_NOT_FOUND,
             message: `Config directory not found for ${serviceName}`,
             service: serviceName,
           })
@@ -192,7 +192,7 @@ const findConfigDir = (): Effect.Effect<
     Effect.catchAll(() =>
       Effect.fail(
         new ServiceError({
-          code: ErrorCode.SERVICE_NOT_FOUND as 30,
+          code: ErrorCode.SERVICE_NOT_FOUND,
           message: "No configured services found. Run 'divban setup <service>' first.",
           service: "all",
         })
@@ -261,7 +261,7 @@ export const executeBackupConfig = (
       onTrue: (): Effect.Effect<never, GeneralError> =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: `No configuration files found for ${svcName}`,
           })
         ),

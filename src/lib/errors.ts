@@ -7,8 +7,7 @@
 
 /** Typed error hierarchy with numeric codes that map directly to process exit codes. Each class carries a _tag discriminant for Effect.ts pattern matching. */
 
-import { Match, Option, pipe } from "effect";
-import { optionalProp } from "./option-helpers";
+import { Data, Match, Option, pipe } from "effect";
 
 interface ErrorCodeMap {
   // General (0-9)
@@ -135,175 +134,74 @@ export type ServiceErrorCode = 30 | 31 | 32 | 33 | 34 | 35;
 export type ContainerErrorCode = 40 | 41 | 42 | 43 | 44 | 45 | 46;
 export type BackupErrorCode = 50 | 51 | 52;
 
-export interface GeneralErrorProps {
+type TaggedErrorBase<Tag extends string> = ReturnType<typeof Data.TaggedError<Tag>>;
+
+const GeneralErrorBase: TaggedErrorBase<"GeneralError"> = Data.TaggedError("GeneralError");
+const ConfigErrorBase: TaggedErrorBase<"ConfigError"> = Data.TaggedError("ConfigError");
+const SystemErrorBase: TaggedErrorBase<"SystemError"> = Data.TaggedError("SystemError");
+const ServiceErrorBase: TaggedErrorBase<"ServiceError"> = Data.TaggedError("ServiceError");
+const ContainerErrorBase: TaggedErrorBase<"ContainerError"> = Data.TaggedError("ContainerError");
+const BackupErrorBase: TaggedErrorBase<"BackupError"> = Data.TaggedError("BackupError");
+
+export class GeneralError extends GeneralErrorBase<{
   readonly code: GeneralErrorCode;
   readonly message: string;
   readonly cause?: Error;
+}> {
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
 }
 
-export interface ConfigErrorProps {
+export class ConfigError extends ConfigErrorBase<{
   readonly code: ConfigErrorCode;
   readonly message: string;
   readonly path?: string;
   readonly cause?: Error;
+}> {
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
 }
 
-export interface SystemErrorProps {
+export class SystemError extends SystemErrorBase<{
   readonly code: SystemErrorCode;
   readonly message: string;
   readonly cause?: Error;
+}> {
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
 }
 
-export interface ServiceErrorProps {
+export class ServiceError extends ServiceErrorBase<{
   readonly code: ServiceErrorCode;
   readonly message: string;
   readonly service?: string;
   readonly cause?: Error;
+}> {
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
 }
 
-export interface ContainerErrorProps {
+export class ContainerError extends ContainerErrorBase<{
   readonly code: ContainerErrorCode;
   readonly message: string;
   readonly container?: string;
   readonly cause?: Error;
+}> {
+  get exitCode(): number {
+    return Math.min(this.code, 125);
+  }
 }
 
-export interface BackupErrorProps {
+export class BackupError extends BackupErrorBase<{
   readonly code: BackupErrorCode;
   readonly message: string;
   readonly path?: string;
   readonly cause?: Error;
-}
-
-/** Codes: GENERAL_ERROR (1), INVALID_ARGS (2), ROOT_REQUIRED (3), DEPENDENCY_MISSING (4) */
-export class GeneralError extends Error {
-  readonly _tag = "GeneralError" as const;
-  readonly code: GeneralErrorCode;
-  override readonly cause?: Error;
-
-  constructor(props: GeneralErrorProps) {
-    super(props.message);
-    this.name = "GeneralError";
-    this.code = props.code;
-    Object.assign(this, props.cause !== undefined ? { cause: props.cause } : {});
-    Error.captureStackTrace?.(this, GeneralError);
-  }
-
-  get exitCode(): number {
-    return Math.min(this.code, 125);
-  }
-}
-
-/** Codes: CONFIG_NOT_FOUND (10), CONFIG_PARSE_ERROR (11), CONFIG_VALIDATION_ERROR (12), CONFIG_MERGE_ERROR (13) */
-export class ConfigError extends Error {
-  readonly _tag = "ConfigError" as const;
-  readonly code: ConfigErrorCode;
-  readonly path?: string;
-  override readonly cause?: Error;
-
-  constructor(props: ConfigErrorProps) {
-    super(props.message);
-    this.name = "ConfigError";
-    this.code = props.code;
-    Object.assign(
-      this,
-      props.path !== undefined ? { path: props.path } : {},
-      props.cause !== undefined ? { cause: props.cause } : {}
-    );
-    Error.captureStackTrace?.(this, ConfigError);
-  }
-
-  get exitCode(): number {
-    return Math.min(this.code, 125);
-  }
-}
-
-/** Codes: USER_CREATE_FAILED (20) through FILE_WRITE_FAILED (28) */
-export class SystemError extends Error {
-  readonly _tag = "SystemError" as const;
-  readonly code: SystemErrorCode;
-  override readonly cause?: Error;
-
-  constructor(props: SystemErrorProps) {
-    super(props.message);
-    this.name = "SystemError";
-    this.code = props.code;
-    Object.assign(this, props.cause !== undefined ? { cause: props.cause } : {});
-    Error.captureStackTrace?.(this, SystemError);
-  }
-
-  get exitCode(): number {
-    return Math.min(this.code, 125);
-  }
-}
-
-/** Codes: SERVICE_NOT_FOUND (30) through SERVICE_RELOAD_FAILED (35) */
-export class ServiceError extends Error {
-  readonly _tag = "ServiceError" as const;
-  readonly code: ServiceErrorCode;
-  readonly service?: string;
-  override readonly cause?: Error;
-
-  constructor(props: ServiceErrorProps) {
-    super(props.message);
-    this.name = "ServiceError";
-    this.code = props.code;
-    Object.assign(
-      this,
-      props.service !== undefined ? { service: props.service } : {},
-      props.cause !== undefined ? { cause: props.cause } : {}
-    );
-    Error.captureStackTrace?.(this, ServiceError);
-  }
-
-  get exitCode(): number {
-    return Math.min(this.code, 125);
-  }
-}
-
-/** Codes: CONTAINER_BUILD_FAILED (40) through SECRET_NOT_FOUND (46) */
-export class ContainerError extends Error {
-  readonly _tag = "ContainerError" as const;
-  readonly code: ContainerErrorCode;
-  readonly container?: string;
-  override readonly cause?: Error;
-
-  constructor(props: ContainerErrorProps) {
-    super(props.message);
-    this.name = "ContainerError";
-    this.code = props.code;
-    Object.assign(
-      this,
-      props.container !== undefined ? { container: props.container } : {},
-      props.cause !== undefined ? { cause: props.cause } : {}
-    );
-    Error.captureStackTrace?.(this, ContainerError);
-  }
-
-  get exitCode(): number {
-    return Math.min(this.code, 125);
-  }
-}
-
-/** Codes: BACKUP_FAILED (50), RESTORE_FAILED (51), BACKUP_NOT_FOUND (52) */
-export class BackupError extends Error {
-  readonly _tag = "BackupError" as const;
-  readonly code: BackupErrorCode;
-  readonly path?: string;
-  override readonly cause?: Error;
-
-  constructor(props: BackupErrorProps) {
-    super(props.message);
-    this.name = "BackupError";
-    this.code = props.code;
-    Object.assign(
-      this,
-      props.path !== undefined ? { path: props.path } : {},
-      props.cause !== undefined ? { cause: props.cause } : {}
-    );
-    Error.captureStackTrace?.(this, BackupError);
-  }
-
+}> {
   get exitCode(): number {
     return Math.min(this.code, 125);
   }
@@ -316,78 +214,3 @@ export type DivbanEffectError =
   | ServiceError
   | ContainerError
   | BackupError;
-
-export const isDivbanError = (err: unknown): err is DivbanEffectError =>
-  typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
-
-export const getExitCode = (error: DivbanEffectError): number => error.exitCode;
-
-export const makeGeneralError = (
-  code: GeneralErrorCode,
-  message: string,
-  cause?: Error
-): GeneralError =>
-  cause !== undefined
-    ? new GeneralError({ code, message, cause })
-    : new GeneralError({ code, message });
-
-export const makeConfigError = (
-  code: ConfigErrorCode,
-  message: string,
-  path?: string,
-  cause?: Error
-): ConfigError =>
-  new ConfigError({
-    code,
-    message,
-    ...optionalProp("path", path),
-    ...optionalProp("cause", cause),
-  });
-
-export const makeSystemError = (
-  code: SystemErrorCode,
-  message: string,
-  cause?: Error
-): SystemError =>
-  cause !== undefined
-    ? new SystemError({ code, message, cause })
-    : new SystemError({ code, message });
-
-export const makeServiceError = (
-  code: ServiceErrorCode,
-  message: string,
-  service?: string,
-  cause?: Error
-): ServiceError =>
-  new ServiceError({
-    code,
-    message,
-    ...optionalProp("service", service),
-    ...optionalProp("cause", cause),
-  });
-
-export const makeContainerError = (
-  code: ContainerErrorCode,
-  message: string,
-  container?: string,
-  cause?: Error
-): ContainerError =>
-  new ContainerError({
-    code,
-    message,
-    ...optionalProp("container", container),
-    ...optionalProp("cause", cause),
-  });
-
-export const makeBackupError = (
-  code: BackupErrorCode,
-  message: string,
-  path?: string,
-  cause?: Error
-): BackupError =>
-  new BackupError({
-    code,
-    message,
-    ...optionalProp("path", path),
-    ...optionalProp("cause", cause),
-  });

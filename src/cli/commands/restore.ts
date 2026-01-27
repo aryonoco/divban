@@ -49,7 +49,7 @@ const validateRestoreCapability = (
     onFalse: (): Effect.Effect<never, GeneralError> =>
       Effect.fail(
         new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
+          code: ErrorCode.GENERAL_ERROR,
           message: `Service '${service.definition.name}' does not support restore`,
         })
       ),
@@ -65,7 +65,7 @@ const handleMissingForce = (logger: Logger): Effect.Effect<never, GeneralError> 
   logger.warn("Use --force to skip this warning.");
   return Effect.fail(
     new GeneralError({
-      code: ErrorCode.GENERAL_ERROR as 1,
+      code: ErrorCode.GENERAL_ERROR,
       message: "Restore requires --force flag for safety",
     })
   );
@@ -149,7 +149,7 @@ const performRestore = (
             onNone: (): Effect.Effect<never, GeneralError> =>
               Effect.fail(
                 new GeneralError({
-                  code: ErrorCode.GENERAL_ERROR as 1,
+                  code: ErrorCode.GENERAL_ERROR,
                   message: `Service '${service.definition.name}' restore method not implemented`,
                 })
               ),

@@ -103,7 +103,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             Effect.mapError(
               () =>
                 new GeneralError({
-                  code: ErrorCode.ROOT_REQUIRED as 3,
+                  code: ErrorCode.ROOT_REQUIRED,
                   message: "Root privileges required to create service user. Run with sudo.",
                 })
             )
@@ -112,7 +112,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             onTrue: (): Effect.Effect<void, GeneralError> =>
               Effect.fail(
                 new GeneralError({
-                  code: ErrorCode.ROOT_REQUIRED as 3,
+                  code: ErrorCode.ROOT_REQUIRED,
                   message:
                     "Root privileges required to configure privileged port binding. Run with sudo.",
                 })
@@ -227,7 +227,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
               logger
             );
 
-            // Step 6: Service-specific setup (quadlet generation, file writes, unit enablement)
+            // Service-specific setup runs last because it depends on user, directories, and config
             yield* logStep("Running service-specific setup...");
             yield* s.setup().pipe(Effect.provide(layer));
           })

@@ -14,7 +14,6 @@
 import { $ } from "bun";
 import { Effect, Option, ParseResult, Schema, pipe } from "effect";
 import { ConfigError, ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import type { UserId, Username } from "../lib/types";
 
 export interface ExecOptions {
@@ -39,9 +38,9 @@ export interface ExecResult {
  */
 const execError = (command: string, e: unknown): SystemError =>
   new SystemError({
-    code: ErrorCode.EXEC_FAILED as 26,
+    code: ErrorCode.EXEC_FAILED,
     message: `Failed to execute: ${command}: ${errorMessage(e)}`,
-    ...extractCauseProps(e),
+    ...(e instanceof Error ? { cause: e } : {}),
   });
 
 /** Validated command with guaranteed first element */
@@ -60,7 +59,7 @@ const validateCommand = (
       (c): c is readonly [string, ...string[]] => c.length > 0 && c[0] !== undefined && c[0] !== "",
       () =>
         new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
+          code: ErrorCode.INVALID_ARGS,
           message: "Command array cannot be empty",
         })
     ),
@@ -138,7 +137,7 @@ export const execSuccess = (
       (result) => {
         const stderr = result.stderr.trim();
         return new SystemError({
-          code: ErrorCode.EXEC_FAILED as 26,
+          code: ErrorCode.EXEC_FAILED,
           message: `Command failed with exit code ${result.exitCode}: ${command.join(" ")}${stderr ? `\n${stderr}` : ""}`,
         });
       }
@@ -332,7 +331,7 @@ export const shellJson = <A, I>(
         Effect.mapError(
           (e): ConfigError =>
             new ConfigError({
-              code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+              code: ErrorCode.CONFIG_VALIDATION_ERROR,
               message: `JSON validation failed: ${ParseResult.TreeFormatter.formatErrorSync(e)}`,
             })
         )

@@ -68,7 +68,7 @@ export const reloadCaddy = (
         (r) => r.exitCode === 0,
         (r) =>
           new ConfigError({
-            code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+            code: ErrorCode.CONFIG_VALIDATION_ERROR,
             message: `Caddyfile validation failed: ${r.stderr}`,
           })
       )
@@ -98,7 +98,7 @@ export const reloadCaddy = (
         (r) => r.exitCode === 0,
         (r) =>
           new ServiceError({
-            code: ErrorCode.SERVICE_RELOAD_FAILED as 35,
+            code: ErrorCode.SERVICE_RELOAD_FAILED,
             message: `Caddy reload failed: ${r.stderr}`,
           })
       )
@@ -137,7 +137,7 @@ export const validateCaddyfile = (
         (r) => r.exitCode === 0,
         (r) =>
           new ConfigError({
-            code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+            code: ErrorCode.CONFIG_VALIDATION_ERROR,
             message: `Caddyfile validation failed: ${r.stderr}`,
           })
       )
@@ -174,7 +174,7 @@ export const formatCaddyfile = (
         (r) => r.exitCode === 0,
         (r) =>
           new SystemError({
-            code: ErrorCode.EXEC_FAILED as 26,
+            code: ErrorCode.EXEC_FAILED,
             message: `Failed to format Caddyfile: ${r.stderr}`,
           })
       )

@@ -70,7 +70,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
                     onNone: (): Effect.Effect<never, GeneralError> =>
                       Effect.fail(
                         new GeneralError({
-                          code: ErrorCode.GENERAL_ERROR as 1,
+                          code: ErrorCode.GENERAL_ERROR,
                           message: `Service '${service.definition.name}' backup method not implemented`,
                         })
                       ),
@@ -106,7 +106,7 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
       onFalse: (): Effect.Effect<never, GeneralError> =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: `Service '${service.definition.name}' does not support backup`,
           })
         ),

@@ -28,7 +28,6 @@ import {
   type SystemError,
   errorMessage,
 } from "../errors";
-import { extractCauseProps } from "../match-helpers";
 import { heavyRetrySchedule, isTransientSystemError } from "../retry";
 import type { AbsolutePath, ContainerName, ServiceName, UserId, Username } from "../types";
 import { pathJoin, serviceNameToContainerName } from "../types";
@@ -39,10 +38,6 @@ import type {
   PostgresBackupConfig,
   SqliteStopBackupConfig,
 } from "./types";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 const execWithRetry = (
   user: Username,
@@ -81,7 +76,7 @@ const validateFilename = (name: string): Effect.Effect<void, BackupError> =>
     onTrue: (): Effect.Effect<void, BackupError> =>
       Effect.fail(
         new BackupError({
-          code: ErrorCode.RESTORE_FAILED as 51,
+          code: ErrorCode.RESTORE_FAILED,
           message: `Invalid filename in backup archive: ${name}. Potential path traversal detected.`,
         })
       ),
@@ -100,9 +95,9 @@ const ensureParentDirExists = (parentDir: string): Effect.Effect<void, BackupErr
     },
     catch: (e): BackupError =>
       new BackupError({
-        code: ErrorCode.RESTORE_FAILED as 51,
+        code: ErrorCode.RESTORE_FAILED,
         message: `Failed to create parent directory: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -137,18 +132,16 @@ const writeValidatedFile = (
           try: (): Promise<number> => Bun.write(fullPath, content),
           catch: (e): BackupError =>
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: `Failed to write file ${fullPath}: ${errorMessage(e)}`,
-              ...extractCauseProps(e),
+              ...(e instanceof Error ? { cause: e } : {}),
             }),
         }).pipe(Effect.asVoid)
     )
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PostgreSQL Strategy (Immich) - Hot backup safe
-// ─────────────────────────────────────────────────────────────────────────────
+// --- PostgreSQL strategy (hot backup safe) ---
 
 export const postgresStrategy: BackupStrategy<PostgresBackupConfig> = {
   filenameInfix: "db",
@@ -176,7 +169,7 @@ export const postgresStrategy: BackupStrategy<PostgresBackupConfig> = {
           (r): r is typeof r & { readonly exitCode: 0 } => r.exitCode === 0,
           (r): BackupError =>
             new BackupError({
-              code: ErrorCode.BACKUP_FAILED as 50,
+              code: ErrorCode.BACKUP_FAILED,
               message: `Database dump failed: ${r.stderr}`,
             })
         )
@@ -199,7 +192,7 @@ export const postgresStrategy: BackupStrategy<PostgresBackupConfig> = {
           (d): d is Uint8Array => d !== undefined,
           (): BackupError =>
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: "Missing database.sql in backup archive",
             })
         )
@@ -218,7 +211,7 @@ export const postgresStrategy: BackupStrategy<PostgresBackupConfig> = {
         onTrue: (): Effect.Effect<void, BackupError> =>
           Effect.fail(
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: `Database restore failed: ${restoreResult.stderr}`,
             })
           ),
@@ -227,9 +220,7 @@ export const postgresStrategy: BackupStrategy<PostgresBackupConfig> = {
     }),
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SQLite-Stop Strategy (Actual) - Requires --force to stop container
-// ─────────────────────────────────────────────────────────────────────────────
+// --- SQLite-stop strategy (requires --force to stop container) ---
 
 /**
  * Safely serialize SQLite database using bun:sqlite.
@@ -245,9 +236,9 @@ const serializeSqlite = (sqlitePath: AbsolutePath): Effect.Effect<Uint8Array, Ba
     },
     catch: (e): BackupError =>
       new BackupError({
-        code: ErrorCode.BACKUP_FAILED as 50,
+        code: ErrorCode.BACKUP_FAILED,
         message: `Failed to serialize SQLite database: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -266,9 +257,9 @@ const deserializeSqlite = (
     },
     catch: (e): BackupError =>
       new BackupError({
-        code: ErrorCode.RESTORE_FAILED as 51,
+        code: ErrorCode.RESTORE_FAILED,
         message: `Failed to restore SQLite database: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -284,30 +275,26 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
     Effect.gen(function* () {
       const { dataDir, user, uid, force } = options;
 
-      // Check --force flag
       yield* pipe(
         Effect.succeed(force),
         Effect.filterOrFail(
           (f): f is true => f === true,
           (): GeneralError =>
             new GeneralError({
-              code: ErrorCode.GENERAL_ERROR as 1,
+              code: ErrorCode.GENERAL_ERROR,
               message:
                 "SQLite databases require stopping the container for safe backup. Use --force to stop the container and create a consistent backup.",
             })
         )
       );
 
-      // Stop container
       yield* stopService(`${config.container}.service`, { user, uid });
 
-      // Wait for container to fully stop
+      // Container processes need time to flush and release file locks
       yield* Effect.promise(() => Bun.sleep(1000));
 
-      // Serialize SQLite database safely
       const sqlitePath = pathJoin(dataDir, config.sqlitePath);
 
-      // Check if SQLite file exists
       const sqliteExists = yield* fileExists(sqlitePath);
       yield* pipe(
         Effect.succeed(sqliteExists),
@@ -315,7 +302,7 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
           (exists): exists is true => exists === true,
           (): BackupError =>
             new BackupError({
-              code: ErrorCode.BACKUP_FAILED as 50,
+              code: ErrorCode.BACKUP_FAILED,
               message: `SQLite database not found: ${sqlitePath}`,
             })
         )
@@ -323,12 +310,10 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
 
       const sqliteData = yield* serializeSqlite(sqlitePath);
 
-      // Collect additional files (e.g., user-files/*.blob)
       const exclusions = ["backups/", "backups", config.sqlitePath, ...config.exclude];
       const { files: additionalFiles, fileList: additionalFileList } =
         yield* collectFilesWithContent(dataDir, exclusions);
 
-      // Filter to only include specified paths
       const filteredFiles = pipe(
         Object.entries(additionalFiles),
         Arr.filter(([path]) => config.includeFiles.some((pattern) => path.startsWith(pattern))),
@@ -339,7 +324,7 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
         Arr.filter((path) => config.includeFiles.some((pattern) => path.startsWith(pattern)))
       );
 
-      // Restart container (always, even on error)
+      // Always restart regardless of backup outcome to minimize downtime
       yield* startService(`${config.container}.service`, { user, uid });
 
       return {
@@ -358,20 +343,18 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
     Effect.gen(function* () {
       const { dataDir, user, uid, files } = options;
 
-      // Stop container before restore
       yield* stopService(`${config.container}.service`, { user, uid });
 
-      // Wait for container to fully stop
+      // Container processes need time to flush and release file locks
       yield* Effect.promise(() => Bun.sleep(1000));
 
-      // Restore SQLite database
       const sqliteBytes = yield* pipe(
         Effect.succeed(files.get(config.sqlitePath)),
         Effect.filterOrFail(
           (d): d is Uint8Array => d !== undefined,
           (): BackupError =>
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: `Missing ${config.sqlitePath} in backup archive`,
             })
         )
@@ -380,7 +363,6 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
       const sqlitePath = pathJoin(dataDir, config.sqlitePath);
       yield* deserializeSqlite(sqlitePath, sqliteBytes);
 
-      // Restore additional files
       const filesToWrite = pipe(
         Array.from(files.entries()),
         Arr.filter(
@@ -395,14 +377,11 @@ export const sqliteStopStrategy: BackupStrategy<SqliteStopBackupConfig> = {
         { concurrency: 1, discard: true }
       );
 
-      // Restart container
       yield* startService(`${config.container}.service`, { user, uid });
     }),
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FreshRSS CLI Strategy - Hot backup safe via PHP CLI
-// ─────────────────────────────────────────────────────────────────────────────
+// --- FreshRSS CLI strategy (hot backup safe via PHP CLI) ---
 
 export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
   filenameInfix: "data",
@@ -416,7 +395,6 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
     Effect.gen(function* () {
       const { dataDir, user, uid } = options;
 
-      // Run FreshRSS backup CLI (creates safe SQLite exports)
       const backupResult = yield* execWithRetry(
         user,
         uid,
@@ -428,14 +406,13 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
         onTrue: (): Effect.Effect<void, BackupError> =>
           Effect.fail(
             new BackupError({
-              code: ErrorCode.BACKUP_FAILED as 50,
+              code: ErrorCode.BACKUP_FAILED,
               message: `FreshRSS backup CLI failed: ${backupResult.stderr}`,
             })
           ),
         onFalse: (): Effect.Effect<void, never> => Effect.void,
       });
 
-      // Now collect the data directory (includes backup.sqlite files)
       const exclusions = ["backups/", "backups", ...config.exclude];
       const result = yield* collectFilesWithContent(dataDir, exclusions);
       return result;
@@ -445,7 +422,6 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
     Effect.gen(function* () {
       const { dataDir, user, uid, files } = options;
 
-      // Write all files to data directory
       const filesToWrite = pipe(
         Array.from(files.entries()),
         Arr.filter(([name]): boolean => name !== BACKUP_METADATA_FILENAME)
@@ -458,7 +434,6 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
         { concurrency: 1, discard: true }
       );
 
-      // Run FreshRSS restore CLI
       const restoreResult = yield* execWithRetry(
         user,
         uid,
@@ -470,7 +445,7 @@ export const freshRssCliStrategy: BackupStrategy<FreshRssCliBackupConfig> = {
         onTrue: (): Effect.Effect<void, BackupError> =>
           Effect.fail(
             new BackupError({
-              code: ErrorCode.RESTORE_FAILED as 51,
+              code: ErrorCode.RESTORE_FAILED,
               message: `FreshRSS restore CLI failed: ${restoreResult.stderr}`,
             })
           ),

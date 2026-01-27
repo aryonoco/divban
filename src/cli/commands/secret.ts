@@ -50,7 +50,7 @@ export const executeSecretShow = (
       Effect.mapError(
         () =>
           new ContainerError({
-            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            code: ErrorCode.SECRET_NOT_FOUND,
             message: `Service '${svcName}' is not configured. Run setup first.`,
             container: svcName,
           })
@@ -72,7 +72,7 @@ export const executeSecretList = (
       Effect.mapError(
         () =>
           new ContainerError({
-            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            code: ErrorCode.SECRET_NOT_FOUND,
             message: `Service '${svcName}' is not configured. Run setup first.`,
             container: svcName,
           })

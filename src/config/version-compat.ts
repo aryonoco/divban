@@ -6,8 +6,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Config-specific compatibility checking.
- * Uses generic utilities from versioning/check.ts.
+ * Config-specific compatibility checking, separate from backup compatibility
+ * because config and backup formats have independent versioning and support policies.
  */
 
 import { Effect, Match, pipe } from "effect";
@@ -16,20 +16,12 @@ import { DIVBAN_VERSION } from "../lib/version";
 import { type DivbanConfigSchemaVersion, configSchemaVersion } from "../lib/versioning";
 import { checkVersionInList, formatVersionList } from "../lib/versioning/check";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Config-Specific Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const CURRENT_CONFIG_SCHEMA_VERSION: DivbanConfigSchemaVersion =
   configSchemaVersion("1.0.0");
 
 export const SUPPORTED_CONFIG_SCHEMA_VERSIONS: readonly DivbanConfigSchemaVersion[] = [
   configSchemaVersion("1.0.0"),
 ] as const;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Config Compatibility Validation (Effectful)
-// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Validate config schema version.
@@ -52,7 +44,7 @@ export const validateConfigCompatibility = (
       ({ version }): Effect.Effect<void, ConfigError> =>
         Effect.fail(
           new ConfigError({
-            code: ErrorCode.CONFIG_VALIDATION_ERROR as 12,
+            code: ErrorCode.CONFIG_VALIDATION_ERROR,
             message:
               `Config schema version ${version} is not supported by divban ${DIVBAN_VERSION}. ` +
               `Supported: ${formatVersionList(SUPPORTED_CONFIG_SCHEMA_VERSIONS)}`,

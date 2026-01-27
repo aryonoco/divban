@@ -18,10 +18,6 @@ import { Array as Arr, Chunk, Effect, HashMap, HashSet, Match, Option, pipe } fr
 import { ErrorCode, GeneralError } from "../lib/errors";
 import type { DependencyNode, StackContainer, StartOrder } from "./types";
 
-// ============================================================================
-// Pure Graph Helper Functions
-// ============================================================================
-
 const getNodeDeps = (node: DependencyNode): readonly string[] => [...node.requires, ...node.wants];
 
 const getContainerDeps = (c: StackContainer): readonly string[] => [
@@ -38,20 +34,12 @@ const buildContainerMap = (containers: StackContainer[]): ReadonlyMap<string, St
 const allDepsIn = (deps: readonly string[], placed: HashSet.HashSet<string>): boolean =>
   Arr.every(deps, (dep) => HashSet.has(placed, dep));
 
-// ============================================================================
-// Graph Construction
-// ============================================================================
-
 export const buildDependencyGraph = (containers: StackContainer[]): DependencyNode[] =>
   Arr.map(containers, (c) => ({
     name: c.name,
     requires: c.requires ?? [],
     wants: c.wants ?? [],
   }));
-
-// ============================================================================
-// Validation Functions
-// ============================================================================
 
 export const validateDependencies = (
   nodes: DependencyNode[]
@@ -69,7 +57,7 @@ export const validateDependencies = (
         onFalse: (): Effect.Effect<never, GeneralError> =>
           Effect.fail(
             new GeneralError({
-              code: ErrorCode.GENERAL_ERROR as 1,
+              code: ErrorCode.GENERAL_ERROR,
               message: `Container '${nodeName}' depends on unknown container '${dep}'`,
             })
           ),
@@ -79,11 +67,7 @@ export const validateDependencies = (
   );
 };
 
-// ============================================================================
-// Topological Sort
-// ============================================================================
-
-/** State for Kahn's algorithm iteration */
+/** Kahn's iteration state: tracks in-degrees to find nodes ready to process */
 interface KahnState {
   readonly inDegree: HashMap.HashMap<string, number>;
   readonly adjacency: HashMap.HashMap<string, Chunk.Chunk<string>>;
@@ -192,7 +176,7 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
       (s): s is KahnState => Chunk.size(s.sorted) === nodes.length,
       () =>
         new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
+          code: ErrorCode.GENERAL_ERROR,
           message: "Circular dependency detected in container graph",
         })
     );
@@ -200,11 +184,7 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
     return Chunk.toReadonlyArray(finalState.sorted) as string[];
   });
 
-// ============================================================================
-// Start/Stop Order Resolution
-// ============================================================================
-
-/** State for level computation iteration */
+/** Accumulates dependency levels for parallel start/stop grouping */
 interface LevelState {
   readonly placed: HashSet.HashSet<string>;
   readonly levels: Chunk.Chunk<Chunk.Chunk<string>>;
@@ -277,10 +257,6 @@ export const resolveStopOrder = (
     order: Arr.reverse(start.order) as string[],
     levels: Arr.reverse(start.levels) as string[][],
   }));
-
-// ============================================================================
-// Dependency Query Functions
-// ============================================================================
 
 export const getDependents = (containerName: string, containers: StackContainer[]): string[] =>
   pipe(

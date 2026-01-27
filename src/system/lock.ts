@@ -12,7 +12,7 @@
  * crashed processes are detected via PID liveness and timestamp.
  */
 
-import { Effect, Either, Option, Schedule, pipe } from "effect";
+import { Data, Effect, Either, Option, Schedule, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
 import { pollingSchedule } from "../lib/retry";
 import { path, type AbsolutePath, pathJoin, pathWithSuffix } from "../lib/types";
@@ -86,13 +86,11 @@ const isLockStale = (lockPath: AbsolutePath): Effect.Effect<boolean, never> =>
   });
 
 /** Lock busy error (retryable) */
-class LockBusyError extends Error {
-  readonly _tag = "LockBusyError" as const;
-  constructor(resourceName: string) {
-    super(`Lock '${resourceName}' is busy`);
-    this.name = "LockBusyError";
-  }
-}
+const LockBusyErrorBase: ReturnType<typeof Data.TaggedError<"LockBusyError">> =
+  Data.TaggedError("LockBusyError");
+class LockBusyError extends LockBusyErrorBase<{
+  readonly message: string;
+}> {}
 
 /**
  * Atomically take over a stale lock using rename.
@@ -168,7 +166,7 @@ const tryAcquireLock = (
               return true;
             }
           }
-          return yield* Effect.fail(new LockBusyError(resourceName));
+          return yield* new LockBusyError({ message: `Lock '${resourceName}' is busy` });
         }),
     });
   });
@@ -187,7 +185,7 @@ export const withLock = <T, E>(
     if (!isValidResourceName(resourceName)) {
       return yield* Effect.fail(
         new GeneralError({
-          code: ErrorCode.INVALID_ARGS as 2,
+          code: ErrorCode.INVALID_ARGS,
           message: `Invalid lock resource name: ${resourceName}. Must not contain path separators or traversal sequences.`,
         })
       );
@@ -200,7 +198,7 @@ export const withLock = <T, E>(
       Effect.mapError(
         (e) =>
           new SystemError({
-            code: ErrorCode.DIRECTORY_CREATE_FAILED as 22,
+            code: ErrorCode.DIRECTORY_CREATE_FAILED,
             message: `Failed to create lock directory ${LOCK_DIR}: ${e.message}`,
             cause: e,
           })
@@ -218,7 +216,7 @@ export const withLock = <T, E>(
       Effect.catchTag("LockBusyError", () =>
         Effect.fail(
           new GeneralError({
-            code: ErrorCode.GENERAL_ERROR as 1,
+            code: ErrorCode.GENERAL_ERROR,
             message: `Timeout acquiring lock '${resourceName}' after ${maxWaitMs}ms. Another divban process may be running.`,
           })
         )

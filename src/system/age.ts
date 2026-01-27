@@ -16,7 +16,6 @@ import { Decrypter, Encrypter, generateIdentity, identityToRecipient } from "age
 import { Effect, Option, pipe } from "effect";
 import { ErrorCode, GeneralError, type SystemError, errorMessage } from "../lib/errors";
 import { parseKeyValue } from "../lib/file-parsers";
-import { extractCauseProps } from "../lib/match-helpers";
 import type { AbsolutePath } from "../lib/types";
 import { chmod } from "./directories";
 import { readFile, writeFile, writeFileExclusive } from "./fs";
@@ -45,9 +44,9 @@ export const generateKeypair = (): Effect.Effect<AgeKeypair, GeneralError> =>
     },
     catch: (e): GeneralError =>
       new GeneralError({
-        code: ErrorCode.GENERAL_ERROR as 1,
+        code: ErrorCode.GENERAL_ERROR,
         message: `Failed to generate age keypair: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -70,9 +69,9 @@ export const encrypt = (
     },
     catch: (e): GeneralError =>
       new GeneralError({
-        code: ErrorCode.GENERAL_ERROR as 1,
+        code: ErrorCode.GENERAL_ERROR,
         message: `Failed to encrypt with age: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -95,9 +94,9 @@ export const decrypt = (
     },
     catch: (e): GeneralError =>
       new GeneralError({
-        code: ErrorCode.GENERAL_ERROR as 1,
+        code: ErrorCode.GENERAL_ERROR,
         message: `Failed to decrypt with age: ${errorMessage(e)}`,
-        ...extractCauseProps(e),
+        ...(e instanceof Error ? { cause: e } : {}),
       }),
   });
 
@@ -117,9 +116,9 @@ const loadExistingKeypair = (
       }),
       catch: (e): GeneralError =>
         new GeneralError({
-          code: ErrorCode.GENERAL_ERROR as 1,
+          code: ErrorCode.GENERAL_ERROR,
           message: `Failed to derive public key: ${errorMessage(e)}`,
-          ...extractCauseProps(e),
+          ...(e instanceof Error ? { cause: e } : {}),
         }),
     });
   });

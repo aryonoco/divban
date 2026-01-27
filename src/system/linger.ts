@@ -13,7 +13,6 @@
 
 import { Array as Arr, Effect, Either, pipe } from "effect";
 import { ErrorCode, GeneralError, SystemError } from "../lib/errors";
-import { extractCauseProps } from "../lib/match-helpers";
 import { SYSTEM_PATHS, lingerFile } from "../lib/paths";
 import {
   heavyRetrySchedule,
@@ -41,9 +40,9 @@ const startUserService = (uid: UserId): Effect.Effect<void, SystemError | Genera
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          code: ErrorCode.LINGER_ENABLE_FAILED,
           message: `Failed to start user service for uid ${uid}: ${err.message}`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
@@ -62,7 +61,7 @@ const checkUserSessionSocket = (uid: UserId): Effect.Effect<void, SystemError> =
         (exists): exists is true => exists === true,
         () =>
           new SystemError({
-            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+            code: ErrorCode.LINGER_ENABLE_FAILED,
             message: `User session socket not ready at ${socketPath}`,
           })
       )
@@ -102,7 +101,7 @@ const ensureSessionReady = (
       (ready): ready is true => ready === true,
       () =>
         new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          code: ErrorCode.LINGER_ENABLE_FAILED,
           message: `User session not ready for ${username} after enabling linger`,
         })
     ),
@@ -123,9 +122,9 @@ const doEnableLinger = (
       Effect.mapError(
         (err) =>
           new SystemError({
-            code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+            code: ErrorCode.LINGER_ENABLE_FAILED,
             message: `Failed to enable linger for ${username}: ${err.message}`,
-            ...extractCauseProps(err),
+            ...(err instanceof Error ? { cause: err } : {}),
           })
       )
     ),
@@ -137,7 +136,7 @@ const doEnableLinger = (
           (enabled): enabled is true => enabled === true,
           () =>
             new SystemError({
-              code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+              code: ErrorCode.LINGER_ENABLE_FAILED,
               message: `Linger was not enabled for ${username} despite successful command`,
             })
         )
@@ -186,9 +185,9 @@ export const disableLinger = (
             Effect.mapError(
               (err) =>
                 new GeneralError({
-                  code: ErrorCode.GENERAL_ERROR as 1,
+                  code: ErrorCode.GENERAL_ERROR,
                   message: `Failed to disable linger for ${username}: ${err.message}`,
-                  ...extractCauseProps(err),
+                  ...(err instanceof Error ? { cause: err } : {}),
                 })
             ),
             Effect.asVoid
@@ -232,16 +231,14 @@ export const ensureLinger = (
     Effect.mapError(
       (err) =>
         new SystemError({
-          code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+          code: ErrorCode.LINGER_ENABLE_FAILED,
           message: `Failed to enable linger for service ${serviceName} (user: ${username})`,
-          ...extractCauseProps(err),
+          ...(err instanceof Error ? { cause: err } : {}),
         })
     )
   );
 
-// ============================================================================
-// Tracked Linger Operations (Functional Pattern)
-// ============================================================================
+// --- Tracked linger operations ---
 
 /**
  * Enable linger with tracking.
@@ -264,7 +261,7 @@ export const enableLingerTracked = (
                 ? Effect.succeed({ value: undefined, wasCreated: false } as Acquired<void>)
                 : Effect.fail(
                     new SystemError({
-                      code: ErrorCode.LINGER_ENABLE_FAILED as 23,
+                      code: ErrorCode.LINGER_ENABLE_FAILED,
                       message: `User session not ready for ${username}`,
                     })
                   )

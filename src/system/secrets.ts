@@ -136,7 +136,7 @@ const createPodmanSecret = (
 
     return yield* Effect.fail(
       new ContainerError({
-        code: ErrorCode.SECRET_ERROR as 45,
+        code: ErrorCode.SECRET_ERROR,
         message: `Failed to create podman secret ${secretName}: ${result.stderr}`,
       })
     );
@@ -233,7 +233,7 @@ export const getServiceSecret = (
       onLeft: (): SecretResult =>
         Effect.fail(
           new ContainerError({
-            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            code: ErrorCode.SECRET_NOT_FOUND,
             message: `No secrets found for ${serviceName}`,
           })
         ),
@@ -246,7 +246,7 @@ export const getServiceSecret = (
             onNone: (): SecretResult =>
               Effect.fail(
                 new ContainerError({
-                  code: ErrorCode.SECRET_NOT_FOUND as 46,
+                  code: ErrorCode.SECRET_NOT_FOUND,
                   message: `Secret '${secretName}' not found`,
                 })
               ),
@@ -272,7 +272,7 @@ export const listServiceSecrets = (
       onLeft: (): ListResult =>
         Effect.fail(
           new ContainerError({
-            code: ErrorCode.SECRET_NOT_FOUND as 46,
+            code: ErrorCode.SECRET_NOT_FOUND,
             message: `No secrets found for ${serviceName}`,
           })
         ),
@@ -284,9 +284,7 @@ export const listServiceSecrets = (
     });
   });
 
-// ============================================================================
-// Tracked Secret Operations (Functional Pattern)
-// ============================================================================
+// --- Tracked secret operations ---
 
 /**
  * Ensure secrets with tracking.
