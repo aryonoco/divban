@@ -49,7 +49,6 @@ export const executeRemove = (
 
     const username = yield* getServiceUsername(serviceName);
 
-    // Check if user exists - return early if not
     const exists = yield* userExists(username);
     type RemoveResultEffect = Effect.Effect<void, GeneralError | ServiceError | SystemError>;
     return yield* Effect.if(!exists, {
@@ -125,7 +124,7 @@ const doRemoveService = (
   Effect.gen(function* () {
     const totalSteps = preserveData ? 7 : 8;
 
-    // Step 1: Stop all containers
+    // Stop containers before removing resources they hold open
     logger.step(1, totalSteps, "Stopping containers...");
     yield* Effect.ignore(
       execAsUser(username, uid, ["podman", "stop", "--all", "-t", "10"], {
@@ -134,11 +133,11 @@ const doRemoveService = (
       })
     );
 
-    // Step 2: Remove podman resources
+    // Remove podman resources while user session is still active
     logger.step(2, totalSteps, "Removing containers, volumes, and networks...");
     yield* cleanupPodmanResources(username, uid);
 
-    // Step 3: Disable linger
+    // Disable linger before stopping user service to prevent auto-restart
     logger.step(3, totalSteps, "Disabling linger...");
     yield* disableLinger(username).pipe(
       Effect.tapError((err) =>
@@ -147,23 +146,24 @@ const doRemoveService = (
       Effect.ignore
     );
 
-    // Step 4: Stop systemd user service
+    // Stop systemd user slice; containers and linger must be gone first
     logger.step(4, totalSteps, "Stopping systemd user service...");
     yield* stopUserService(uid);
 
-    // Step 5: Remove container storage (volumes, images, etc.)
+    // Remove storage after systemd is down to avoid "device busy" errors
     logger.step(5, totalSteps, "Removing container storage...");
     yield* cleanupContainerStorage(homeDir, logger);
 
-    // Step 6: Kill any remaining user processes
+    // Kill orphaned processes before deleting the user that owns them
     logger.step(6, totalSteps, "Killing user processes...");
     yield* killUserProcesses(uid);
 
-    // Step 7: Delete user (also removes home directory with quadlet files)
+    // Delete user last; userdel fails if processes or mounts remain
     logger.step(7, totalSteps, "Deleting service user...");
     yield* deleteServiceUser(serviceName);
 
-    // Step 8: Remove data directory (unless --preserve-data)
+    // Data dir removal is optional; all dependencies are already gone
+
     yield* Effect.when(
       Effect.gen(function* () {
         logger.step(8, totalSteps, "Removing data directory...");

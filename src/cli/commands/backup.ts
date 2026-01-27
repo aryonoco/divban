@@ -36,7 +36,6 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
   Effect.gen(function* () {
     const { service, dryRun, format, verbose, force, logger } = options;
 
-    // Check if service supports backup (must be done before context resolution)
     return yield* Effect.if(service.definition.capabilities.hasBackup, {
       onTrue: (): Effect.Effect<void, DivbanEffectError> =>
         Effect.if(dryRun, {
@@ -48,7 +47,6 @@ export const executeBackup = (options: BackupOptions): Effect.Effect<void, Divba
             Effect.gen(function* () {
               logger.info(`Creating backup for ${service.definition.name}...`);
 
-              // Resolve prerequisites without config
               const prereqs = yield* resolvePrerequisites(service.definition.name, null);
 
               const result = yield* service.apply((s) =>

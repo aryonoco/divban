@@ -22,10 +22,8 @@ import type { DependencyNode, StackContainer, StartOrder } from "./types";
 // Pure Graph Helper Functions
 // ============================================================================
 
-/** Get all dependencies (requires + wants) for a node */
 const getNodeDeps = (node: DependencyNode): readonly string[] => [...node.requires, ...node.wants];
 
-/** Get all dependencies for a container */
 const getContainerDeps = (c: StackContainer): readonly string[] => [
   ...(c.requires ?? []),
   ...(c.wants ?? []),
@@ -37,7 +35,6 @@ const buildNodeMap = (nodes: DependencyNode[]): ReadonlyMap<string, DependencyNo
 const buildContainerMap = (containers: StackContainer[]): ReadonlyMap<string, StackContainer> =>
   new Map(Arr.map(containers, (c) => [c.name, c]));
 
-/** Check if all dependencies are in a given HashSet */
 const allDepsIn = (deps: readonly string[], placed: HashSet.HashSet<string>): boolean =>
   Arr.every(deps, (dep) => HashSet.has(placed, dep));
 
@@ -45,9 +42,6 @@ const allDepsIn = (deps: readonly string[], placed: HashSet.HashSet<string>): bo
 // Graph Construction
 // ============================================================================
 
-/**
- * Build dependency graph from container definitions.
- */
 export const buildDependencyGraph = (containers: StackContainer[]): DependencyNode[] =>
   Arr.map(containers, (c) => ({
     name: c.name,
@@ -108,16 +102,13 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
   Effect.gen(function* () {
     yield* validateDependencies(nodes);
 
-    // Phase 1: Collect all edges as array (single flatMap pass)
     const edges = Arr.flatMap(nodes, (node) =>
       Arr.map(getNodeDeps(node), (dep) => ({ from: dep, to: node.name }))
     );
 
-    // Phase 2: Group by source using Arr.groupBy (single pass, returns Record)
     const grouped = Arr.groupBy(edges, (e) => e.from);
 
-    // Phase 3: Construct adjacency HashMap once from grouped data
-    // Initialize with all nodes (some may have no dependents)
+    // Include nodes with no dependents so they still appear in the adjacency map
     const adjacencyEntries = Arr.map(nodes, (n) => {
       const dependents = grouped[n.name];
       return [
@@ -134,7 +125,7 @@ export const topologicalSort = (nodes: DependencyNode[]): Effect.Effect<string[]
     });
     const adjacency = HashMap.fromIterable(adjacencyEntries);
 
-    // In-degree: direct computation (a node's in-degree = number of its dependencies)
+    // In-degree equals dependency count because each dependency creates one incoming edge
     const inDegree = HashMap.fromIterable(
       Arr.map(nodes, (n) => [n.name, Arr.length(getNodeDeps(n))] as const)
     );
@@ -279,9 +270,6 @@ export const resolveStartOrder = (
     };
   });
 
-/**
- * Resolve stop order (reverse of start order).
- */
 export const resolveStopOrder = (
   containers: StackContainer[]
 ): Effect.Effect<StartOrder, GeneralError> =>
@@ -294,9 +282,6 @@ export const resolveStopOrder = (
 // Dependency Query Functions
 // ============================================================================
 
-/**
- * Get all containers that depend on a given container.
- */
 export const getDependents = (containerName: string, containers: StackContainer[]): string[] =>
   pipe(
     Arr.filter(
@@ -307,9 +292,6 @@ export const getDependents = (containerName: string, containers: StackContainer[
     Arr.map((c) => c.name)
   );
 
-/**
- * Get all dependencies of a container (transitive).
- */
 export const getAllDependencies = (
   containerName: string,
   containers: StackContainer[]

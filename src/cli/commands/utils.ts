@@ -48,10 +48,7 @@ import { getUserByName } from "../../system/user";
 // Config Resolution
 // ============================================================================
 
-/**
- * Common config file locations for a service.
- * Search paths are plain strings (may be relative).
- */
+/** Search order: user config dir, /etc/divban/, then CWD. Paths may be relative. */
 const getConfigPaths = (serviceName: ServiceName, homeDir: AbsolutePathType): string[] => [
   pathJoin(homeDir, ".config", "divban", `${serviceName}.toml`),
   `/etc/divban/${serviceName}.toml`,
@@ -80,10 +77,7 @@ const tryLoadConfigFromPath = <C>(
     )
   );
 
-/**
- * Search common config locations and load with typed schema.
- * Used when no explicit config path is provided.
- */
+/** Fallback config discovery when no explicit --config path is given. */
 export const findAndLoadConfig = <C>(
   serviceName: ServiceName,
   homeDir: AbsolutePathType,
@@ -108,13 +102,12 @@ export const findAndLoadConfig = <C>(
 // Formatting Utilities
 // ============================================================================
 
-/** Threshold entry for data-driven formatting */
 interface ThresholdEntry<T> {
   readonly threshold: number;
   readonly format: (value: T) => string;
 }
 
-/** Duration formatting thresholds (descending order) */
+/** Must be descending; findFirst returns the first threshold exceeded. */
 const DURATION_THRESHOLDS: readonly ThresholdEntry<number>[] = [
   {
     threshold: 60000,
@@ -137,7 +130,7 @@ export const formatDuration = (ms: number): string =>
     })
   );
 
-/** Byte formatting thresholds (descending order) */
+/** Must be descending; findFirst returns the first threshold exceeded. */
 const BYTE_THRESHOLDS: readonly ThresholdEntry<number>[] = [
   { threshold: 1024 ** 3, format: (b): string => `${(b / 1024 ** 3).toFixed(2)} GB` },
   { threshold: 1024 ** 2, format: (b): string => `${(b / 1024 ** 2).toFixed(2)} MB` },
@@ -165,10 +158,7 @@ const hasPathsWithDataDir = (config: object): config is ConfigWithPaths =>
   "dataDir" in config.paths &&
   typeof config.paths.dataDir === "string";
 
-/**
- * Safely extract dataDir from config.
- * Service configs may have a paths.dataDir property.
- */
+/** Extracts paths.dataDir if present in config, falling back to the conventional location. */
 export const getDataDirFromConfig = <C extends object>(
   config: C,
   fallback: AbsolutePathType
@@ -206,10 +196,7 @@ export const loadConfigOrFallback = <C extends object>(
     }))
   );
 
-/**
- * Pad text to a specific display width using Bun.stringWidth().
- * Handles Unicode and emoji correctly.
- */
+/** Stops accumulating characters once the display width limit is reached. */
 export const padToWidth = (text: string, width: number): string => {
   const currentWidth = Bun.stringWidth(text);
   return text + " ".repeat(Math.max(0, width - currentWidth));
@@ -217,7 +204,7 @@ export const padToWidth = (text: string, width: number): string => {
 
 type TruncState = { readonly width: number; readonly chars: readonly string[] };
 
-/** Required for Arr.reduce - returns unchanged state once width limit reached */
+/** Returns unchanged state once width limit is reached, terminating accumulation. */
 const truncStep =
   (maxWidth: number) =>
   (state: TruncState, c: string): TruncState => {
@@ -227,10 +214,7 @@ const truncStep =
       : { width: state.width + charWidth, chars: [...state.chars, c] };
   };
 
-/**
- * Truncate text to a maximum display width using Bun.stringWidth().
- * Handles Unicode and emoji correctly.
- */
+/** Uses character-level width accumulation so multi-byte/emoji chars aren't split mid-glyph. */
 export const truncateToWidth = (text: string, maxWidth: number): string =>
   Bun.stringWidth(text) <= maxWidth
     ? text
@@ -240,10 +224,7 @@ export const truncateToWidth = (text: string, maxWidth: number): string =>
 // System Capabilities
 // ============================================================================
 
-/**
- * Detect system capabilities at runtime.
- * Used to determine SELinux status for volume relabeling.
- */
+/** SELinux status determines whether :Z volume relabeling is needed. */
 export const detectSystemCapabilities = (): Effect.Effect<
   { selinuxEnforcing: boolean },
   SystemError | GeneralError
@@ -286,10 +267,7 @@ export const resolveServiceUser = (
 // Layer Building
 // ============================================================================
 
-/**
- * Prerequisites resolved for a service command (without config).
- * Config is loaded with the correct schema for each service.
- */
+/** Config is excluded because each service has a different schema; it's loaded inside apply(). */
 export interface Prerequisites {
   user: ResolvedServiceUser;
   system: { selinuxEnforcing: boolean };
@@ -319,10 +297,7 @@ export const buildServicePathsFromHome = (
   };
 };
 
-/**
- * Resolve user, system capabilities, and paths for a service.
- * Config loading is handled separately inside apply().
- */
+/** Resolves everything except config, which requires the per-service schema. */
 export const resolvePrerequisites = (
   serviceName: ServiceName,
   dataDirOverride: string | null

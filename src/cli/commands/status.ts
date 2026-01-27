@@ -122,7 +122,6 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                       logger.raw("");
                       logger.raw("Containers:");
 
-                      // Pure: format container lines
                       const containerLines = status.containers.map((container) => {
                         const containerStatusColor = pipe(
                           Match.value(container.status.status === "running"),
@@ -138,7 +137,6 @@ export const executeStatus = (options: StatusOptions): Effect.Effect<void, Divba
                         return `  ${container.name}: ${containerStatusColor}${container.status.status}${reset}${healthStr}`;
                       });
 
-                      // Single side effect: log all lines
                       yield* Effect.forEach(
                         containerLines,
                         (line) => Effect.sync(() => logger.raw(line)),

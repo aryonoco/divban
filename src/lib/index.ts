@@ -17,7 +17,7 @@ export {
   UserIdSchema,
   UsernameSchema,
   VolumeNameSchema,
-  // Effect-based decoders (for use in Effect pipelines with untrusted input)
+  // Decoders for untrusted input in Effect pipelines
   decodeAbsolutePath,
   decodeContainerName,
   decodeGroupId,

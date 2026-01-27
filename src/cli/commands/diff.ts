@@ -91,7 +91,7 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       },
     });
 
-    // Create fallback user IDs for when user doesn't exist (known-valid literals)
+    // Diff generates files without an existing user; placeholders satisfy the type without affecting output
     const fallbackUid = UserIdSchema.make(0);
     const fallbackGid = GroupIdSchema.make(0);
 
@@ -181,7 +181,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
     const modifiedFiles = diffs.filter((d) => d.status === "modified");
     const unchangedFiles = diffs.filter((d) => d.status === "unchanged");
 
-    // Format diff results as lines
     const newFileLines = pipe(
       Match.value(newFiles.length > 0),
       Match.when(true, () => [
@@ -223,7 +222,6 @@ export const executeDiff = (options: DiffOptions): Effect.Effect<void, DivbanEff
       ...unchangedFileLines,
     ];
 
-    // Single side effect: log all lines
     yield* Effect.forEach(formatLines, (line) => Effect.sync(() => logger.info(line)), {
       discard: true,
     });

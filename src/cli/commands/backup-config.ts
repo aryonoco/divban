@@ -56,10 +56,7 @@ type FileEntry = readonly [string, Uint8Array];
 // File Collection - Parallel I/O with Effect
 // ============================================================================
 
-/**
- * Returns null for missing files since not all services have all file types
- * (e.g., some lack encrypted secrets). Callers filter nulls after parallel reads.
- */
+/** Not all services have all file types (e.g., some lack encrypted secrets), so missing files produce null for filtering after parallel reads. */
 const readFileIfExists = (
   path: AbsolutePath,
   archiveName: string
@@ -72,10 +69,7 @@ const readFileIfExists = (
     return [archiveName, bytes] as const;
   });
 
-/**
- * Gathers the three config file types a service may have: TOML config,
- * age decryption key, and encrypted secrets file. Missing files are skipped.
- */
+/** Candidates are listed explicitly; missing files are filtered out after parallel reads. */
 const collectServiceConfigFiles = (
   configDir: AbsolutePath,
   serviceName: ServiceName
@@ -101,10 +95,7 @@ const readFileAsEntry = (
 ): Effect.Effect<FileEntry, SystemError | GeneralError> =>
   Effect.map(readBytes(filePath), (bytes) => [archiveName, bytes] as const);
 
-/**
- * Maps glob matches to archive entries with optional path prefix,
- * preserving relative directory structure in the resulting archive.
- */
+/** Preserves relative paths in the archive so extraction recreates the original directory layout. */
 const scanAndReadFiles = (
   baseDir: AbsolutePath,
   pattern: string,
@@ -126,10 +117,7 @@ const scanAndReadFiles = (
     return [...results];
   });
 
-/**
- * Multi-service backup: collects all TOML configs, encrypted secrets,
- * and age keys from the shared config directory.
- */
+/** Collects all config file types across services from the shared config directory. */
 const collectAllConfigFiles = (
   configDir: AbsolutePath
 ): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
@@ -153,10 +141,7 @@ const collectAllConfigFiles = (
 // Config Directory Resolution
 // ============================================================================
 
-/**
- * Services store configs in their dedicated user's home directory.
- * This indirection allows backup to work without knowing the exact path.
- */
+/** Resolves via user home lookup so backup doesn't need hardcoded paths. */
 const getServiceConfigDir = (
   serviceName: ServiceName
 ): Effect.Effect<AbsolutePath, ServiceError | SystemError | GeneralError> =>
@@ -260,10 +245,8 @@ export const executeBackupConfig = (
     const svcName = service.definition.name;
     const isAll = svcName === "all";
 
-    // Step 1: Resolve config directory
     const configDir = yield* resolveConfigDir(svcName);
 
-    // Step 2: Collect files (parallel I/O)
     logger.info("Collecting configuration files...");
     const files = yield* Effect.if(isAll, {
       onTrue: (): Effect.Effect<Record<string, Uint8Array>, SystemError | GeneralError> =>
@@ -284,11 +267,9 @@ export const executeBackupConfig = (
         ),
       onFalse: (): Effect.Effect<void, GeneralError | ServiceError | SystemError | ConfigError> =>
         Effect.gen(function* () {
-          // Step 3: Prepare output path
           const resolvedOutputPath = yield* prepareOutputPath(configDir, svcName, outputPath);
 
           return yield* Effect.if(dryRun, {
-            // Step 4: Handle dry run
             onTrue: (): Effect.Effect<void> =>
               Effect.gen(function* () {
                 logger.info(`Dry run - would create backup at: ${resolvedOutputPath}`);
@@ -301,13 +282,11 @@ export const executeBackupConfig = (
               }),
             onFalse: (): Effect.Effect<void, SystemError | GeneralError> =>
               Effect.gen(function* () {
-                // Step 5: Warn about sensitive content
                 logger.warn("WARNING: This backup contains encryption keys and secrets.");
                 logger.warn(
                   "Treat this file like a password - store it securely and do not share it."
                 );
 
-                // Step 6: Create archive with metadata
                 const metadata: ArchiveMetadata = {
                   schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
                   producer: DIVBAN_PRODUCER_NAME,
@@ -320,10 +299,8 @@ export const executeBackupConfig = (
                 logger.info("Creating archive...");
                 const archiveData = yield* createArchive(files, { compress: "gzip", metadata });
 
-                // Step 7: Write archive to disk
                 yield* writeBytes(resolvedOutputPath, archiveData);
 
-                // Step 8: Output result
                 yield* pipe(
                   Match.value(format),
                   Match.when("json", () =>

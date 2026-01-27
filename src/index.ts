@@ -7,11 +7,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Divban - Unified Rootless Podman Service Manager
- *
- * Main entry point. Runs the @effect/cli command tree with BunContext
- * providing platform services (Terminal, FileSystem, Path).
- * Uses BunRuntime.runMain for automatic signal handling and fiber interruption.
+ * Runs the @effect/cli command tree with BunContext providing platform
+ * services (Terminal, FileSystem, Path). BunRuntime.runMain handles
+ * signal interruption and fiber cleanup automatically.
  */
 
 import { BunContext, BunRuntime } from "@effect/platform-bun";

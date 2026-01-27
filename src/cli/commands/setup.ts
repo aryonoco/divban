@@ -60,7 +60,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
 
     const username = yield* getServiceUsername(service.definition.name);
 
-    // For caddy, check if privileged port binding needs to be configured
+    // Caddy binds ports 80/443 which require sysctl net.ipv4.ip_unprivileged_port_start
     const needsSysctl =
       service.definition.name === "caddy" && !(yield* isUnprivilegedPortEnabled());
 
@@ -94,7 +94,6 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       Match.exhaustive
     );
 
-    // Check if running as root (required for user creation and sysctl)
     const isRoot = process.getuid?.() === 0;
     yield* Effect.if(isRoot, {
       onTrue: (): Effect.Effect<void> => Effect.void,
@@ -137,7 +136,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
         // Main scoped setup with automatic rollback on failure
         yield* Effect.scoped(
           Effect.gen(function* () {
-            // Step 1 (caddy only): Sysctl - idempotent, no rollback needed
+            // Sysctl is idempotent; no rollback needed on failure
             yield* Effect.if(needsSysctl, {
               onTrue: (): Effect.Effect<void, DivbanEffectError> =>
                 Effect.gen(function* () {
@@ -147,7 +146,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
               onFalse: (): Effect.Effect<void> => Effect.void,
             });
 
-            // Step 2: User - scoped resource with conditional rollback
+            // Only roll back user creation if we created it (idempotent re-run safety)
             yield* logStep(`Creating service user: ${username}...`);
             const userAcq = yield* Effect.acquireRelease(
               acquireServiceUser(service.definition.name, uidSettings),
@@ -165,7 +164,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const { uid, homeDir } = userAcq.value;
             const gid = userIdToGroupId(uid);
 
-            // Step 3: Linger - scoped resource with conditional rollback
+            // Same conditional rollback: only disable linger if we just enabled it
             yield* logStep("Enabling user linger...");
             yield* Effect.acquireRelease(
               enableLingerTracked(username, uid),
@@ -181,7 +180,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                 })
             );
 
-            // Step 4: Directories - scoped resource with tracked rollback
+            // Tracked directories enable precise rollback: only remove dirs we created
             yield* logStep("Creating service directories...");
             const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
             yield* Effect.acquireRelease(
@@ -194,7 +193,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
                 })
             );
 
-            // Step 5: Config copy - scoped resource with backup/restore
+            // Config copy creates .bak before overwriting; rollback restores from .bak
             yield* logStep("Copying configuration file...");
             const configDestPath = configFilePath(
               userConfigDir(homeDir),

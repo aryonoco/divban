@@ -5,12 +5,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-/**
- * Error handling infrastructure for divban.
- * Uses typed error codes that map to exit codes.
- *
- * Error classes are tagged (with _tag property) for use with Effect.ts
- */
+/** Typed error hierarchy with numeric codes that map directly to process exit codes. Each class carries a _tag discriminant for Effect.ts pattern matching. */
 
 import { Match, Option, pipe } from "effect";
 import { optionalProp } from "./option-helpers";
@@ -63,10 +58,6 @@ interface ErrorCodeMap {
   readonly BACKUP_NOT_FOUND: 52;
 }
 
-/**
- * Error codes for all divban operations.
- * Organized by category for easy identification.
- */
 export const ErrorCode: ErrorCodeMap = {
   // General (0-9)
   SUCCESS: 0,

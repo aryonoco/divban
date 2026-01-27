@@ -218,10 +218,7 @@ const runOnAllServices = (
     });
   });
 
-/**
- * Resolves a required service arg, or dispatches to all services when --all is set.
- * Used by commands that support both single-service and all-services modes.
- */
+/** Multiplexes single-service and --all modes so each command doesn't duplicate the dispatch logic. */
 const requireServiceOrAll = (
   serviceOpt: Option.Option<string>,
   all: boolean,

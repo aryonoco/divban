@@ -15,15 +15,9 @@
 import { Effect, Either, Match, pipe } from "effect";
 import { commandExists, exec } from "./exec";
 
-/**
- * SELinux enforcement mode.
- */
 export type SELinuxMode = "enforcing" | "permissive" | "disabled";
 
-/**
- * Get the current SELinux enforcement mode.
- * Returns "disabled" if SELinux/getenforce is not available (non-SELinux systems).
- */
+/** Falls back to "disabled" on systems without SELinux/getenforce. */
 export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
   Effect.gen(function* () {
     // Check if getenforce command exists (SELinux not installed on Debian/Ubuntu)
@@ -48,9 +42,6 @@ export const getSELinuxMode = (): Effect.Effect<SELinuxMode, never> =>
     });
   });
 
-/**
- * Check if SELinux is in enforcing mode.
- * This is the main function used to determine if :Z should be added to volumes.
- */
+/** Used by volume mount generation to decide whether :Z relabeling is needed. */
 export const isSELinuxEnforcing = (): Effect.Effect<boolean, never> =>
   Effect.map(getSELinuxMode(), (mode) => mode === "enforcing");
