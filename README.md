@@ -33,12 +33,12 @@ Divban reflects this tool's purpose: containers are powerful but chaotic forces 
 
 ## Supported Services
 
-| Service | Description | Containers |
+| Service | Description | Repository |
 |---------|-------------|------------|
-| Caddy | Reverse proxy with automatic HTTPS | 1 |
-| Immich | Self-hosted photo management with ML | 4 |
-| Actual | Personal finance management | 1 |
-| FreshRSS | Self-hosted RSS feed aggregator | 1 |
+| Caddy | Reverse proxy with automatic HTTPS | [caddyserver/caddy](https://github.com/caddyserver/caddy) |
+| Immich | Self-hosted photo management with ML | [immich-app/immich](https://github.com/immich-app/immich) |
+| Actual | Personal finance management | [actualbudget/actual](https://github.com/actualbudget/actual) |
+| FreshRSS | Self-hosted RSS feed aggregator | [FreshRSS/FreshRSS](https://github.com/FreshRSS/FreshRSS) |
 
 ## Requirements
 
