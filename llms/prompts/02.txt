@@ -37,12 +37,7 @@ tests are not real consumers. They can be rewritten or adapted as needed.
 
 These improvements would further align the codebase with idiomatic Effect but affect modules outside `src/cli/`:                                                             
                                                                                                                                                                                
-  1. **Error classes → `Data.TaggedError`**: Replace 6 hand-rolled error classes in `src/lib/errors.ts` with `Data.TaggedError`. Eliminates ~200 lines of boilerplate.         
-  Ripple effect: every file that constructs errors.                                                                                                                            
-                                                                                                                                                                               
-  2. **Custom Logger → Effect logging**: Replace `src/lib/logger.ts` with Effect's `Logger.make` + `Logger.replace`. Eliminates passing `Logger` as parameter — use            
-  `Effect.log` / `Effect.logDebug` / `Effect.logWarning` / `Effect.logError` with structured fields. Ripple effect: every file that uses `Logger`.                             
-                                                                                                                                                                               
+                                                                                                                                                                    
   3. **`ConfigProvider` chains**: Replace manual config path search in `findAndLoadConfig` with `ConfigProvider.orElse` / `ConfigProvider.fromJson` chains.                    
                                                                                                                                                                                
   4. **`Effect.fn` for tracing**: Replace manual logging of function entry/exit with `Effect.fn` for automatic spans.               

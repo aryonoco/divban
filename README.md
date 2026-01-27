@@ -38,6 +38,7 @@ Divban reflects this tool's purpose: containers are powerful but chaotic forces 
 | Caddy | Reverse proxy with automatic HTTPS | 1 |
 | Immich | Self-hosted photo management with ML | 4 |
 | Actual | Personal finance management | 1 |
+| FreshRSS | Self-hosted RSS feed aggregator | 1 |
 
 ## Requirements
 
@@ -57,7 +58,7 @@ Download the latest release from [GitHub Releases](https://github.com/aryonoco/d
 
 ```bash
 # Download and extract (example for amd64v3)
-VERSION="0.1.0"
+VERSION="0.7.3"
 curl -fsSL --proto-redir =https --tlsv1.2 -O "https://github.com/aryonoco/divban/releases/download/v${VERSION}/divban-${VERSION}-linux-amd64v3.tar.zst"
 tar -xf "divban-${VERSION}-linux-amd64v3.tar.zst"
 
@@ -114,12 +115,15 @@ divban <service> <command> [config] [options]
 | start | Start the service |
 | stop | Stop the service |
 | restart | Restart the service |
+| reload | Graceful config reload (Caddy only) |
 | status | Show service status |
 | logs | View service logs |
-| update | Pull latest images and restart |
+| update | Check for and apply container image updates |
 | backup | Back up service data |
+| backup-config | Back up service configuration files |
 | restore | Restore from backup |
-| reload | Graceful config reload (Caddy only) |
+| remove | Remove a service and its user |
+| secret | Manage service secrets (show, list) |
 
 The special service name `all` may be used to run commands across all registered services.
 
@@ -150,7 +154,7 @@ Each service runs as a dedicated system user (`divban-<service>`) with:
 ```bash
 just dev                 # Run in development mode
 just test                # Run tests
-just check               # Run linter and type checker
+just lint                # Run linter
 just fmt                 # Format code
 just ci                  # Run full CI pipeline
 ```
