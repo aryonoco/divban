@@ -6,18 +6,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * CLI command tree built with @effect/cli. Declarative subcommand
- * definitions with typed argument parsing and auto-generated help.
- * Each subcommand spreads global options and dispatches to the
- * corresponding handler in commands/.
+ * CLI entry point. The runCommand wrapper centralizes service initialization,
+ * context resolution, and error display to avoid duplication across commands.
  */
 
 import { Command } from "@effect/cli";
 import type { CliApp } from "@effect/cli/CliApp";
 import { Effect, Either, Match, Option, pipe } from "effect";
-import { type EnvConfig, EnvConfigSpec, resolveLogFormat, resolveLogLevel } from "../config/env";
+import { DebugModeConfig, LogFormatOptionConfig, LogLevelOptionConfig } from "../config/env";
+import type { LogFormat, LogLevel } from "../config/field-values";
 import { loadGlobalConfig } from "../config/loader";
-import { getLoggingSettings } from "../config/merge";
+import { resolve } from "../config/resolve";
 import type { GlobalConfig } from "../config/schema";
 import { DivbanLoggerLive } from "../lib/effect-logger";
 import { type ConfigError, type DivbanEffectError, ErrorCode, GeneralError } from "../lib/errors";
@@ -65,12 +64,12 @@ import {
 
 interface CommandContext {
   readonly globalConfig: GlobalConfig;
-  readonly format: "pretty" | "json";
-  readonly logLevel: "debug" | "info" | "warn" | "error";
-  readonly logFormat: "pretty" | "json";
+  readonly format: LogFormat;
+  readonly logLevel: LogLevel;
+  readonly logFormat: LogFormat;
 }
 
-// --- Context resolution ---
+// Context resolution
 
 const resolveGlobalConfigPath = (
   globals: GlobalOptions
@@ -85,27 +84,47 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
   Effect.gen(function* () {
     const validatedPath = yield* resolveGlobalConfigPath(globals);
     const globalConfig = yield* loadGlobalConfig(validatedPath);
-    const envConfig: EnvConfig = yield* EnvConfigSpec;
 
-    const loggingSettings = getLoggingSettings(globalConfig);
-    const format = effectiveFormat(globals);
-    const effectiveLogLevel = resolveLogLevel(
-      globals.verbose,
-      globals.logLevel,
-      envConfig,
-      loggingSettings.level
+    const envLogLevel = yield* LogLevelOptionConfig;
+    const envLogFormat = yield* LogFormatOptionConfig;
+    const envDebug = yield* DebugModeConfig;
+
+    const logLevel: LogLevel = pipe(
+      Match.value(globals.verbose || envDebug),
+      Match.when(true, (): LogLevel => "debug"),
+      Match.when(
+        false,
+        (): LogLevel =>
+          resolve({
+            cli: globals.logLevel,
+            env: envLogLevel,
+            toml: globalConfig.logging.level,
+          })
+      ),
+      Match.exhaustive
     );
-    const effectiveLogFormat = resolveLogFormat(format, envConfig, loggingSettings.format);
 
-    return { globalConfig, format, logLevel: effectiveLogLevel, logFormat: effectiveLogFormat };
+    const cliFormat: Option.Option<LogFormat> = effectiveFormat(globals);
+    const logFormat: LogFormat = resolve({
+      cli: cliFormat,
+      env: envLogFormat,
+      toml: globalConfig.logging.format,
+    });
+
+    const format: LogFormat = pipe(
+      cliFormat,
+      Option.getOrElse((): LogFormat => logFormat)
+    );
+
+    return { globalConfig, format, logLevel, logFormat };
   });
 
-// --- Error display ---
+// Error display
 
 const isDivbanError = (err: unknown): err is DivbanEffectError =>
   typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
 
-const displayError = (err: unknown, format: "pretty" | "json"): void => {
+const displayError = (err: unknown, format: LogFormat): void => {
   if (!isDivbanError(err)) {
     return;
   }
@@ -123,12 +142,9 @@ const displayError = (err: unknown, format: "pretty" | "json"): void => {
   );
 };
 
-// --- Command runner ---
+// Command runner
 
-/**
- * Wraps a command handler with service initialization, context resolution,
- * and error display. All commands go through this wrapper.
- */
+/** Centralizes init, context, and error handling so each command stays focused on its logic. */
 const runCommand = (
   globals: GlobalOptions,
   handler: (ctx: CommandContext) => Effect.Effect<void, unknown>
@@ -148,7 +164,7 @@ const runCommand = (
     );
   });
 
-// --- All-services support ---
+// All-services support
 
 const runServiceForAll = (
   serviceDef: ServiceDefinition,
@@ -247,7 +263,7 @@ const requireServiceOrAll = (
       }),
   });
 
-// --- Subcommand definitions ---
+// Subcommand definitions
 
 const validateCmd = Command.make(
   "validate",
@@ -499,7 +515,7 @@ const removeCmd = Command.make(
     )
 ).pipe(Command.withDescription("Remove a service and its user"));
 
-// --- Secret subcommands ---
+// Secret subcommands
 
 const secretShowCmd = Command.make(
   "show",
@@ -533,7 +549,7 @@ const secretCmd = Command.make("secret").pipe(
   Command.withSubcommands([secretShowCmd, secretListCmd])
 );
 
-// --- Root command ---
+// Root command
 
 const divban = Command.make("divban").pipe(
   Command.withDescription("Unified Rootless Podman Service Manager"),

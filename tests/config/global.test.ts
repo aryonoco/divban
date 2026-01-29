@@ -9,7 +9,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { Effect, Exit } from "effect";
 import { loadGlobalConfig } from "../../src/config/loader.ts";
-import { getLoggingSettings, getUserAllocationSettings } from "../../src/config/merge.ts";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import { ensureDirectory, writeFile } from "../../src/system/fs.ts";
 
@@ -94,18 +93,17 @@ format = "json"
     });
   });
 
-  describe("getUserAllocationSettings", () => {
+  describe("users config", () => {
     test("extracts settings from global config", async () => {
       const configPath = pathJoin(TEST_DIR, "user-defaults.toml");
       await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
 
       const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      const settings = getUserAllocationSettings(config);
-      expect(settings.uidRangeStart).toBe(10000);
-      expect(settings.uidRangeEnd).toBe(59999);
-      expect(settings.subuidRangeStart).toBe(100000);
-      expect(settings.subuidRangeSize).toBe(65536);
+      expect(config.users.uidRangeStart).toBe(10000);
+      expect(config.users.uidRangeEnd).toBe(59999);
+      expect(config.users.subuidRangeStart).toBe(100000);
+      expect(config.users.subuidRangeSize).toBe(65536);
     });
 
     test("uses custom values when provided", async () => {
@@ -126,24 +124,22 @@ subuidRangeSize = 131072
 
       const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      const settings = getUserAllocationSettings(config);
-      expect(settings.uidRangeStart).toBe(20000);
-      expect(settings.uidRangeEnd).toBe(30000);
-      expect(settings.subuidRangeStart).toBe(200000);
-      expect(settings.subuidRangeSize).toBe(131072);
+      expect(config.users.uidRangeStart).toBe(20000);
+      expect(config.users.uidRangeEnd).toBe(30000);
+      expect(config.users.subuidRangeStart).toBe(200000);
+      expect(config.users.subuidRangeSize).toBe(131072);
     });
   });
 
-  describe("getLoggingSettings", () => {
+  describe("logging config", () => {
     test("extracts logging settings with defaults", async () => {
       const configPath = pathJoin(TEST_DIR, "logging-defaults.toml");
       await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
 
       const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      const settings = getLoggingSettings(config);
-      expect(settings.level).toBe("info");
-      expect(settings.format).toBe("pretty");
+      expect(config.logging.level).toBe("info");
+      expect(config.logging.format).toBe("pretty");
     });
 
     test("uses custom values when provided", async () => {
@@ -162,9 +158,8 @@ format = "json"
 
       const config = await Effect.runPromise(loadGlobalConfig(configPath));
 
-      const settings = getLoggingSettings(config);
-      expect(settings.level).toBe("warn");
-      expect(settings.format).toBe("json");
+      expect(config.logging.level).toBe("warn");
+      expect(config.logging.format).toBe("json");
     });
   });
 });

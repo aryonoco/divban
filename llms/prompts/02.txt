@@ -10,7 +10,7 @@ Most importantly, many parts are reimplementing from scratch what Effect provide
 
 
 Given this context, launch a number of async background agents to analyse 
-Custom Logger and all logging related functionality with 
+manual logging of function entry/exit
 In detail. The job of this analysis should be to holistically think about this  not just the lines of code and what each file is trying to achieve, but the intent of it all. 
 
 Once you have this analysis, 
@@ -22,10 +22,9 @@ Then, again, launch a number of background async agents to analyse the relevant 
 
 
 Finally put this all together. 
-Think like a senior Haskell/OCaml/Scala 3 developer and how they would have composed such a functionality from scratch, and propose an optimal plan to comprehensively rewrite 
-Custom Logger with  Effect logging.  using Effect's `Logger.make` + `Logger.replace`. Eliminates passing `Logger` as parameter and use            
-  `Effect.log` / `Effect.logDebug` / `Effect.logWarning` / `Effect.logError` with structured fields.
-to achive that. 
+Think like a senior Haskell/OCaml developer and how they would have composed such a functionality from scratch, and propose an optimal plan to comprehensively rewrite 
+function logging
+to achive that utilising as much of idiomatic Effect APIs as possible. 
 
 Ensure your plan achieves a clean refactor, with no legacy code, compatibility bridges, deprecation notices or shims or wrappers letft behind. If there are breaking changes ensure all the callers and tests are updated instead. 
 
@@ -37,7 +36,5 @@ tests are not real consumers. They can be rewritten or adapted as needed.
 
 These improvements would further align the codebase with idiomatic Effect but affect modules outside `src/cli/`:                                                             
                                                                                                                                                                                
-                                                                                                                                                                    
-  3. **`ConfigProvider` chains**: Replace manual config path search in `findAndLoadConfig` with `ConfigProvider.orElse` / `ConfigProvider.fromJson` chains.                    
-                                                                                                                                                                               
+                                                                                                                                                        
   4. **`Effect.fn` for tracing**: Replace manual logging of function entry/exit with `Effect.fn` for automatic spans.               

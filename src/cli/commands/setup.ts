@@ -14,7 +14,6 @@
 
 import { Effect, Exit, Match, Ref, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
-import { getUserAllocationSettings } from "../../config/merge";
 import type { GlobalConfig } from "../../config/schema";
 import { getServiceUsername } from "../../config/schema";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
@@ -51,7 +50,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
   Effect.gen(function* () {
     const { service, configPath, dryRun, force, verbose, globalConfig } = options;
 
-    const uidSettings = getUserAllocationSettings(globalConfig);
+    const uidSettings = globalConfig.users;
 
     yield* Effect.logInfo(`Setting up ${service.definition.name}...`);
 
@@ -132,7 +131,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             yield* logStep(step, totalSteps, message);
           });
 
-        // Main scoped setup with automatic rollback on failure
+        // Scoped region: acquireRelease finalizers run in reverse order on any exit
         yield* Effect.scoped(
           Effect.gen(function* () {
             // Sysctl is idempotent; no rollback needed on failure
@@ -163,7 +162,6 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const { uid, homeDir } = userAcq.value;
             const gid = userIdToGroupId(uid);
 
-            // Same conditional rollback: only disable linger if we just enabled it
             yield* nextStep("Enabling user linger...");
             yield* Effect.acquireRelease(
               enableLingerTracked(username, uid),

@@ -10,6 +10,7 @@
  */
 
 import { Schema } from "effect";
+import { LOG_LEVEL_VALUES } from "../../config/field-values";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
 import type { FreshRssCliBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
@@ -58,38 +59,27 @@ export const freshRssBackupConfigSchema: Schema.Schema<
 
 export interface FreshRssConfig {
   readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
-  /** Path configuration */
   readonly paths: {
-    /** Directory for FreshRSS data (database, config, extensions) */
     readonly dataDir: AbsolutePath;
   };
-  /** Container configuration */
   readonly container?:
     | {
-        /** Container image */
         readonly image: ContainerImage;
-        /** Auto-update policy */
         readonly autoUpdate?: "registry" | "local" | undefined;
       }
     | undefined;
-  /** Network configuration */
   readonly network?:
     | {
-        /** Host port to bind (default: 8080) */
         readonly port: number;
-        /** Host IP to bind (default: 127.0.0.1 for security) */
         readonly host: string;
       }
     | undefined;
-  /** Timezone (TZ environment variable) */
   readonly timezone: string;
-  /** Cron schedule for feed refresh (e.g., "3,33" or every 15 minutes) */
+  /** Cron minute expression (e.g., "3,33" for twice hourly). */
   readonly cronMinutes?: string | undefined;
-  /** Trusted proxy CIDR ranges (e.g., "172.16.0.1/12 192.168.0.1/16") */
+  /** Space-separated CIDR ranges (e.g., "172.16.0.0/12 192.168.0.0/16"). */
   readonly trustedProxy?: string | undefined;
-  /** Logging level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
-  /** Backup configuration - FreshRSS CLI (hot backup safe via PHP) */
   readonly backup: FreshRssCliBackupConfig;
 }
 
@@ -150,7 +140,7 @@ export const freshRssConfigSchema: Schema.Schema<FreshRssConfig, FreshRssConfigI
     }),
     cronMinutes: Schema.optional(Schema.String),
     trustedProxy: Schema.optional(Schema.String),
-    logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
+    logLevel: Schema.optionalWith(Schema.Literal(...LOG_LEVEL_VALUES), {
       default: (): "info" => "info",
     }),
     backup: Schema.optionalWith(freshRssBackupConfigSchema, { default: defaultBackupConfig }),

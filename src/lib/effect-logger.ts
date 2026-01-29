@@ -6,18 +6,16 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Custom Effect Logger preserving divban's CLI formatting.
- * Annotations (logStyle, stepNumber, stepTotal, service) control output
- * format; Logger.make callback reads them from the HashMap.
+ * Custom logger because Effect's default lacks step progress indicators and
+ * styled messages (success checkmarks, failure X marks) that CLI UX requires.
  */
 
 import { Cause, HashMap, Layer, LogLevel, Logger, Match, Option, pipe } from "effect";
-
-type LogFormat = "pretty" | "json";
+import type { LogLevel as DivbanLogLevel, LogFormat } from "../config/field-values";
 type LogStyle = "step" | "success" | "fail";
 type ColorName = "red" | "green" | "yellow" | "blue" | "cyan" | "gray" | "white";
 
-/** Internal annotation keys used for formatting — excluded from JSON output. */
+/** Formatting-only annotations filtered from JSON to keep logs clean for aggregation. */
 const INTERNAL_KEYS: ReadonlySet<string> = new Set([
   "logStyle",
   "stepNumber",
@@ -25,7 +23,7 @@ const INTERNAL_KEYS: ReadonlySet<string> = new Set([
   "service",
 ]);
 
-const toEffectLogLevel = (level: "debug" | "info" | "warn" | "error"): LogLevel.LogLevel =>
+const toEffectLogLevel = (level: DivbanLogLevel): LogLevel.LogLevel =>
   pipe(
     Match.value(level),
     Match.when("debug", () => LogLevel.Debug),
@@ -150,7 +148,6 @@ const formatPretty = (
     })
   );
 
-/** Extracts user-defined annotations for JSON output (excludes internal formatting keys). */
 const collectExternalAnnotations = (
   annotations: HashMap.HashMap<string, unknown>
 ): Record<string, unknown> =>
@@ -210,7 +207,7 @@ const DivbanLogger = (format: LogFormat, useColor: boolean): Logger.Logger<unkno
   });
 
 export const DivbanLoggerLive = (options: {
-  readonly level: "debug" | "info" | "warn" | "error";
+  readonly level: DivbanLogLevel;
   readonly format: LogFormat;
   readonly color?: boolean;
 }): Layer.Layer<never> => {

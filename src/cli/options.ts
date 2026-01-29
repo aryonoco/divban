@@ -6,19 +6,18 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Shared CLI argument and option definitions for @effect/cli commands.
- * Each command spreads `globalOptions` to inherit global flags,
- * and adds its own command-specific args and options.
+ * Centralized CLI option definitions. Sharing these ensures consistent naming
+ * and descriptions across commands, and enables type-safe composition.
  */
 
 import { Args as A, Options as O } from "@effect/cli";
 import type { Args } from "@effect/cli/Args";
 import type { Options } from "@effect/cli/Options";
-import type { Option } from "effect";
+import { Match, Option, pipe } from "effect";
+import type { LogFormat, LogLevel } from "../config/field-values";
+import { LOG_FORMAT_VALUES, LOG_LEVEL_VALUES } from "../config/field-values";
 
-// ============================================================================
-// Shared Positional Arguments
-// ============================================================================
+// Shared positional arguments
 
 export const serviceArg: Args<string> = A.text({ name: "service" }).pipe(
   A.withDescription("Service name (e.g. caddy, immich, actual)")
@@ -46,16 +45,14 @@ export const secretNameArg: Args<string> = A.text({ name: "name" }).pipe(
   A.withDescription("Secret name")
 );
 
-// ============================================================================
-// Global Options (spread into every command)
-// ============================================================================
+// Global options (spread into every command)
 
 export const globalOptions: {
   readonly verbose: Options<boolean>;
   readonly dryRun: Options<boolean>;
   readonly force: Options<boolean>;
-  readonly logLevel: Options<"debug" | "info" | "warn" | "error">;
-  readonly format: Options<"pretty" | "json">;
+  readonly logLevel: Options<Option.Option<LogLevel>>;
+  readonly format: Options<Option.Option<LogFormat>>;
   readonly json: Options<boolean>;
   readonly globalConfig: Options<Option.Option<string>>;
 } = {
@@ -68,13 +65,13 @@ export const globalOptions: {
     O.withAlias("f"),
     O.withDescription("Force operation (skip confirmations)")
   ),
-  logLevel: O.choice("log-level", ["debug", "info", "warn", "error"]).pipe(
-    O.withDefault("info" as const),
-    O.withDescription("Set log level")
+  logLevel: O.choice("log-level", LOG_LEVEL_VALUES).pipe(
+    O.withDescription("Set log level"),
+    O.optional
   ),
-  format: O.choice("format", ["pretty", "json"]).pipe(
-    O.withDefault("pretty" as const),
-    O.withDescription("Output format")
+  format: O.choice("format", LOG_FORMAT_VALUES).pipe(
+    O.withDescription("Output format"),
+    O.optional
   ),
   json: O.boolean("json").pipe(O.withDescription("Shorthand for --format json")),
   globalConfig: O.text("global-config").pipe(
@@ -84,9 +81,7 @@ export const globalOptions: {
   ),
 };
 
-// ============================================================================
-// Per-Command Options
-// ============================================================================
+// Per-command options
 
 export const allFlag: Options<boolean> = O.boolean("all").pipe(
   O.withDescription("Run on all registered services")
@@ -118,20 +113,23 @@ export const preserveData: Options<boolean> = O.boolean("preserve-data").pipe(
   O.withDescription("Keep the data directory during removal")
 );
 
-// ============================================================================
-// Type Definitions
-// ============================================================================
+// Type definitions
 
 export interface GlobalOptions {
   readonly verbose: boolean;
   readonly dryRun: boolean;
   readonly force: boolean;
-  readonly logLevel: "debug" | "info" | "warn" | "error";
-  readonly format: "pretty" | "json";
+  readonly logLevel: Option.Option<LogLevel>;
+  readonly format: Option.Option<LogFormat>;
   readonly json: boolean;
   readonly globalConfig: Option.Option<string>;
 }
 
-/** Effective output format resolved from --format and --json flags */
-export const effectiveFormat = (globals: GlobalOptions): "pretty" | "json" =>
-  globals.json ? "json" : globals.format;
+/** Resolves format: --json takes precedence as shorthand for --format=json. */
+export const effectiveFormat = (globals: GlobalOptions): Option.Option<LogFormat> =>
+  pipe(
+    Match.value(globals.json),
+    Match.when(true, (): Option.Option<LogFormat> => Option.some("json")),
+    Match.when(false, (): Option.Option<LogFormat> => globals.format),
+    Match.exhaustive
+  );

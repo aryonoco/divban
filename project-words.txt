@@ -187,6 +187,7 @@ mockhash
 mocksha
 
 # Misc
+checkmarks
 Filenaming
 userexample
 justfile
@@ -219,6 +220,7 @@ ipvlan
 
 # Caddy
 basicauth
+caddyserver
 fastcgi
 
 # PostgreSQL

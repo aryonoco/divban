@@ -17,7 +17,6 @@ export {
   healthCheckSchema,
   portSchema,
   serviceBaseSchema,
-  serviceRestartSchema,
   usernameSchema,
   volumeMountSchema,
 } from "./schema";
@@ -28,6 +27,7 @@ export type {
   VolumeMountConfig,
   VolumeMountConfigInput,
 } from "./schema";
+export type { ServiceRestartPolicy } from "./field-values";
 
 export {
   findServiceConfig,
@@ -37,27 +37,37 @@ export {
 } from "./loader";
 
 export {
-  addTimezoneToEnv,
-  deepMerge,
-  getLoggingSettings,
-  getPathSettings,
-  getUserAllocationSettings,
-  mergeContainerDefaults,
-  mergeEnvironment,
-} from "./merge";
+  BaseDataDirOptionConfig,
+  DebugModeConfig,
+  HomeConfig,
+  LogFormatOptionConfig,
+  LogLevelOptionConfig,
+} from "./env";
+
+export { resolve } from "./resolve";
+export type { ConfigField } from "./resolve";
 
 export {
-  BaseDataDirConfig,
-  createTestConfigProvider,
-  DebugModeConfig,
-  EnvConfigSpec,
-  HomeConfig,
-  LogFormatConfig,
-  LogLevelConfig,
-  resolveLogFormat,
-  resolveLogLevel,
-} from "./env";
-export type { EnvConfig, LogFormat, LogLevel as EnvLogLevel, TestConfigOverrides } from "./env";
+  AUTO_UPDATE_STRING_VALUES,
+  HEALTH_CHECK_ON_FAILURE_VALUES,
+  LOG_FORMAT_DEFAULT,
+  LOG_FORMAT_VALUES,
+  LOG_LEVEL_DEFAULT,
+  LOG_LEVEL_VALUES,
+  NETWORK_MODE_GLOBAL_VALUES,
+  NETWORK_MODE_VALUES,
+  PROTOCOL_VALUES,
+  SERVICE_RESTART_VALUES,
+} from "./field-values";
+export type {
+  AutoUpdateString,
+  HealthCheckOnFailure,
+  LogFormat,
+  LogLevel,
+  NetworkMode,
+  NetworkModeGlobal,
+  Protocol,
+} from "./field-values";
 
 export {
   CURRENT_CONFIG_SCHEMA_VERSION,

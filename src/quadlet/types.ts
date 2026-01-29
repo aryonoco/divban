@@ -12,6 +12,7 @@
  * lifecycle management (dependencies, restart policies, logging).
  */
 
+import type { HealthCheckOnFailure, Protocol, ServiceRestartPolicy } from "../config/field-values";
 import type { ContainerImage, ContainerName, DurationString } from "../lib/types";
 import type { ContainerCapabilitiesConfig } from "./container/capabilities";
 import type { ContainerEnvironmentConfig } from "./container/environment";
@@ -25,23 +26,17 @@ import type { ContainerVolumeConfig } from "./container/volumes";
 
 /** Maps `--publish hostIp:host:container/protocol` in Podman. */
 export interface PortMapping {
-  /** Host IP to bind to (optional, defaults to all interfaces) */
+  /** Defaults to all interfaces when omitted. */
   readonly hostIp?: string | undefined;
-  /** Host port number */
   readonly host: number;
-  /** Container port number */
   readonly container: number;
-  /** Protocol (tcp or udp) */
-  readonly protocol?: "tcp" | "udp" | undefined;
+  readonly protocol?: Protocol | undefined;
 }
 
 /** Maps `--volume source:target:options` in Podman. */
 export interface VolumeMount {
-  /** Source path or volume name */
   source: string;
-  /** Target path inside container */
   target: string;
-  /** Mount options (ro, rw, z, Z, etc.) */
   options?: string | undefined;
 }
 
@@ -59,18 +54,14 @@ export interface SecretMount {
 
 /** Maps `--health-*` flags in Podman. Healthchecks run inside the container. */
 export interface HealthCheck {
-  /** Command to run for health check */
   cmd: string;
-  /** Time between checks */
   interval: DurationString;
-  /** Timeout for each check */
   timeout: DurationString;
-  /** Number of retries before marking unhealthy */
+  /** Consecutive failures before marking unhealthy. */
   retries: number;
-  /** Initial delay before starting checks */
+  /** Grace period before checks start (for slow-starting apps). */
   startPeriod: DurationString;
-  /** Action on failure */
-  onFailure: "none" | "kill" | "restart" | "stop";
+  onFailure: HealthCheckOnFailure;
 }
 
 /**
@@ -88,13 +79,9 @@ export type UserNamespace =
 
 /** Systemd [Service] section directives for restart behavior and timeouts. */
 export interface ServiceConfig {
-  /** Restart policy */
-  restart: "no" | "on-success" | "on-failure" | "on-abnormal" | "on-abort" | "always";
-  /** Delay before restart */
+  restart: ServiceRestartPolicy;
   restartSec?: number | undefined;
-  /** Timeout for service start */
   timeoutStartSec?: number | undefined;
-  /** Timeout for service stop */
   timeoutStopSec?: number | undefined;
 }
 
@@ -113,79 +100,52 @@ export interface ContainerQuadlet
     Partial<ContainerVolumeConfig>,
     Partial<ContainerMiscConfig>,
     Partial<Omit<ImageConfig, "image">> {
-  // Required fields
-  /** Container name (used for unit file name) */
   readonly name: ContainerName;
-  /** Human-readable description */
   readonly description: string;
-  /** Container image reference */
   readonly image: ContainerImage;
-  /** Service configuration */
   readonly service: ServiceConfig;
 
-  // Unit dependencies (not from sub-configs)
-  /** Hard dependencies - unit fails if these fail */
+  // Unit dependencies: requires/wants control failure propagation, after/before control ordering only
+  /** Hard dependency: unit fails if these fail. */
   readonly requires?: readonly string[] | undefined;
-  /** Soft dependencies - unit doesn't fail if these fail */
+  /** Soft dependency: unit doesn't fail if these fail. */
   readonly wants?: readonly string[] | undefined;
-  /** Order: start after these units */
+  /** Ordering only: start after these units (no dependency relationship). */
   readonly after?: readonly string[] | undefined;
-  /** Order: start before these units */
+  /** Ordering only: start before these units (no dependency relationship). */
   readonly before?: readonly string[] | undefined;
 
-  // Container-specific optionals (not from sub-configs)
-  /** User namespace configuration */
   readonly userNs?: UserNamespace | undefined;
-  /** Health check configuration */
   readonly healthCheck?: HealthCheck | undefined;
-  /** Install section - target to install to */
   readonly wantedBy?: string | undefined;
 }
 
 /** Configuration for a `.network` quadlet file. */
 export interface NetworkQuadlet {
-  /** Network name */
   name: string;
-  /** Human-readable description */
   description?: string | undefined;
-  /** Internal network (no external connectivity) */
   internal?: boolean | undefined;
-  /** Network driver */
   driver?: "bridge" | "macvlan" | "ipvlan" | undefined;
-  /** IPv6 support */
   ipv6?: boolean | undefined;
-  /** Subnet CIDR */
   subnet?: string | undefined;
-  /** Gateway IP */
   gateway?: string | undefined;
-  /** IP range for containers */
   ipRange?: string | undefined;
-  /** Network options */
   options?: Record<string, string> | undefined;
-  /** DNS servers */
   dns?: string[] | undefined;
 }
 
 /** Configuration for a `.volume` quadlet file. */
 export interface VolumeQuadlet {
-  /** Volume name */
   name: string;
-  /** Human-readable description */
   description?: string | undefined;
-  /** Volume driver */
   driver?: string | undefined;
-  /** Volume driver options */
   options?: Record<string, string> | undefined;
-  /** Volume labels */
   labels?: Record<string, string> | undefined;
 }
 
 /** Output artifact ready to be written to disk. */
 export interface GeneratedQuadlet {
-  /** Filename (e.g., "caddy.container") */
   filename: string;
-  /** File content */
   content: string;
-  /** File type */
   type: "container" | "network" | "volume";
 }

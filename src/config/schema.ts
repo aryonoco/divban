@@ -34,6 +34,24 @@ import {
   parseErrorToGeneralError,
 } from "../lib/types";
 import { type DivbanConfigSchemaVersion, DivbanConfigSchemaVersionSchema } from "../lib/versioning";
+import {
+  AUTO_UPDATE_STRING_VALUES,
+  type AutoUpdateString,
+  HEALTH_CHECK_ON_FAILURE_VALUES,
+  type HealthCheckOnFailure,
+  LOG_FORMAT_VALUES,
+  LOG_LEVEL_VALUES,
+  type LogFormat,
+  type LogLevel,
+  NETWORK_MODE_GLOBAL_VALUES,
+  NETWORK_MODE_VALUES,
+  type NetworkMode,
+  type NetworkModeGlobal,
+  PROTOCOL_VALUES,
+  type Protocol,
+  SERVICE_RESTART_VALUES,
+  type ServiceRestartPolicy,
+} from "./field-values";
 
 /**
  * Re-export branded schemas for backwards compatibility.
@@ -49,14 +67,14 @@ export interface PortConfig {
   readonly host: number;
   readonly container: number;
   readonly hostIp?: string | undefined;
-  readonly protocol: "tcp" | "udp";
+  readonly protocol: Protocol;
 }
 
 export interface PortConfigInput {
   readonly host: number;
   readonly container: number;
   readonly hostIp?: string | undefined;
-  readonly protocol?: "tcp" | "udp" | undefined;
+  readonly protocol?: Protocol | undefined;
 }
 
 export const portSchema: Schema.Schema<PortConfig, PortConfigInput> = Schema.Struct({
@@ -69,7 +87,9 @@ export const portSchema: Schema.Schema<PortConfig, PortConfigInput> = Schema.Str
       })
     )
   ),
-  protocol: Schema.optionalWith(Schema.Literal("tcp", "udp"), { default: (): "tcp" => "tcp" }),
+  protocol: Schema.optionalWith(Schema.Literal(...PROTOCOL_VALUES), {
+    default: (): "tcp" => "tcp",
+  }),
 });
 
 export interface VolumeMountConfig {
@@ -97,7 +117,7 @@ export interface HealthCheckConfig {
   readonly timeout: DurationString;
   readonly retries: number;
   readonly startPeriod: DurationString;
-  readonly onFailure: "none" | "kill" | "restart" | "stop";
+  readonly onFailure: HealthCheckOnFailure;
 }
 
 export interface HealthCheckConfigInput {
@@ -106,7 +126,7 @@ export interface HealthCheckConfigInput {
   readonly timeout?: string | undefined;
   readonly retries?: number | undefined;
   readonly startPeriod?: string | undefined;
-  readonly onFailure?: "none" | "kill" | "restart" | "stop" | undefined;
+  readonly onFailure?: HealthCheckOnFailure | undefined;
 }
 
 export const healthCheckSchema: Schema.Schema<HealthCheckConfig, HealthCheckConfigInput> =
@@ -124,37 +144,16 @@ export const healthCheckSchema: Schema.Schema<HealthCheckConfig, HealthCheckConf
     startPeriod: Schema.optionalWith(DurationStringSchema, {
       default: (): DurationString => duration("0s"),
     }),
-    onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
+    onFailure: Schema.optionalWith(Schema.Literal(...HEALTH_CHECK_ON_FAILURE_VALUES), {
       default: (): "none" => "none",
     }),
   });
 
-export type ServiceRestartPolicy =
-  | "no"
-  | "on-success"
-  | "on-failure"
-  | "on-abnormal"
-  | "on-abort"
-  | "always";
-
-export const serviceRestartSchema: Schema.Schema<ServiceRestartPolicy> = Schema.Literal(
-  "no",
-  "on-success",
-  "on-failure",
-  "on-abnormal",
-  "on-abort",
-  "always"
-);
-
-/**
- * Base container configuration (output after decoding).
- * Used by all services as the foundation for container definitions.
- * Uses readonly to match Effect Schema's default output.
- */
+/** Shared security and lifecycle settings inherited by all service configs. */
 export interface ContainerBaseConfig {
   readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
-  readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
+  readonly networkMode: NetworkMode;
   readonly ports?: readonly PortConfig[] | undefined;
   readonly volumes?: readonly VolumeMountConfig[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
@@ -167,21 +166,17 @@ export interface ContainerBaseConfig {
   readonly seccompProfile?: AbsolutePath | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
-  readonly autoUpdate: "registry" | "local" | false;
+  readonly autoUpdate: AutoUpdateString | false;
   readonly restart: ServiceRestartPolicy;
   readonly restartSec?: number | undefined;
   readonly timeoutStartSec?: number | undefined;
   readonly timeoutStopSec?: number | undefined;
 }
 
-/**
- * Base container configuration (input before decoding).
- * Fields with defaults are optional in input.
- */
 export interface ContainerBaseConfigInput {
   readonly image: string;
   readonly imageDigest?: string | undefined;
-  readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  readonly networkMode?: NetworkMode | undefined;
   readonly ports?: readonly PortConfigInput[] | undefined;
   readonly volumes?: readonly VolumeMountConfigInput[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
@@ -194,7 +189,7 @@ export interface ContainerBaseConfigInput {
   readonly seccompProfile?: string | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
-  readonly autoUpdate?: "registry" | "local" | false | undefined;
+  readonly autoUpdate?: (AutoUpdateString | false) | undefined;
   readonly restart?: ServiceRestartPolicy | undefined;
   readonly restartSec?: number | undefined;
   readonly timeoutStartSec?: number | undefined;
@@ -205,7 +200,7 @@ export const containerBaseSchema: Schema.Schema<ContainerBaseConfig, ContainerBa
   Schema.Struct({
     image: containerImageSchema,
     imageDigest: Schema.optional(Schema.String),
-    networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns", "host", "none"), {
+    networkMode: Schema.optionalWith(Schema.Literal(...NETWORK_MODE_VALUES), {
       default: (): "pasta" => "pasta",
     }),
     ports: Schema.optional(Schema.Array(portSchema)),
@@ -221,12 +216,12 @@ export const containerBaseSchema: Schema.Schema<ContainerBaseConfig, ContainerBa
     shmSize: Schema.optional(Schema.String),
     devices: Schema.optional(Schema.Array(Schema.String)),
     autoUpdate: Schema.optionalWith(
-      Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+      Schema.Union(Schema.Literal(...AUTO_UPDATE_STRING_VALUES), Schema.Literal(false)),
       {
         default: (): "registry" => "registry",
       }
     ),
-    restart: Schema.optionalWith(serviceRestartSchema, {
+    restart: Schema.optionalWith(Schema.Literal(...SERVICE_RESTART_VALUES), {
       default: (): "on-failure" => "on-failure",
     }),
     restartSec: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
@@ -239,23 +234,20 @@ export const containerBaseSchema: Schema.Schema<ContainerBaseConfig, ContainerBa
   });
 
 /**
- * Default timeout values in milliseconds.
- * Used when no global config is available or as fallback values.
+ * Default timeouts in ms. Validation is short for fast feedback; backup/restore
+ * are longer because large databases or slow storage can legitimately take time.
  */
 export const DEFAULT_TIMEOUTS = {
-  /** Timeout for validation/reload operations (60 seconds) */
   validation: 60_000,
-  /** Timeout for backup operations (10 minutes) */
   backup: 600_000,
-  /** Timeout for restore operations (30 minutes) */
   restore: 1_800_000,
 } as const;
 
 export interface GlobalConfig {
   readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
   readonly defaults: {
-    readonly networkMode: "pasta" | "slirp4netns";
-    readonly autoUpdate: "registry" | "local" | false;
+    readonly networkMode: NetworkModeGlobal;
+    readonly autoUpdate: AutoUpdateString | false;
     readonly timezone: string;
   };
   readonly users: {
@@ -265,32 +257,26 @@ export interface GlobalConfig {
     readonly subuidRangeSize: number;
   };
   readonly logging: {
-    readonly level: "debug" | "info" | "warn" | "error";
-    readonly format: "pretty" | "json";
+    readonly level: LogLevel;
+    readonly format: LogFormat;
   };
   readonly paths: {
     readonly baseDataDir: AbsolutePath;
   };
   readonly timeouts: {
-    /** Timeout for validation/reload operations in ms (default: 60000 = 60s) */
     readonly validation: number;
-    /** Timeout for backup operations in ms (default: 600000 = 10min) */
     readonly backup: number;
-    /** Timeout for restore operations in ms (default: 1800000 = 30min) */
     readonly restore: number;
   };
 }
 
-/**
- * Global configuration for divban.toml (input before decoding)
- * All nested objects and their fields are optional.
- */
+/** Minimal valid input: only divbanConfigSchemaVersion required. */
 export interface GlobalConfigInput {
   readonly divbanConfigSchemaVersion: string;
   readonly defaults?:
     | {
-        readonly networkMode?: "pasta" | "slirp4netns" | undefined;
-        readonly autoUpdate?: "registry" | "local" | false | undefined;
+        readonly networkMode?: NetworkModeGlobal | undefined;
+        readonly autoUpdate?: (AutoUpdateString | false) | undefined;
         readonly timezone?: string | undefined;
       }
     | undefined;
@@ -304,8 +290,8 @@ export interface GlobalConfigInput {
     | undefined;
   readonly logging?:
     | {
-        readonly level?: "debug" | "info" | "warn" | "error" | undefined;
-        readonly format?: "pretty" | "json" | undefined;
+        readonly level?: LogLevel | undefined;
+        readonly format?: LogFormat | undefined;
       }
     | undefined;
   readonly paths?:
@@ -326,11 +312,11 @@ export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> 
   divbanConfigSchemaVersion: DivbanConfigSchemaVersionSchema,
   defaults: Schema.optionalWith(
     Schema.Struct({
-      networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns"), {
+      networkMode: Schema.optionalWith(Schema.Literal(...NETWORK_MODE_GLOBAL_VALUES), {
         default: (): "pasta" => "pasta",
       }),
       autoUpdate: Schema.optionalWith(
-        Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+        Schema.Union(Schema.Literal(...AUTO_UPDATE_STRING_VALUES), Schema.Literal(false)),
         { default: (): "registry" => "registry" }
       ),
       timezone: Schema.optionalWith(Schema.String, { default: (): string => "UTC" }),
@@ -373,10 +359,10 @@ export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> 
   ),
   logging: Schema.optionalWith(
     Schema.Struct({
-      level: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
+      level: Schema.optionalWith(Schema.Literal(...LOG_LEVEL_VALUES), {
         default: (): "info" => "info",
       }),
-      format: Schema.optionalWith(Schema.Literal("pretty", "json"), {
+      format: Schema.optionalWith(Schema.Literal(...LOG_FORMAT_VALUES), {
         default: (): "pretty" => "pretty",
       }),
     }),
@@ -424,11 +410,7 @@ export const globalConfigSchema: Schema.Schema<GlobalConfig, GlobalConfigInput> 
   ),
 });
 
-/**
- * Service base configuration - common to all services (output after decoding).
- * Note: Username is derived from service name as "divban-<service>"
- * UID is dynamically allocated from range 10000-59999
- */
+/** Path configuration common to all services. Username/UID derived at setup time. */
 export interface ServiceBaseConfig {
   paths: {
     dataDir: AbsolutePath;
@@ -473,10 +455,7 @@ export const getServiceUsername = (
     Effect.flatMap((u) => decodeUsername(u).pipe(Effect.mapError(parseErrorToGeneralError)))
   );
 
-/**
- * Get data directory for a service (Effect version).
- * Pattern: <baseDataDir>/divban-<service>
- */
+/** Data directory follows username convention for consistent ownership. */
 export const getServiceDataDir = (
   serviceName: ServiceName,
   baseDataDir = "/srv"

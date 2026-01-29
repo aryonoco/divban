@@ -5,13 +5,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+/**
+ * Caddy reverse proxy service configuration schema.
+ */
+
 import { Schema } from "effect";
+import {
+  AUTO_UPDATE_STRING_VALUES,
+  type AutoUpdateString,
+  HEALTH_CHECK_ON_FAILURE_VALUES,
+  NETWORK_MODE_VALUES,
+  type NetworkMode,
+  SERVICE_RESTART_VALUES,
+  type ServiceRestartPolicy,
+} from "../../config/field-values";
 import {
   type HealthCheckConfig,
   type HealthCheckConfigInput,
   type PortConfig,
   type PortConfigInput,
-  type ServiceRestartPolicy,
   type VolumeMountConfig,
   type VolumeMountConfigInput,
   absolutePathSchema,
@@ -32,17 +44,14 @@ import {
   DivbanConfigSchemaVersionSchema,
 } from "../../lib/versioning";
 
-// The interface must explicitly include undefined for exactOptionalPropertyTypes
-// Use readonly arrays to match Effect Schema's default behavior
+// exactOptionalPropertyTypes requires explicit undefined; readonly matches Effect Schema output
 export interface Directive {
   readonly name: string;
   readonly args?: readonly string[] | undefined;
   readonly block?: readonly Directive[] | undefined;
 }
 
-// Type erasure required: Effect Schema cannot infer recursive types.
-// The Schema.suspend() creates a different structural type that requires
-// explicit annotation. This is a known Effect Schema limitation.
+// Type erasure: Schema.suspend() produces a structural type incompatible with the interface.
 export const directiveSchema: Schema.Schema<Directive> = Schema.Struct({
   name: Schema.String,
   args: Schema.optional(Schema.Array(Schema.String)),
@@ -51,10 +60,6 @@ export const directiveSchema: Schema.Schema<Directive> = Schema.Struct({
   ),
 }) as unknown as Schema.Schema<Directive>;
 
-/**
- * Named matcher interface for exactOptionalPropertyTypes compatibility.
- * Use readonly to match Effect Schema's default behavior.
- */
 export interface NamedMatcher {
   readonly name: string;
   readonly path?: readonly string[] | undefined;
@@ -83,7 +88,7 @@ const matcherFieldsWithoutName = {
   expression: Schema.optional(Schema.String),
 };
 
-// Type erasure required: Effect Schema recursive type limitation.
+// Type erasure: `not` references NamedMatcher recursively. See directiveSchema.
 export const namedMatcherSchema: Schema.Schema<NamedMatcher> = Schema.Struct({
   name: Schema.String,
   ...matcherFieldsWithoutName,
@@ -210,7 +215,7 @@ export const caddyfileSchema: Schema.Schema<CaddyfileConfig> = Schema.Struct({
 export interface CaddyContainerConfig {
   readonly image: ContainerImage;
   readonly imageDigest?: string | undefined;
-  readonly networkMode: "pasta" | "slirp4netns" | "host" | "none";
+  readonly networkMode: NetworkMode;
   readonly ports: readonly PortConfig[];
   readonly volumes?: readonly VolumeMountConfig[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
@@ -223,7 +228,7 @@ export interface CaddyContainerConfig {
   readonly seccompProfile?: AbsolutePath | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
-  readonly autoUpdate: "registry" | "local" | false;
+  readonly autoUpdate: AutoUpdateString | false;
   readonly restart: ServiceRestartPolicy;
   readonly restartSec?: number | undefined;
   readonly timeoutStartSec?: number | undefined;
@@ -233,7 +238,7 @@ export interface CaddyContainerConfig {
 export interface CaddyContainerConfigInput {
   readonly image: string;
   readonly imageDigest?: string | undefined;
-  readonly networkMode?: "pasta" | "slirp4netns" | "host" | "none" | undefined;
+  readonly networkMode?: NetworkMode | undefined;
   readonly ports?: readonly PortConfigInput[] | undefined;
   readonly volumes?: readonly VolumeMountConfigInput[] | undefined;
   readonly environment?: Readonly<Record<string, string>> | undefined;
@@ -246,7 +251,7 @@ export interface CaddyContainerConfigInput {
   readonly seccompProfile?: string | undefined;
   readonly shmSize?: string | undefined;
   readonly devices?: readonly string[] | undefined;
-  readonly autoUpdate?: "registry" | "local" | false | undefined;
+  readonly autoUpdate?: (AutoUpdateString | false) | undefined;
   readonly restart?: ServiceRestartPolicy | undefined;
   readonly restartSec?: number | undefined;
   readonly timeoutStartSec?: number | undefined;
@@ -257,7 +262,7 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
   Schema.Struct({
     image: containerImageSchema,
     imageDigest: Schema.optional(Schema.String),
-    networkMode: Schema.optionalWith(Schema.Literal("pasta", "slirp4netns", "host", "none"), {
+    networkMode: Schema.optionalWith(Schema.Literal(...NETWORK_MODE_VALUES), {
       default: (): "pasta" => "pasta",
     }),
     ports: Schema.optionalWith(Schema.Array(portSchema), {
@@ -288,7 +293,7 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
         startPeriod: Schema.optionalWith(DurationStringSchema, {
           default: (): DurationString => duration("0s"),
         }),
-        onFailure: Schema.optionalWith(Schema.Literal("none", "kill", "restart", "stop"), {
+        onFailure: Schema.optionalWith(Schema.Literal(...HEALTH_CHECK_ON_FAILURE_VALUES), {
           default: (): "none" => "none",
         }),
       })
@@ -301,15 +306,14 @@ export const caddyContainerSchema: Schema.Schema<CaddyContainerConfig, CaddyCont
     shmSize: Schema.optional(Schema.String),
     devices: Schema.optional(Schema.Array(Schema.String)),
     autoUpdate: Schema.optionalWith(
-      Schema.Union(Schema.Literal("registry", "local"), Schema.Literal(false)),
+      Schema.Union(Schema.Literal(...AUTO_UPDATE_STRING_VALUES), Schema.Literal(false)),
       {
         default: (): "registry" => "registry",
       }
     ),
-    restart: Schema.optionalWith(
-      Schema.Literal("no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"),
-      { default: (): "on-failure" => "on-failure" }
-    ),
+    restart: Schema.optionalWith(Schema.Literal(...SERVICE_RESTART_VALUES), {
+      default: (): "on-failure" => "on-failure",
+    }),
     restartSec: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
     timeoutStartSec: Schema.optional(
       Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))

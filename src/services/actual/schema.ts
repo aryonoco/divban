@@ -10,6 +10,7 @@
  */
 
 import { Schema } from "effect";
+import { LOG_LEVEL_VALUES } from "../../config/field-values";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
 import type { SqliteStopBackupConfig } from "../../lib/db-backup";
 import { isValidIP } from "../../lib/schema-utils";
@@ -28,32 +29,25 @@ import {
 
 export interface ActualConfig {
   readonly divbanConfigSchemaVersion: DivbanConfigSchemaVersion;
-  /** Path configuration */
   readonly paths: {
-    /** Directory for Actual data (database, user files) */
     readonly dataDir: AbsolutePath;
   };
-  /** Container configuration */
   readonly container?:
     | {
-        /** Container image */
         readonly image: ContainerImage;
-        /** Auto-update policy */
         readonly autoUpdate?: "registry" | "local" | undefined;
       }
     | undefined;
-  /** Network configuration */
   readonly network?:
     | {
-        /** Host port to bind (default: 5006) */
+        /** Defaults to 5006. */
         readonly port: number;
-        /** Host IP to bind (default: 127.0.0.1 for security) */
+        /** Defaults to 127.0.0.1 to prevent external exposure. */
         readonly host: string;
       }
     | undefined;
-  /** Logging level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
-  /** Backup configuration - SQLite with container stop (requires --force) */
+  /** Stops container during backup for SQLite consistency. Use --force to skip confirmation. */
   readonly backup: SqliteStopBackupConfig;
 }
 
@@ -146,7 +140,7 @@ export const actualConfigSchema: Schema.Schema<ActualConfig, ActualConfigInput> 
       ),
     })
   ),
-  logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
+  logLevel: Schema.optionalWith(Schema.Literal(...LOG_LEVEL_VALUES), {
     default: (): "info" => "info",
   }),
   backup: Schema.optionalWith(actualBackupConfigSchema, { default: defaultBackupConfig }),
