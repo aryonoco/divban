@@ -191,8 +191,8 @@ Comments should look like they are written by a senior software engineer, not by
 
 --- 
 
-Read the plan file 
- ~/.claude/plans/polished-honking-panda.md
+Read the plan file which was last modified in 
+ ~/.claude/plans/
 in full
 
 Launch a number of background async agents to determine the exact implementation of the current codebase especially around what the plan file mentions 

@@ -21,7 +21,6 @@ import type { SemVer } from "./types";
  * Result of checking a version against a supported list.
  * Parameterized over V to preserve type information in pattern matching.
  *
- * This is analogous to Haskell's: data VersionCheck v = Supported | Unsupported v
  */
 export type VersionCheckResult<V extends SemVer> = Data.TaggedEnum<{
   versionSupported: object;

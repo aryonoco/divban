@@ -7,7 +7,7 @@
 
 /**
  * Branded types and smart constructors for semver versions.
- * Following Haskell-style "parse, don't validate" pattern.
+ * "parse, don't validate" pattern.
  */
 
 import { type Brand, Option, Order, pipe } from "effect";
@@ -176,7 +176,6 @@ type SemVerLiteral = `${number}.${number}.${number}`;
  * USAGE: schemaVersion("1.0.0") - literal only, no variables
  *
  * The template literal type provides compile-time validation.
- * This is analogous to Haskell's compile-time literal promotion.
  */
 export const schemaVersion = <const S extends SemVerLiteral>(
   literal: S
