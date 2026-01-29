@@ -6,13 +6,19 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Command execution with Effect error handling and sudo user switching.
- * Uses Bun.spawn for simple commands, Bun Shell ($) for piping/redirection.
- * XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS are preserved for systemd.
+ * Command execution with two strategies:
+ * - exec*: Structured argument arrays via @effect/platform Command API
+ * - shell*: Template strings via Bun Shell for piping/redirection
+ *
+ * XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS preservation is critical for
+ * systemd integration: user services need these to communicate with the
+ * session bus and access runtime directories in rootless Podman setups.
  */
 
+import { Command } from "@effect/platform";
+import { BunContext } from "@effect/platform-bun";
 import { $ } from "bun";
-import { Effect, Option, ParseResult, Schema, pipe } from "effect";
+import { Effect, Option, ParseResult, Schema, Stream, pipe } from "effect";
 import { ConfigError, ErrorCode, GeneralError, SystemError, errorMessage } from "../lib/errors";
 import type { UserId, Username } from "../lib/types";
 
@@ -33,9 +39,11 @@ export interface ExecResult {
   stderr: string;
 }
 
-/**
- * Helper to create a SystemError for exec failures.
- */
+/** Internalizes BunContext.layer so callers don't need R type parameter. */
+const withExecutor = <A, E>(
+  effect: Effect.Effect<A, E, BunContext.BunContext>
+): Effect.Effect<A, E> => effect.pipe(Effect.provide(BunContext.layer));
+
 const execError = (command: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.EXEC_FAILED,
@@ -43,13 +51,12 @@ const execError = (command: string, e: unknown): SystemError =>
     ...(e instanceof Error ? { cause: e } : {}),
   });
 
-/** Validated command with guaranteed first element */
+/** Non-empty guarantee prevents index errors on destructuring. */
 interface ValidatedCommand {
   readonly cmd: string;
   readonly args: readonly string[];
 }
 
-/** Validate command array and extract cmd + args */
 const validateCommand = (
   command: readonly string[]
 ): Effect.Effect<ValidatedCommand, GeneralError> =>
@@ -66,9 +73,13 @@ const validateCommand = (
     Effect.map(([cmd, ...args]): ValidatedCommand => ({ cmd, args }))
   );
 
-/**
- * Execute a command and return the result.
- */
+const streamToString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
+  pipe(
+    stream,
+    Stream.decodeText("utf-8"),
+    Stream.runFold("", (acc, s) => acc + s)
+  );
+
 export const exec = (
   command: readonly string[],
   options: ExecOptions = {}
@@ -93,39 +104,40 @@ export const exec = (
         ]
       : [cmd, ...args];
 
-    return yield* Effect.tryPromise({
-      try: async (): Promise<ExecResult> => {
-        const spawnOptions: Parameters<typeof Bun.spawn>[1] = {
-          env,
-          stdout: options.captureStdout !== false ? "pipe" : "inherit",
-          stderr: options.captureStderr !== false ? "pipe" : "inherit",
-          stdin: options.stdin ? new Response(options.stdin).body : undefined,
-          ...(options.cwd !== undefined && { cwd: options.cwd }),
-          ...(options.timeout !== undefined && { timeout: options.timeout }),
-          ...(options.signal !== undefined && { signal: options.signal }),
-        };
+    const commandStr = finalCommand.join(" ");
 
-        const proc = Bun.spawn([...finalCommand], spawnOptions);
-        const exitCode = await proc.exited;
+    return yield* withExecutor(
+      Effect.gen(function* () {
+        // finalCommand is guaranteed non-empty by validateCommand
+        const firstCmd = finalCommand[0] ?? "";
+        const restArgs = finalCommand.slice(1);
+        const baseCommand = Command.make(firstCmd, ...restArgs);
 
-        const stdout =
-          options.captureStdout !== false && proc.stdout
-            ? await Bun.readableStreamToText(proc.stdout as ReadableStream)
-            : "";
-        const stderr =
-          options.captureStderr !== false && proc.stderr
-            ? await Bun.readableStreamToText(proc.stderr as ReadableStream)
-            : "";
+        const configuredCommand = pipe(
+          baseCommand,
+          (c) => Command.env(c, env),
+          (c) => (options.cwd !== undefined ? Command.workingDirectory(c, options.cwd) : c),
+          (c) => (options.stdin !== undefined ? Command.feed(c, options.stdin) : c)
+        );
+
+        const process = yield* Command.start(configuredCommand);
+
+        // Parallel capture: exitCode + both streams ready independently
+        const [exitCode, stdout, stderr] = yield* Effect.all(
+          [
+            process.exitCode,
+            options.captureStdout !== false ? streamToString(process.stdout) : Effect.succeed(""),
+            options.captureStderr !== false ? streamToString(process.stderr) : Effect.succeed(""),
+          ],
+          { concurrency: 3 }
+        );
 
         return { exitCode, stdout, stderr };
-      },
-      catch: (e): SystemError => execError(finalCommand.join(" "), e),
-    });
+      }).pipe(Effect.scoped)
+    ).pipe(Effect.mapError((e) => execError(commandStr, e)));
   });
 
-/**
- * Execute a command and check for success (exit code 0).
- */
+/** Fails if exit code is non-zero. Use exec() when exit code matters but isn't fatal. */
 export const execSuccess = (
   command: readonly string[],
   options: ExecOptions = {}
@@ -144,22 +156,29 @@ export const execSuccess = (
     )
   );
 
-/**
- * Execute a command and return stdout on success.
- */
 export const execOutput = (
   command: readonly string[],
   options: ExecOptions = {}
 ): Effect.Effect<string, SystemError | GeneralError> =>
   Effect.map(execSuccess(command, { ...options, captureStdout: true }), (r) => r.stdout);
 
-/**
- * Check if a command exists in PATH.
- */
+export const execLines = (
+  command: readonly string[],
+  options: ExecOptions = {}
+): Effect.Effect<readonly string[], SystemError | GeneralError> =>
+  Effect.map(execOutput(command, options), (stdout) =>
+    stdout
+      .split("\n")
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0)
+  );
+
 export const commandExists = (command: string): boolean => Bun.which(command) !== null;
 
 /**
- * Run command as a specific user with proper environment.
+ * Execute as service user with systemd session environment.
+ * Sets XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS for the target UID,
+ * enabling systemctl --user and socket activation in rootless containers.
  */
 export const execAsUser = (
   user: Username,
@@ -178,6 +197,12 @@ export const execAsUser = (
     },
   });
 
+// ============================================================================
+// Shell Operations (Bun Shell)
+// ============================================================================
+// Kept for piping/redirection: "cat file | grep pattern" syntax.
+// exec* functions don't support shell features; use shell* when needed.
+
 export interface ShellOptions {
   cwd?: string;
   env?: Record<string, string>;
@@ -195,7 +220,7 @@ const buildShellEnv = (options: ShellOptions): Record<string, string | undefined
     : {}),
 });
 
-/** Build shell command with nothrow for shell() */
+/** nothrow: capture exit code instead of throwing on non-zero. */
 const buildShellCommandNothrow = (command: string, options: ShellOptions): ReturnType<typeof $> =>
   pipe(
     $`${{ raw: command }}`.nothrow().quiet(),
@@ -210,9 +235,6 @@ const buildShellCommandNothrow = (command: string, options: ShellOptions): Retur
     (cmd) => cmd.env(buildShellEnv(options))
   );
 
-/**
- * Execute a shell command with piping support using Bun Shell.
- */
 export const shell = (
   command: string,
   options: ShellOptions = {}
@@ -229,9 +251,6 @@ export const shell = (
     catch: (e): SystemError => execError(command, e),
   });
 
-/**
- * Execute a shell command and return stdout as text.
- */
 export const shellText = (
   command: string,
   options: ShellOptions = {}
@@ -241,9 +260,6 @@ export const shellText = (
     catch: (e): SystemError => execError(command, e),
   });
 
-/**
- * Execute a shell command and return stdout as lines.
- */
 export const shellLines = (
   command: string,
   options: ShellOptions = {}
@@ -254,19 +270,11 @@ export const shellLines = (
     catch: (e): SystemError => execError(command, e),
   });
 
-/**
- * Escape a string for safe use in shell commands.
- */
 export const shellEscape = (input: string): string => $.escape(input);
 
-/**
- * Expand brace expressions in a string.
- */
 export const shellBraces = (pattern: string): string[] => $.braces(pattern);
 
-/**
- * Execute shell command as another user via sudo.
- */
+/** Shell equivalent of execAsUser. Wraps command in sudo with session environment. */
 export const shellAsUser = (
   user: Username,
   uid: UserId,
@@ -284,9 +292,6 @@ export const shellAsUser = (
   );
 };
 
-/**
- * Build shell command with options applied via Option.match (no conditionals).
- */
 const buildShellCommand = (command: string, options: ShellOptions): ReturnType<typeof $> =>
   pipe(
     $`${{ raw: command }}`.quiet(),
@@ -302,16 +307,9 @@ const buildShellCommand = (command: string, options: ShellOptions): ReturnType<t
   );
 
 /**
- * Execute shell command and parse stdout as validated JSON.
- *
- * The `unknown` type appears only at the parse boundary - the raw JSON
- * from the external command. Schema validation immediately converts to
- * the concrete type A.
- *
- * @param command - Shell command to execute
- * @param schema - Effect Schema for validation (A = output type, I = encoded type)
- * @param options - Shell execution options
- * @returns Effect producing validated A or SystemError/ConfigError
+ * Parse command output as JSON with Schema validation.
+ * The unknown type at json() boundary is immediately validated to A.
+ * Failures: SystemError (exec), ConfigError (parse/validation).
  */
 export const shellJson = <A, I>(
   command: string,
@@ -339,9 +337,6 @@ export const shellJson = <A, I>(
     )
   );
 
-/**
- * Execute a shell command and return stdout as a Blob.
- */
 export const shellBlob = (
   command: string,
   options: ShellOptions = {}

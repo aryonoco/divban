@@ -6,21 +6,30 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Filesystem operations wrapped in Effect for typed error handling.
- * Atomic writes use temp file + rename to prevent partial writes on failure.
- * File existence checks are non-throwing; reads return SystemError on failure.
+ * Filesystem operations using @effect/platform FileSystem internally.
+ *
+ * Atomic writes (temp file + rename) prevent partial content if process crashes.
+ * Use atomicWrite for config files that services actively read.
+ *
+ * Idempotent operations (deleteFile, ensureDirectory) support rollback patterns
+ * where the same cleanup may run multiple times on partial failure.
+ *
+ * Bun-specific: glob, hash, FileSink have no Effect equivalents.
  */
 
 import { watch } from "node:fs";
-import { mkdir, writeFile as nodeWriteFile, rename, rm } from "node:fs/promises";
+import { FileSystem } from "@effect/platform";
+import { BunFileSystem } from "@effect/platform-bun";
+import type { PlatformError } from "@effect/platform/Error";
 import { type FileSink, Glob } from "bun";
 import { Effect, Option, pipe } from "effect";
 import { ErrorCode, SystemError, errorMessage } from "../lib/errors";
 import { type AbsolutePath, pathWithSuffix } from "../lib/types";
 
-/**
- * Helper to create a SystemError for file read failures.
- */
+/** Internalizes BunFileSystem.layer so callers don't need R type parameter. */
+const withFS = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>): Effect.Effect<A, E> =>
+  effect.pipe(Effect.provide(BunFileSystem.layer));
+
 const fileReadError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.FILE_READ_FAILED,
@@ -28,9 +37,6 @@ const fileReadError = (path: string, e: unknown): SystemError =>
     ...(e instanceof Error ? { cause: e } : {}),
   });
 
-/**
- * Helper to create a SystemError for file write failures.
- */
 const fileWriteError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.FILE_WRITE_FAILED,
@@ -38,9 +44,6 @@ const fileWriteError = (path: string, e: unknown): SystemError =>
     ...(e instanceof Error ? { cause: e } : {}),
   });
 
-/**
- * Helper to create a SystemError for directory creation failures.
- */
 const directoryError = (path: string, e: unknown): SystemError =>
   new SystemError({
     code: ErrorCode.DIRECTORY_CREATE_FAILED,
@@ -48,129 +51,80 @@ const directoryError = (path: string, e: unknown): SystemError =>
     ...(e instanceof Error ? { cause: e } : {}),
   });
 
-/**
- * Read file contents as text.
- */
+// ============================================================================
+// Read Operations
+// ============================================================================
+
 export const readFile = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(path);
-    yield* pipe(
-      Effect.tryPromise({
-        try: (): Promise<boolean> => file.exists(),
-        catch: (e): SystemError => fileReadError(path, e),
-      }),
-      Effect.filterOrFail(
-        (exists): exists is true => exists === true,
-        () =>
-          new SystemError({
-            code: ErrorCode.FILE_READ_FAILED,
-            message: `File not found: ${path}`,
-          })
-      )
-    );
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return yield* fs.readFileString(path);
+    })
+  ).pipe(Effect.mapError((e) => fileReadError(path, e)));
 
-    return yield* Effect.tryPromise({
-      try: (): Promise<string> => file.text(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-  });
-
-/**
- * Read file contents as lines.
- */
 export const readLines = (path: AbsolutePath): Effect.Effect<string[], SystemError> =>
   Effect.map(readFile(path), (content) => content.split("\n").map((line) => line.trimEnd()));
 
-/**
- * Read file contents as bytes (Uint8Array).
- */
 export const readBytes = (path: AbsolutePath): Effect.Effect<Uint8Array, SystemError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(path);
-    yield* pipe(
-      Effect.tryPromise({
-        try: (): Promise<boolean> => file.exists(),
-        catch: (e): SystemError => fileReadError(path, e),
-      }),
-      Effect.filterOrFail(
-        (exists): exists is true => exists === true,
-        () =>
-          new SystemError({
-            code: ErrorCode.FILE_READ_FAILED,
-            message: `File not found: ${path}`,
-          })
-      )
-    );
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return yield* fs.readFile(path);
+    })
+  ).pipe(Effect.mapError((e) => fileReadError(path, e)));
 
-    return yield* Effect.tryPromise({
-      try: (): Promise<Uint8Array> => file.bytes(),
-      catch: (e): SystemError => fileReadError(path, e),
-    });
-  });
+/** Use for optional config files where missing is equivalent to empty. */
+export const readFileOrEmpty = (path: AbsolutePath): Effect.Effect<string, never> =>
+  Effect.catchAll(readFile(path), () => Effect.succeed(""));
 
-/**
- * Write binary content to a file.
- */
+// ============================================================================
+// Write Operations
+// ============================================================================
+
+export const writeFile = (path: AbsolutePath, content: string): Effect.Effect<void, SystemError> =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(path, content);
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
+
 export const writeBytes = (
   path: AbsolutePath,
   data: Uint8Array
 ): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<void> => {
-      await Bun.write(path, data);
-    },
-    catch: (e): SystemError => fileWriteError(path, e),
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFile(path, data);
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
 
-/**
- * Write content to a file.
- */
-export const writeFile = (path: AbsolutePath, content: string): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<void> => {
-      await Bun.write(path, content);
-    },
-    catch: (e): SystemError => fileWriteError(path, e),
-  });
-
-/**
- * Create a file exclusively - fails if file already exists.
- * Uses O_CREAT | O_EXCL via 'wx' flag for atomic check-and-create.
- * Returns Some(void) if created, None if file existed.
- */
+/** Returns Some if created, None if file existed. For setup idempotency. */
 export const writeFileExclusive = (
   path: AbsolutePath,
   content: string
 ): Effect.Effect<Option.Option<void>, SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<Option.Option<void>> => {
-      await nodeWriteFile(path, content, { flag: "wx", encoding: "utf8" });
-      return Option.some(undefined);
-    },
-    catch: (e): SystemError | null => {
-      if ((e as NodeJS.ErrnoException).code === "EEXIST") {
-        // Return success with None - file already exists is not an error
-        return null; // Sentinel value to indicate existing file
-      }
-      return fileWriteError(path, e);
-    },
-  }).pipe(
-    Effect.flatMap((result) =>
-      result === null
-        ? Effect.succeed(Option.none())
-        : Effect.succeed(result as Option.Option<void>)
-    ),
-    Effect.catchAll((e) => {
-      if (e === null) {
-        return Effect.succeed(Option.none());
-      }
-      return Effect.fail(e as SystemError);
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const exists = yield* fs.exists(path);
+      const none: Effect.Effect<Option.Option<void>, PlatformError> = Effect.succeed(
+        Option.none<void>()
+      );
+      const write: Effect.Effect<Option.Option<void>, PlatformError> = pipe(
+        fs.writeFileString(path, content),
+        Effect.as(Option.some<void>(undefined))
+      );
+      return yield* Effect.if(exists, {
+        onTrue: (): Effect.Effect<Option.Option<void>, PlatformError> => none,
+        onFalse: (): Effect.Effect<Option.Option<void>, PlatformError> => write,
+      });
     })
-  );
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
 
-/**
- * Create a file writer for incremental writes.
- */
+/** Bun.FileSink for streaming writes. No Effect equivalent. */
 export interface FileWriter {
   writer: FileSink;
   close: () => number | Promise<number>;
@@ -185,77 +139,90 @@ export const createFileWriter = (path: AbsolutePath): FileWriter => {
   };
 };
 
-/**
- * Append content to a file.
- */
 export const appendFile = (path: AbsolutePath, content: string): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<void> => {
-      const file = Bun.file(path);
-      const writer = file.writer();
-      writer.write(content);
-      await writer.end();
-    },
-    catch: (e): SystemError => fileWriteError(path, e),
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const existing = yield* Effect.catchAll(fs.readFileString(path), () => Effect.succeed(""));
+      yield* fs.writeFileString(path, existing + content);
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
 
 /**
- * Check if a file exists.
+ * Temp file + rename is atomic at filesystem level. Prevents partial writes
+ * if process crashes mid-write. Use for config files services actively read.
  */
+export const atomicWrite = (
+  filePath: AbsolutePath,
+  content: string
+): Effect.Effect<void, SystemError> =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const tempPath = pathWithSuffix(
+        filePath,
+        `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
+      );
+
+      yield* fs.writeFileString(tempPath, content);
+      yield* fs.rename(tempPath, filePath);
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(filePath, e)));
+
+// ============================================================================
+// File Operations
+// ============================================================================
+
 export const fileExists = (path: AbsolutePath): Effect.Effect<boolean, never> =>
-  Effect.promise(() => Bun.file(path).exists());
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return yield* fs.exists(path);
+    })
+  ).pipe(Effect.catchAll(() => Effect.succeed(false)));
 
-/**
- * Check if a path is a directory.
- */
 export const isDirectory = (path: string): Effect.Effect<boolean, never> =>
-  Effect.promise(async () => {
-    try {
-      const s = await Bun.file(path).stat();
-      return s?.isDirectory() ?? false;
-    } catch {
-      return false;
-    }
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const exists = yield* fs.exists(path);
+      const checkStat: Effect.Effect<boolean, PlatformError> = pipe(
+        fs.stat(path),
+        Effect.map((stat) => stat.type === "Directory"),
+        Effect.catchAll(() => Effect.succeed(false))
+      );
+      const returnFalse: Effect.Effect<boolean, PlatformError> = Effect.succeed(false);
+      return yield* Effect.if(exists, {
+        onTrue: (): Effect.Effect<boolean, PlatformError> => checkStat,
+        onFalse: (): Effect.Effect<boolean, PlatformError> => returnFalse,
+      });
+    })
+  ).pipe(Effect.catchAll(() => Effect.succeed(false)));
 
-/**
- * Copy a file using kernel-level operations.
- */
+export const directoryExists = (path: AbsolutePath): Effect.Effect<boolean, never> =>
+  isDirectory(path);
+
 export const copyFile = (
   source: AbsolutePath,
   dest: AbsolutePath
 ): Effect.Effect<void, SystemError> =>
-  Effect.gen(function* () {
-    const sourceFile = Bun.file(source);
-    yield* pipe(
-      Effect.tryPromise({
-        try: (): Promise<boolean> => sourceFile.exists(),
-        catch: (e): SystemError => fileReadError(source, e),
-      }),
-      Effect.filterOrFail(
-        (exists): exists is true => exists === true,
-        () =>
-          new SystemError({
-            code: ErrorCode.FILE_READ_FAILED,
-            message: `Source file not found: ${source}`,
-          })
-      )
-    );
-
-    yield* Effect.tryPromise({
-      try: (): Promise<number> => Bun.write(dest, sourceFile),
-      catch: (e): SystemError =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.copy(source, dest);
+    })
+  ).pipe(
+    Effect.mapError(
+      (e) =>
         new SystemError({
           code: ErrorCode.FILE_WRITE_FAILED,
           message: `Failed to copy file from ${source} to ${dest}: ${errorMessage(e)}`,
           ...(e instanceof Error ? { cause: e } : {}),
-        }),
-    });
-  });
+        })
+    )
+  );
 
-/**
- * Create a backup of a file (adds .bak extension).
- */
+/** Creates .bak alongside original. Pair with copyFile for rollback on failure. */
 export const backupFile = (filePath: AbsolutePath): Effect.Effect<AbsolutePath, SystemError> =>
   Effect.gen(function* () {
     const backupPath = pathWithSuffix(filePath, ".bak");
@@ -263,49 +230,26 @@ export const backupFile = (filePath: AbsolutePath): Effect.Effect<AbsolutePath, 
     return backupPath;
   });
 
-/**
- * Read file if it exists, return empty string otherwise.
- */
-export const readFileOrEmpty = (path: AbsolutePath): Effect.Effect<string, never> =>
-  Effect.catchAll(readFile(path), () => Effect.succeed(""));
-
-/**
- * Atomically write a file by writing to a temp file first.
- */
-export const atomicWrite = (
-  filePath: AbsolutePath,
-  content: string
-): Effect.Effect<void, SystemError> =>
-  Effect.gen(function* () {
-    const tempPath = pathWithSuffix(
-      filePath,
-      `.tmp.${Bun.nanoseconds()}.${Math.random().toString(36).slice(2, 8)}`
-    );
-
-    yield* writeFile(tempPath, content);
-    yield* renameFile(tempPath, filePath);
-  });
-
-/**
- * Atomically rename a file.
- */
 export const renameFile = (
   source: AbsolutePath,
   dest: AbsolutePath
 ): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: (): Promise<void> => rename(source, dest),
-    catch: (e): SystemError =>
-      new SystemError({
-        code: ErrorCode.FILE_WRITE_FAILED,
-        message: `Failed to rename ${source} to ${dest}: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
-      }),
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.rename(source, dest);
+    })
+  ).pipe(
+    Effect.mapError(
+      (e) =>
+        new SystemError({
+          code: ErrorCode.FILE_WRITE_FAILED,
+          message: `Failed to rename ${source} to ${dest}: ${errorMessage(e)}`,
+          ...(e instanceof Error ? { cause: e } : {}),
+        })
+    )
+  );
 
-/**
- * Compare two files for equality.
- */
 export const filesEqual = (
   path1: AbsolutePath,
   path2: AbsolutePath
@@ -315,68 +259,111 @@ export const filesEqual = (
     return content1 === content2;
   });
 
-/**
- * Get file size in bytes.
- */
 export const getFileSize = (path: AbsolutePath): Effect.Effect<number, SystemError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(path);
-    yield* pipe(
-      Effect.tryPromise({
-        try: (): Promise<boolean> => file.exists(),
-        catch: (e): SystemError => fileReadError(path, e),
-      }),
-      Effect.filterOrFail(
-        (exists): exists is true => exists === true,
-        () =>
-          new SystemError({
-            code: ErrorCode.FILE_READ_FAILED,
-            message: `File not found: ${path}`,
-          })
-      )
-    );
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stat = yield* fs.stat(path);
+      return Number(stat.size);
+    })
+  ).pipe(Effect.mapError((e) => fileReadError(path, e)));
 
-    return file.size;
-  });
+/** Idempotent: succeeds whether file existed or not. Safe for rollback cleanup. */
+export const deleteFile = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const exists = yield* fs.exists(path);
 
-/**
- * Check if a directory exists.
- */
-export const directoryExists = (path: AbsolutePath): Effect.Effect<boolean, never> =>
-  Effect.promise(async () => {
-    try {
-      const file = Bun.file(path);
-      const s = await file.stat();
-      return s?.isDirectory() ?? false;
-    } catch {
-      return false;
-    }
-  });
+      const removeEffect: Effect.Effect<void, PlatformError> = fs.remove(path);
+      const voidEffect: Effect.Effect<void, PlatformError> = Effect.void;
+      yield* Effect.if(exists, {
+        onTrue: (): Effect.Effect<void, PlatformError> => removeEffect,
+        onFalse: (): Effect.Effect<void, PlatformError> => voidEffect,
+      });
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
 
-/**
- * Ensure a directory exists (mkdir -p equivalent).
- */
+/** Returns true if deleted, false if already absent. For conditional cleanup. */
+export const deleteFileIfExists = (path: AbsolutePath): Effect.Effect<boolean, SystemError> =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const exists = yield* fs.exists(path);
+
+      const removeAndReturnTrue: Effect.Effect<boolean, PlatformError> = pipe(
+        fs.remove(path),
+        Effect.as(true)
+      );
+      const returnFalse: Effect.Effect<boolean, PlatformError> = Effect.succeed(false);
+      return yield* Effect.if(exists, {
+        onTrue: (): Effect.Effect<boolean, PlatformError> => removeAndReturnTrue,
+        onFalse: (): Effect.Effect<boolean, PlatformError> => returnFalse,
+      });
+    })
+  ).pipe(Effect.mapError((e) => fileWriteError(path, e)));
+
+// ============================================================================
+// Directory Operations
+// ============================================================================
+
+/** Idempotent: succeeds whether directory exists or was created. */
 export const ensureDirectory = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: (): Promise<void> => mkdir(path, { recursive: true }).then(() => undefined),
-    catch: (e): SystemError => directoryError(path, e),
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.makeDirectory(path, { recursive: true });
+    })
+  ).pipe(Effect.mapError((e) => directoryError(path, e)));
 
-/**
- * List files in a directory.
- */
 export const listDirectory = (path: AbsolutePath): Effect.Effect<readonly string[], SystemError> =>
-  Effect.tryPromise({
-    try: async (): Promise<readonly string[]> => {
-      const glob = new Glob("*");
-      return await Array.fromAsync(glob.scan({ cwd: path, onlyFiles: false }));
-    },
-    catch: (e): SystemError => fileReadError(path, e),
-  });
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return yield* fs.readDirectory(path);
+    })
+  ).pipe(Effect.mapError((e) => fileReadError(path, e)));
 
-/**
- * Find files matching a glob pattern.
- */
+export const deleteDirectory = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
+  withFS(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.remove(path, { recursive: true });
+    })
+  ).pipe(
+    Effect.mapError(
+      (e) =>
+        new SystemError({
+          code: ErrorCode.DIRECTORY_CREATE_FAILED,
+          message: `Failed to delete directory: ${path}: ${errorMessage(e)}`,
+          ...(e instanceof Error ? { cause: e } : {}),
+        })
+    )
+  );
+
+// ============================================================================
+// Watch Operations
+// ============================================================================
+// Uses Node.js fs.watch for synchronous cleanup without Effect resource overhead.
+// Returns cleanup function instead of Effect.scoped for simpler call-site usage.
+
+export const watchFile = (
+  path: AbsolutePath,
+  callback: (eventType: string) => void
+): (() => void) => {
+  const watcher = watch(path, (eventType: string) => {
+    callback(eventType);
+  });
+  return (): void => {
+    watcher.close();
+  };
+};
+
+// ============================================================================
+// Glob Operations (Bun-specific)
+// ============================================================================
+
+/** Patterns relative to cwd. onlyFiles=true excludes directories. */
 export const globFiles = (
   pattern: string,
   options: { readonly cwd?: string; readonly onlyFiles?: boolean } = {}
@@ -391,125 +378,36 @@ export const globFiles = (
     );
   });
 
-/**
- * Check if a path matches a glob pattern.
- */
 export const globMatch = (pattern: string, path: string): boolean => {
   const glob = new Glob(pattern);
   return glob.match(path);
 };
 
-/**
- * Delete a file.
- * Returns success if file was deleted or didn't exist.
- */
-export const deleteFile = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(path);
-    const exists = yield* Effect.promise(() => file.exists());
+// ============================================================================
+// Hash Operations (Bun-specific)
+// ============================================================================
+// Fast hashing (Bun.hash): cache invalidation, change detection.
+// Cryptographic hashing (CryptoHasher): integrity verification, signatures.
 
-    yield* Effect.if(exists, {
-      onTrue: (): Effect.Effect<void, SystemError> =>
-        Effect.tryPromise({
-          try: (): Promise<void> => file.delete(),
-          catch: (e): SystemError => fileWriteError(path, e),
-        }),
-      onFalse: (): Effect.Effect<void, SystemError> => Effect.void,
-    });
-  });
-
-/**
- * Delete a file only if it exists.
- * Returns true if file was deleted, false if it didn't exist.
- */
-export const deleteFileIfExists = (path: AbsolutePath): Effect.Effect<boolean, SystemError> =>
-  Effect.gen(function* () {
-    const file = Bun.file(path);
-    const exists = yield* Effect.promise(() => file.exists());
-
-    return yield* Effect.if(exists, {
-      onTrue: (): Effect.Effect<boolean, SystemError> =>
-        pipe(
-          Effect.tryPromise({
-            try: (): Promise<void> => file.delete(),
-            catch: (e): SystemError => fileWriteError(path, e),
-          }),
-          Effect.as(true)
-        ),
-      onFalse: (): Effect.Effect<boolean, SystemError> => Effect.succeed(false),
-    });
-  });
-
-/**
- * Delete a directory recursively.
- */
-export const deleteDirectory = (path: AbsolutePath): Effect.Effect<void, SystemError> =>
-  Effect.tryPromise({
-    try: (): Promise<void> => rm(path, { recursive: true, force: true }),
-    catch: (e): SystemError =>
-      new SystemError({
-        code: ErrorCode.DIRECTORY_CREATE_FAILED,
-        message: `Failed to delete directory: ${path}: ${errorMessage(e)}`,
-        ...(e instanceof Error ? { cause: e } : {}),
-      }),
-  });
-
-/**
- * Hash file contents using Bun.hash() for fast non-cryptographic hashing.
- */
+/** Fast non-cryptographic hash for cache keys and change detection. */
 export const hashFile = (path: AbsolutePath): Effect.Effect<number | bigint, SystemError> =>
   Effect.map(readFile(path), Bun.hash);
 
-/**
- * Hash content using Bun.hash() for fast non-cryptographic hashing.
- */
+/** Fast non-cryptographic hash for cache keys and change detection. */
 export const hashContent = (content: string | Uint8Array): number | bigint => Bun.hash(content);
 
-/**
- * Compute SHA-256 hash of a file.
- */
+/** Cryptographic hash for integrity verification. */
 export const sha256File = (path: AbsolutePath): Effect.Effect<string, SystemError> =>
   Effect.gen(function* () {
-    const file = Bun.file(path);
-    yield* pipe(
-      Effect.tryPromise({
-        try: (): Promise<boolean> => file.exists(),
-        catch: (e): SystemError => fileReadError(path, e),
-      }),
-      Effect.filterOrFail(
-        (exists): exists is true => exists === true,
-        () =>
-          new SystemError({
-            code: ErrorCode.FILE_READ_FAILED,
-            message: `File not found: ${path}`,
-          })
-      )
-    );
-
-    return yield* Effect.tryPromise({
-      try: async (): Promise<string> => {
-        const hasher = new Bun.CryptoHasher("sha256");
-        hasher.update(await file.arrayBuffer());
-        return hasher.digest("hex");
-      },
-      catch: (e): SystemError => fileReadError(path, e),
-    });
+    const bytes = yield* readBytes(path);
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(bytes);
+    return hasher.digest("hex");
   });
 
-/**
- * Deep equality comparison using Bun.deepEquals.
- */
-export const objectsEqual = <T>(a: T, b: NoInfer<T>, strict = false): boolean =>
-  Bun.deepEquals(a, b, strict);
-
-/**
- * Supported hash algorithms for hashContentWith.
- */
 export type HashAlgorithm = "sha256" | "sha512" | "sha1" | "md5" | "blake2b256" | "blake2b512";
 
-/**
- * Hash content with a specified algorithm.
- */
+/** Cryptographic hash with algorithm choice for integrity verification. */
 export const hashContentWith = (
   content: string | Uint8Array | ArrayBuffer,
   algorithm: HashAlgorithm,
@@ -520,19 +418,9 @@ export const hashContentWith = (
   return hasher.digest(encoding);
 };
 
-/**
- * Watch a file for changes.
- * Returns a cleanup function to stop watching.
- */
-export const watchFile = (
-  path: AbsolutePath,
-  callback: (eventType: string) => void
-): (() => void) => {
-  const watcher = watch(path, (eventType: string) => {
-    callback(eventType);
-  });
-  const cleanup = (): void => {
-    watcher.close();
-  };
-  return cleanup;
-};
+// ============================================================================
+// Utility Operations (Bun-specific)
+// ============================================================================
+
+export const objectsEqual = <T>(a: T, b: NoInfer<T>, strict = false): boolean =>
+  Bun.deepEquals(a, b, strict);

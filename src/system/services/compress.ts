@@ -6,51 +6,69 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 /**
- * Compress service using Context.Tag pattern.
- * Wraps all functions from src/system/compress.ts for dependency injection.
- * Works with isolatedDeclarations: true.
+ * Compression service for Effect dependency injection.
+ *
+ * Wraps primitives from ../compress.ts for testable, mockable compression.
+ * Use this service in Effect.gen chains where DI is needed. For one-off
+ * compression outside Effect context, import ../compress.ts directly.
  */
 
 import { Context, Layer } from "effect";
 import {
   compressFile,
+  compressFileEffect,
   compressFileZstd,
+  compressFileZstdEffect,
   compressionRatio,
   decompressFile,
+  decompressFileEffect,
   decompressFileZstd,
+  decompressFileZstdEffect,
+  deflateEffect,
   deflateSync,
+  gunzipEffect,
   gunzipString,
+  gunzipStringEffect,
   gunzipSync,
+  gzipEffect,
   gzipString,
+  gzipStringEffect,
   gzipSync,
+  inflateEffect,
   inflateSync,
   spaceSavings,
   zstdCompress,
+  zstdCompressEffect,
   zstdCompressString,
+  zstdCompressStringEffect,
   zstdCompressSync,
   zstdDecompress,
+  zstdDecompressEffect,
   zstdDecompressString,
+  zstdDecompressStringEffect,
   zstdDecompressSync,
 } from "../compress";
 
-/**
- * Compress service interface - provides compression utilities via Effect DI.
- * Uses Bun's native compression APIs (gzip, deflate, zstd).
- */
 export interface CompressService {
-  // Gzip
+  // Gzip/Deflate: wide compatibility, use for external tool interop
   readonly gzipSync: typeof gzipSync;
   readonly gunzipSync: typeof gunzipSync;
   readonly gzipString: typeof gzipString;
   readonly gunzipString: typeof gunzipString;
   readonly compressFile: typeof compressFile;
   readonly decompressFile: typeof decompressFile;
-
-  // Deflate
+  readonly gzipEffect: typeof gzipEffect;
+  readonly gunzipEffect: typeof gunzipEffect;
+  readonly gzipStringEffect: typeof gzipStringEffect;
+  readonly gunzipStringEffect: typeof gunzipStringEffect;
+  readonly compressFileEffect: typeof compressFileEffect;
+  readonly decompressFileEffect: typeof decompressFileEffect;
   readonly deflateSync: typeof deflateSync;
   readonly inflateSync: typeof inflateSync;
+  readonly deflateEffect: typeof deflateEffect;
+  readonly inflateEffect: typeof inflateEffect;
 
-  // Zstd
+  // Zstd: better ratio and speed, preferred for backups
   readonly zstdCompressSync: typeof zstdCompressSync;
   readonly zstdDecompressSync: typeof zstdDecompressSync;
   readonly zstdCompress: typeof zstdCompress;
@@ -59,45 +77,45 @@ export interface CompressService {
   readonly zstdDecompressString: typeof zstdDecompressString;
   readonly compressFileZstd: typeof compressFileZstd;
   readonly decompressFileZstd: typeof decompressFileZstd;
+  readonly zstdCompressEffect: typeof zstdCompressEffect;
+  readonly zstdDecompressEffect: typeof zstdDecompressEffect;
+  readonly zstdCompressStringEffect: typeof zstdCompressStringEffect;
+  readonly zstdDecompressStringEffect: typeof zstdDecompressStringEffect;
+  readonly compressFileZstdEffect: typeof compressFileZstdEffect;
+  readonly decompressFileZstdEffect: typeof decompressFileZstdEffect;
 
-  // Utilities
   readonly compressionRatio: typeof compressionRatio;
   readonly spaceSavings: typeof spaceSavings;
 }
 
-/**
- * Compress service identifier for Effect dependency injection.
- */
+/** Phantom type for compile-time service distinction. */
 export interface Compress {
   readonly _tag: "Compress";
 }
 
-/**
- * Compress context tag.
- * Use with `yield* Compress` to access the service in Effect generators.
- */
+/** Access via `yield* Compress` in Effect.gen blocks. */
 export const Compress: Context.Tag<Compress, CompressService> = Context.GenericTag<
   Compress,
   CompressService
 >("divban/Compress");
 
-/**
- * Compress live layer with all implementations.
- */
 export const CompressLive: Layer.Layer<Compress> = Layer.succeed(Compress, {
-  // Gzip
   gzipSync,
   gunzipSync,
   gzipString,
   gunzipString,
   compressFile,
   decompressFile,
-
-  // Deflate
+  gzipEffect,
+  gunzipEffect,
+  gzipStringEffect,
+  gunzipStringEffect,
+  compressFileEffect,
+  decompressFileEffect,
   deflateSync,
   inflateSync,
-
-  // Zstd
+  deflateEffect,
+  inflateEffect,
   zstdCompressSync,
   zstdDecompressSync,
   zstdCompress,
@@ -106,8 +124,12 @@ export const CompressLive: Layer.Layer<Compress> = Layer.succeed(Compress, {
   zstdDecompressString,
   compressFileZstd,
   decompressFileZstd,
-
-  // Utilities
+  zstdCompressEffect,
+  zstdDecompressEffect,
+  zstdCompressStringEffect,
+  zstdDecompressStringEffect,
+  compressFileZstdEffect,
+  decompressFileZstdEffect,
   compressionRatio,
   spaceSavings,
 });

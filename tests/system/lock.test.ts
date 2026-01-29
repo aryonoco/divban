@@ -11,6 +11,7 @@ import { Effect, Exit } from "effect";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import { ensureDirectory, writeFile } from "../../src/system/fs.ts";
 import { withLock } from "../../src/system/lock.ts";
+import { runTest, runTestExit } from "../helpers/layers.ts";
 
 const LOCK_DIR = path("/var/lock/divban");
 const TEST_RESOURCE = "test-resource";
@@ -28,7 +29,7 @@ describe("withLock", () => {
       yield* writeFile(testFile, "test");
     });
 
-    const exit = await Effect.runPromiseExit(program);
+    const exit = await runTestExit(program);
     canCreateLockDir = Exit.isSuccess(exit);
 
     // Cleanup test file if created (best effort)
@@ -57,7 +58,7 @@ describe("withLock", () => {
       // Skipping: requires root privileges to create lock directory
       return;
     }
-    const result = await Effect.runPromise(withLock(TEST_RESOURCE, Effect.succeed("success")));
+    const result = await runTest(withLock(TEST_RESOURCE, Effect.succeed("success")));
 
     expect(result).toBe("success");
   });
@@ -67,10 +68,10 @@ describe("withLock", () => {
       // Skipping: requires root privileges to create lock directory
       return;
     }
-    await Effect.runPromise(withLock(TEST_RESOURCE, Effect.succeed(undefined)));
+    await runTest(withLock(TEST_RESOURCE, Effect.succeed(undefined)));
 
     // Should be able to acquire lock again immediately
-    const result = await Effect.runPromise(
+    const result = await runTest(
       withLock(TEST_RESOURCE, Effect.succeed("second"), {
         maxWaitMs: 100,
       })
@@ -85,13 +86,13 @@ describe("withLock", () => {
       return;
     }
     // First operation fails
-    const exit = await Effect.runPromiseExit(
+    const exit = await runTestExit(
       withLock(TEST_RESOURCE, Effect.fail(new Error("Operation failed")))
     );
     expect(Exit.isFailure(exit)).toBe(true);
 
     // Should be able to acquire lock again
-    const secondResult = await Effect.runPromise(
+    const secondResult = await runTest(
       withLock(TEST_RESOURCE, Effect.succeed("recovered"), {
         maxWaitMs: 100,
       })
@@ -107,10 +108,10 @@ describe("withLock", () => {
     }
     // Create a lock file with non-existent PID
     const lockPath = pathJoin(LOCK_DIR, `${TEST_RESOURCE}.lock`);
-    await Effect.runPromise(writeFile(lockPath, "99999999\n0\n")); // Very old timestamp, fake PID
+    await runTest(writeFile(lockPath, "99999999\n0\n")); // Very old timestamp, fake PID
 
     // Should detect stale lock and acquire
-    const result = await Effect.runPromise(
+    const result = await runTest(
       withLock(TEST_RESOURCE, Effect.succeed("acquired"), { maxWaitMs: 500 })
     );
 
@@ -124,9 +125,9 @@ describe("withLock", () => {
     }
     // This test simulates a held lock by creating a file with current process
     const lockPath = pathJoin(LOCK_DIR, "timeout-test.lock");
-    await Effect.runPromise(writeFile(lockPath, `${process.pid}\n${Date.now()}\n`));
+    await runTest(writeFile(lockPath, `${process.pid}\n${Date.now()}\n`));
 
-    const exit = await Effect.runPromiseExit(
+    const exit = await runTestExit(
       withLock("timeout-test", Effect.succeed("should not run"), {
         maxWaitMs: 200,
         retryIntervalMs: 50,
@@ -151,7 +152,7 @@ describe("withLock", () => {
     }
     const results: string[] = [];
 
-    await Effect.runPromise(
+    await runTest(
       withLock(
         TEST_RESOURCE,
         Effect.sync(() => {
@@ -160,7 +161,7 @@ describe("withLock", () => {
       )
     );
 
-    await Effect.runPromise(
+    await runTest(
       withLock(
         TEST_RESOURCE,
         Effect.sync(() => {
@@ -169,7 +170,7 @@ describe("withLock", () => {
       )
     );
 
-    await Effect.runPromise(
+    await runTest(
       withLock(
         TEST_RESOURCE,
         Effect.sync(() => {

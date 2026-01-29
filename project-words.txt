@@ -173,6 +173,7 @@ millis
 jittered
 effectful
 Effectful
+effectfully
 subtyping
 mapAccum
 mappend

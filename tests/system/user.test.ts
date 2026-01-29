@@ -6,23 +6,24 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { describe, expect, test } from "bun:test";
-import { Effect, Exit } from "effect";
+import { Exit } from "effect";
 import { getServiceUsername } from "../../src/config/schema.ts";
+import { runTest, runTestExit } from "../helpers/layers.ts";
 
 describe("user management", () => {
   describe("getServiceUsername", () => {
     test("generates valid username from service name", async () => {
-      const username = await Effect.runPromise(getServiceUsername("caddy"));
+      const username = await runTest(getServiceUsername("caddy"));
       expect(username).toBe("divban-caddy");
     });
 
     test("rejects invalid service names", async () => {
-      const exit = await Effect.runPromiseExit(getServiceUsername("Invalid-Name!"));
+      const exit = await runTestExit(getServiceUsername("Invalid-Name!"));
       expect(Exit.isFailure(exit)).toBe(true);
     });
 
     test("rejects names that would exceed 32 chars", async () => {
-      const exit = await Effect.runPromiseExit(getServiceUsername("a".repeat(30)));
+      const exit = await runTestExit(getServiceUsername("a".repeat(30)));
       expect(Exit.isFailure(exit)).toBe(true);
     });
   });

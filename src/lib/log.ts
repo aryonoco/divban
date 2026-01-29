@@ -7,16 +7,22 @@
 
 /**
  * Structured logging with ADT-based style dispatch and atomic step counting.
- * Uses annotations that effect-logger.ts reads from the HashMap.
+ *
+ * Design: LogStyle ADT enables exhaustive pattern matching on log variants,
+ * ensuring compile-time safety when new styles are added. Annotations decouple
+ * visual formatting (handled in effect-logger.ts) from log call sites.
  */
 
 import { Data, Effect, Match, SynchronizedRef, pipe } from "effect";
 
 // ============================================================================
-// LogStyle ADT (using Data.TaggedEnum for linter-safe _tag handling)
+// LogStyle ADT
 // ============================================================================
 
-/** ADT capturing all styled log variants with type-safe encoding. */
+/**
+ * Closed union of log styles. Match.exhaustive enforces handling all variants,
+ * so adding a new style produces compile errors at all unhandled call sites.
+ */
 type LogStyle = Data.TaggedEnum<{
   step: { readonly current: number; readonly total: number };
   success: object;
@@ -25,7 +31,7 @@ type LogStyle = Data.TaggedEnum<{
 
 const { step, success, fail } = Data.taggedEnum<LogStyle>();
 
-/** Encode ADT to annotation record (eliminates magic strings at call sites). */
+/** Encode to annotation records that effect-logger.ts interprets for formatting. */
 const encodeStyle = (style: LogStyle): Record<string, string> =>
   pipe(
     Match.value(style),
@@ -39,7 +45,7 @@ const encodeStyle = (style: LogStyle): Record<string, string> =>
     Match.exhaustive
   );
 
-/** Single polymorphic logging function dispatching on ADT. */
+/** All styled logging routes through here to ensure consistent annotation handling. */
 const logStyled = (style: LogStyle, message: string): Effect.Effect<void> =>
   Effect.log(message).pipe(Effect.annotateLogs(encodeStyle(style)));
 
@@ -47,17 +53,14 @@ const logStyled = (style: LogStyle, message: string): Effect.Effect<void> =>
 // Public Logging Functions
 // ============================================================================
 
-/** Log a progress step (e.g. "[1/5] -> Installing files"). */
 export const logStep = (current: number, total: number, message: string): Effect.Effect<void> =>
   logStyled(step({ current, total }), message);
 
-/** Log a success message (e.g. "check mark Setup completed"). */
 export const logSuccess = (message: string): Effect.Effect<void> => logStyled(success(), message);
 
-/** Log a failure message (e.g. "x mark Service not found"). */
 export const logFail = (message: string): Effect.Effect<void> => logStyled(fail(), message);
 
-/** Write raw program output to stdout (bypasses the logger entirely). */
+/** Bypasses Effect logger for raw program output (command results, status info). */
 export const writeOutput = (text: string): Effect.Effect<void> =>
   Effect.sync(() => {
     process.stdout.write(`${text}\n`);
@@ -67,15 +70,17 @@ export const writeOutput = (text: string): Effect.Effect<void> =>
 // StepCounter (SynchronizedRef-based)
 // ============================================================================
 
-/** Atomic step counter with effectful logging inside updates. */
+/**
+ * SynchronizedRef-based counter for multi-step workflows.
+ * Atomicity ensures concurrent step calls produce correct sequence numbers.
+ */
 export interface StepCounter {
-  /** Log the next step and increment counter atomically. */
+  /** Increment and log atomically; concurrent calls are serialized. */
   readonly next: (message: string) => Effect.Effect<void>;
-  /** Get current step number (0 = no steps executed yet). */
   readonly current: Effect.Effect<number>;
 }
 
-/** Create a step counter for a workflow with known total steps. */
+/** Returns effectfully to allow SynchronizedRef allocation within Effect context. */
 export const createStepCounter = (total: number): Effect.Effect<StepCounter> =>
   Effect.gen(function* () {
     const ref = yield* SynchronizedRef.make(0);

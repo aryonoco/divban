@@ -7,16 +7,17 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
-import { Effect, Exit } from "effect";
+import { Exit } from "effect";
 import { loadGlobalConfig } from "../../src/config/loader.ts";
 import { path, pathJoin } from "../../src/lib/types.ts";
 import { ensureDirectory, writeFile } from "../../src/system/fs.ts";
+import { runTest, runTestExit } from "../helpers/layers.ts";
 
 const TEST_DIR = path("/tmp/divban-config-test");
 
 describe("global config", () => {
   beforeAll(async () => {
-    await Effect.runPromise(ensureDirectory(TEST_DIR));
+    await runTest(ensureDirectory(TEST_DIR));
   });
 
   afterAll(async () => {
@@ -29,14 +30,14 @@ describe("global config", () => {
 
   describe("loadGlobalConfig", () => {
     test("returns error for non-existent explicit config path", async () => {
-      const exit = await Effect.runPromiseExit(loadGlobalConfig(path("/nonexistent/divban.toml")));
+      const exit = await runTestExit(loadGlobalConfig(path("/nonexistent/divban.toml")));
 
       expect(Exit.isFailure(exit)).toBe(true);
     });
 
     test("loads and parses valid TOML config", async () => {
       const configPath = pathJoin(TEST_DIR, "divban.toml");
-      await Effect.runPromise(
+      await runTest(
         writeFile(
           configPath,
           `divbanConfigSchemaVersion = "1.0.0"
@@ -51,7 +52,7 @@ level = "debug"
         )
       );
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       expect(config.users.uidRangeStart).toBe(15000);
       expect(config.users.uidRangeEnd).toBe(20000);
@@ -62,16 +63,16 @@ level = "debug"
 
     test("returns error for malformed TOML", async () => {
       const configPath = pathJoin(TEST_DIR, "bad.toml");
-      await Effect.runPromise(writeFile(configPath, "this is not valid toml [[["));
+      await runTest(writeFile(configPath, "this is not valid toml [[["));
 
-      const exit = await Effect.runPromiseExit(loadGlobalConfig(configPath));
+      const exit = await runTestExit(loadGlobalConfig(configPath));
 
       expect(Exit.isFailure(exit)).toBe(true);
     });
 
     test("applies partial config with defaults for missing fields", async () => {
       const configPath = pathJoin(TEST_DIR, "partial.toml");
-      await Effect.runPromise(
+      await runTest(
         writeFile(
           configPath,
           `divbanConfigSchemaVersion = "1.0.0"
@@ -82,7 +83,7 @@ format = "json"
         )
       );
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       // Explicitly set
       expect(config.logging.format).toBe("json");
@@ -96,9 +97,9 @@ format = "json"
   describe("users config", () => {
     test("extracts settings from global config", async () => {
       const configPath = pathJoin(TEST_DIR, "user-defaults.toml");
-      await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
+      await runTest(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       expect(config.users.uidRangeStart).toBe(10000);
       expect(config.users.uidRangeEnd).toBe(59999);
@@ -108,7 +109,7 @@ format = "json"
 
     test("uses custom values when provided", async () => {
       const configPath = pathJoin(TEST_DIR, "custom-users.toml");
-      await Effect.runPromise(
+      await runTest(
         writeFile(
           configPath,
           `divbanConfigSchemaVersion = "1.0.0"
@@ -122,7 +123,7 @@ subuidRangeSize = 131072
         )
       );
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       expect(config.users.uidRangeStart).toBe(20000);
       expect(config.users.uidRangeEnd).toBe(30000);
@@ -134,9 +135,9 @@ subuidRangeSize = 131072
   describe("logging config", () => {
     test("extracts logging settings with defaults", async () => {
       const configPath = pathJoin(TEST_DIR, "logging-defaults.toml");
-      await Effect.runPromise(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
+      await runTest(writeFile(configPath, `divbanConfigSchemaVersion = "1.0.0"\n`));
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       expect(config.logging.level).toBe("info");
       expect(config.logging.format).toBe("pretty");
@@ -144,7 +145,7 @@ subuidRangeSize = 131072
 
     test("uses custom values when provided", async () => {
       const configPath = pathJoin(TEST_DIR, "custom-logging.toml");
-      await Effect.runPromise(
+      await runTest(
         writeFile(
           configPath,
           `divbanConfigSchemaVersion = "1.0.0"
@@ -156,7 +157,7 @@ format = "json"
         )
       );
 
-      const config = await Effect.runPromise(loadGlobalConfig(configPath));
+      const config = await runTest(loadGlobalConfig(configPath));
 
       expect(config.logging.level).toBe("warn");
       expect(config.logging.format).toBe("json");

@@ -34,7 +34,12 @@ tests are not real consumers. They can be rewritten or adapted as needed.
 ---
 
 
-These improvements would further align the codebase with idiomatic Effect but affect modules outside `src/cli/`:                                                             
-                                                                                                                                                                               
-                                                                                                                                                        
-  4. **`Effect.fn` for tracing**: Replace manual logging of function entry/exit with `Effect.fn` for automatic spans.               
+Specifically look at Effect library's bun platform. 
+
+First launch a number of async backtround agents to understand all the direct bun API calls in this codebase. 
+
+Then answer the following quesion: 
+
+Is it feasible to replace all the direct Bun API calls in this codebase with their Effect counterpart? 
+
+Note: Bun brings improved performance over node.js APIs and I am keen to retain that performance. However since I have found that Effect provides some bun functionality as well and wraps them in more FP-idiomatic way, and since this codebase is heavily bases on Effect and follows FP patterns, I want to investigate and see if it's possible to still beneffit from Bun while also employing it in a more composable and FP-oriented manner. 
