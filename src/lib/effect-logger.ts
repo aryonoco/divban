@@ -12,7 +12,7 @@
 
 import { Cause, HashMap, Layer, LogLevel, Logger, Match, Option, pipe } from "effect";
 import type { LogLevel as DivbanLogLevel, LogFormat } from "../config/field-values";
-type LogStyle = "step" | "success" | "fail";
+type LogStyleTag = "step" | "success" | "fail";
 type ColorName = "red" | "green" | "yellow" | "blue" | "cyan" | "gray" | "white";
 
 /** Formatting-only annotations filtered from JSON to keep logs clean for aggregation. */
@@ -33,6 +33,7 @@ const toEffectLogLevel = (level: DivbanLogLevel): LogLevel.LogLevel =>
     Match.exhaustive
   );
 
+/** Extracts typed string annotation, returning None if absent or wrong type. */
 const getStringAnnotation = (
   annotations: HashMap.HashMap<string, unknown>,
   key: string
@@ -42,12 +43,14 @@ const getStringAnnotation = (
     Option.filter((v): v is string => typeof v === "string")
   );
 
-const getStyle = (annotations: HashMap.HashMap<string, unknown>): Option.Option<LogStyle> =>
+/** Reconstructs LogStyle ADT from annotation strings for dispatch. */
+const getStyle = (annotations: HashMap.HashMap<string, unknown>): Option.Option<LogStyleTag> =>
   pipe(
     getStringAnnotation(annotations, "logStyle"),
-    Option.filter((v): v is LogStyle => v === "step" || v === "success" || v === "fail")
+    Option.filter((v): v is LogStyleTag => v === "step" || v === "success" || v === "fail")
   );
 
+/** Applies ANSI color via Bun.color(), falling back to plain text if unsupported. */
 const colorize = (color: ColorName, text: string, useColor: boolean): string =>
   pipe(
     Match.value(useColor),
@@ -98,7 +101,7 @@ const formatStepMessage = (
 };
 
 const formatStyledMessage = (
-  style: LogStyle,
+  style: LogStyleTag,
   message: string,
   annotations: HashMap.HashMap<string, unknown>,
   useColor: boolean
@@ -111,6 +114,7 @@ const formatStyledMessage = (
     Match.exhaustive
   );
 
+/** Formats error cause chain, returning empty string for non-errors to avoid noise. */
 const formatCause = (cause: Cause.Cause<unknown>): string =>
   pipe(
     Match.value(Cause.isEmpty(cause)),
@@ -177,7 +181,7 @@ const formatJson = (
   });
 };
 
-const isStderrOutput = (logLevel: LogLevel.LogLevel, style: Option.Option<LogStyle>): boolean =>
+const isStderrOutput = (logLevel: LogLevel.LogLevel, style: Option.Option<LogStyleTag>): boolean =>
   logLevel.label === "ERROR" ||
   pipe(
     style,
@@ -185,6 +189,7 @@ const isStderrOutput = (logLevel: LogLevel.LogLevel, style: Option.Option<LogSty
     Option.getOrElse(() => false)
   );
 
+/** Logger factory dispatching to pretty or JSON format. Routes errors/failures to stderr, others to stdout. */
 const DivbanLogger = (format: LogFormat, useColor: boolean): Logger.Logger<unknown, void> =>
   Logger.make(({ logLevel, message, cause, annotations, date }) => {
     const msg = String(message);

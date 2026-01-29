@@ -95,7 +95,15 @@ export {
 export type { DivbanEffectError, ErrorCodeValue } from "./errors";
 
 export { DivbanLoggerLive } from "./effect-logger";
-export { logFail, logStep, logSuccess, writeOutput } from "./log";
+export {
+  createStepCounter,
+  logFail,
+  logStep,
+  logSuccess,
+  writeOutput,
+  type StepCounter,
+} from "./log";
+export { withOperationLogging, type OperationVerb } from "./traced";
 
 export {
   assertEffect,

@@ -14,7 +14,7 @@
 import { Effect, Either, Match, pipe } from "effect";
 import { getServiceDataDir, getServiceUsername } from "../../config/schema";
 import { ErrorCode, GeneralError, type ServiceError, type SystemError } from "../../lib/errors";
-import { logStep, logSuccess } from "../../lib/log";
+import { createStepCounter, logSuccess } from "../../lib/log";
 import {
   type AbsolutePath,
   type ServiceName,
@@ -30,6 +30,7 @@ import { disableLinger } from "../../system/linger";
 import { userExists } from "../../system/uid-allocator";
 import { deleteServiceUser, getUserByName, requireRoot } from "../../system/user";
 
+/** Options controlling removal behavior. dryRun previews without changes; force skips confirmation. */
 export interface RemoveOptions {
   readonly service: ExistentialService;
   readonly dryRun: boolean;
@@ -37,6 +38,7 @@ export interface RemoveOptions {
   readonly preserveData: boolean;
 }
 
+/** Orchestrates multi-step service removal. Order matters: containers before user session, linger before systemd stop. */
 export const executeRemove = (
   options: RemoveOptions
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
@@ -112,9 +114,10 @@ const doRemoveService = (
 ): Effect.Effect<void, GeneralError | ServiceError | SystemError> =>
   Effect.gen(function* () {
     const totalSteps = preserveData ? 7 : 8;
+    const counter = yield* createStepCounter(totalSteps);
 
     // Stop containers before removing resources they hold open
-    yield* logStep(1, totalSteps, "Stopping containers...");
+    yield* counter.next("Stopping containers...");
     yield* Effect.ignore(
       execAsUser(username, uid, ["podman", "stop", "--all", "-t", "10"], {
         captureStdout: true,
@@ -123,37 +126,37 @@ const doRemoveService = (
     );
 
     // Remove podman resources while user session is still active
-    yield* logStep(2, totalSteps, "Removing containers, volumes, and networks...");
+    yield* counter.next("Removing containers, volumes, and networks...");
     yield* cleanupPodmanResources(username, uid);
 
     // Disable linger before stopping user service to prevent auto-restart
-    yield* logStep(3, totalSteps, "Disabling linger...");
+    yield* counter.next("Disabling linger...");
     yield* disableLinger(username).pipe(
       Effect.tapError((err) => Effect.logWarning(`Failed to disable linger: ${err.message}`)),
       Effect.ignore
     );
 
     // Stop systemd user slice; containers and linger must be gone first
-    yield* logStep(4, totalSteps, "Stopping systemd user service...");
+    yield* counter.next("Stopping systemd user service...");
     yield* stopUserService(uid);
 
     // Remove storage after systemd is down to avoid "device busy" errors
-    yield* logStep(5, totalSteps, "Removing container storage...");
+    yield* counter.next("Removing container storage...");
     yield* cleanupContainerStorage(homeDir);
 
     // Kill orphaned processes before deleting the user that owns them
-    yield* logStep(6, totalSteps, "Killing user processes...");
+    yield* counter.next("Killing user processes...");
     yield* killUserProcesses(uid);
 
     // Delete user last; userdel fails if processes or mounts remain
-    yield* logStep(7, totalSteps, "Deleting service user...");
+    yield* counter.next("Deleting service user...");
     yield* deleteServiceUser(serviceName);
 
     // Data dir removal is optional; all dependencies are already gone
 
     yield* Effect.when(
       Effect.gen(function* () {
-        yield* logStep(8, totalSteps, "Removing data directory...");
+        yield* counter.next("Removing data directory...");
         yield* removeDirectory(dataDir, true).pipe(
           Effect.tapError((err) =>
             Effect.logWarning(`Failed to remove data directory: ${err.message}`)
@@ -178,6 +181,7 @@ const stopUserService = (uid: UserId): Effect.Effect<void, SystemError | General
     yield* Effect.promise(() => Bun.sleep(500));
   });
 
+/** Removes containers, volumes, and networks while user session is still active. */
 const cleanupPodmanResources = (
   username: Username,
   uid: UserId
@@ -233,6 +237,7 @@ const cleanupPodmanResources = (
     });
   });
 
+/** Removes container storage after systemd is down to avoid "device busy" errors. */
 const cleanupContainerStorage = (
   homeDir: AbsolutePath
 ): Effect.Effect<void, SystemError | GeneralError> =>
@@ -255,9 +260,10 @@ const cleanupContainerStorage = (
     )
   );
 
+/** Terminates orphaned processes before user deletion. SIGTERM then SIGKILL with grace period. */
 const killUserProcesses = (uid: UserId): Effect.Effect<void, SystemError | GeneralError> =>
   Effect.gen(function* () {
-    // SIGTERM first, then SIGKILL - graceful termination window before force kill
+    // 500ms grace period allows processes to clean up before forced termination
     yield* Effect.ignore(
       exec(["pkill", "-U", String(uid)], {
         captureStdout: true,

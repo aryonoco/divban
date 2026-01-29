@@ -28,11 +28,13 @@ import { loadServiceConfig } from "../config/loader";
 import type { ConfigError, GeneralError, ServiceError, SystemError } from "../lib/errors";
 import { logStep, logSuccess } from "../lib/log";
 import { configFilePath, quadletFilePath } from "../lib/paths";
+import { withOperationLogging } from "../lib/traced";
 import {
   type AbsolutePath,
   type ContainerName,
   type GroupId,
   type UserId,
+  type Username,
   pathWithSuffix,
 } from "../lib/types";
 import { chown } from "../system/directories";
@@ -91,11 +93,13 @@ export interface ServicesEnableResult {
 // Derivation Functions
 // ============================================================================
 
+/** Extracts paths from Created results for rollback deletion. */
 export const createdPaths = (results: readonly FileWriteResult[]): readonly AbsolutePath[] =>
   results
     .filter((r): r is Extract<FileWriteResult, { kind: "Created" }> => r.kind === "Created")
     .map((r) => r.path);
 
+/** Extracts paths with backups from Modified results for rollback restoration. */
 export const modifiedPaths = (
   results: readonly FileWriteResult[]
 ): readonly { path: AbsolutePath; backup: AbsolutePath }[] =>
@@ -154,6 +158,7 @@ export const writeGeneratedFiles = (
 // Effectful Resource Operations
 // ============================================================================
 
+/** Writes file, backing up existing content for rollback. Created vs Modified discriminant enables idempotent cleanup. */
 const writeFileTracked = (
   destPath: AbsolutePath,
   content: string,
@@ -241,6 +246,7 @@ export const cleanupFileBackups = (
     concurrency: "unbounded",
   }).pipe(Effect.asVoid);
 
+/** Enables services, tracking only those requiring action. Sequential execution ensures daemon-reload completes first. */
 export const reloadAndEnableServicesTracked = (
   services: readonly string[],
   startAfterEnable = true
@@ -408,36 +414,39 @@ export interface SingleContainerOps {
   ) => Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser>;
 }
 
+/** Factory returning systemctl operations bound to a service user context with automatic operation logging. */
 export const createSingleContainerOps = (config: SingleContainerConfig): SingleContainerOps => {
   const unit = `${config.containerName}.service`;
 
+  const withUser = <A, E>(
+    op: (opts: { user: Username; uid: UserId }) => Effect.Effect<A, E>
+  ): Effect.Effect<A, E, ServiceUser> =>
+    Effect.gen(function* () {
+      const user = yield* ServiceUser;
+      return yield* op({ user: user.name, uid: user.uid });
+    });
+
   return {
     start: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
-      Effect.gen(function* () {
-        const user = yield* ServiceUser;
-
-        yield* Effect.logInfo(`Starting ${config.displayName}...`);
-        yield* startService(unit, { user: user.name, uid: user.uid });
-        yield* logSuccess(`${config.displayName} started successfully`);
-      }),
+      withOperationLogging(
+        config.displayName,
+        "Starting",
+        withUser((opts) => startService(unit, opts))
+      ),
 
     stop: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
-      Effect.gen(function* () {
-        const user = yield* ServiceUser;
-
-        yield* Effect.logInfo(`Stopping ${config.displayName}...`);
-        yield* stopService(unit, { user: user.name, uid: user.uid });
-        yield* logSuccess(`${config.displayName} stopped successfully`);
-      }),
+      withOperationLogging(
+        config.displayName,
+        "Stopping",
+        withUser((opts) => stopService(unit, opts))
+      ),
 
     restart: (): Effect.Effect<void, ServiceError | SystemError | GeneralError, ServiceUser> =>
-      Effect.gen(function* () {
-        const user = yield* ServiceUser;
-
-        yield* Effect.logInfo(`Restarting ${config.displayName}...`);
-        yield* restartService(unit, { user: user.name, uid: user.uid });
-        yield* logSuccess(`${config.displayName} restarted successfully`);
-      }),
+      withOperationLogging(
+        config.displayName,
+        "Restarting",
+        withUser((opts) => restartService(unit, opts))
+      ),
 
     status: (): Effect.Effect<
       ServiceStatus,
@@ -479,6 +488,7 @@ export const createSingleContainerOps = (config: SingleContainerConfig): SingleC
 // Backup Helper
 // ============================================================================
 
+/** Enriches backup path with file size and timestamp metadata for restore validation. */
 export const wrapBackupResult = <E>(
   backupFn: Effect.Effect<AbsolutePath, E>
 ): Effect.Effect<{ path: AbsolutePath; size: number; timestamp: Date }, E> =>
@@ -497,9 +507,8 @@ export const wrapBackupResult = <E>(
 // ============================================================================
 
 /**
- * Outcome discriminant - avoids unknown in release signatures.
- * A simple sum type for success/failure branching.
- * Uses Data.TaggedEnum for idiomatic _tag generation.
+ * Discriminant for release functions avoiding unknown in signatures.
+ * Enables type-safe dispatch on success/failure without Exit's complexity.
  */
 type Outcome = Data.TaggedEnum<{
   success: object;
@@ -676,25 +685,28 @@ const executeOneStep = (
   stepNumber: number,
   totalSteps: number
 ): Effect.Effect<object, unknown, Scope.Scope> =>
-  Effect.gen(function* () {
-    yield* logStep(stepNumber, totalSteps, step.message);
+  pipe(
+    Effect.gen(function* () {
+      yield* logStep(stepNumber, totalSteps, step.message);
 
-    // Immutable snapshot for release closure
-    const capturedStateIn: object = { ...stateIn };
+      // Immutable snapshot for release closure
+      const capturedStateIn: object = { ...stateIn };
 
-    const output: object = yield* pipe(
-      step.release,
-      Option.match({
-        onNone: (): Effect.Effect<object, unknown, unknown> => step.acquire(stateIn),
-        onSome: (release): Effect.Effect<object, unknown, Scope.Scope | unknown> =>
-          Effect.acquireRelease(step.acquire(stateIn), (output: object, exit) =>
-            release({ ...capturedStateIn, ...output }, Outcome.fromExit(exit))
-          ),
-      })
-    );
+      const output: object = yield* pipe(
+        step.release,
+        Option.match({
+          onNone: (): Effect.Effect<object, unknown, unknown> => step.acquire(stateIn),
+          onSome: (release): Effect.Effect<object, unknown, Scope.Scope | unknown> =>
+            Effect.acquireRelease(step.acquire(stateIn), (output: object, exit) =>
+              release({ ...capturedStateIn, ...output }, Outcome.fromExit(exit))
+            ),
+        })
+      );
 
-    return { ...stateIn, ...output };
-  }) as Effect.Effect<object, unknown, Scope.Scope>;
+      return { ...stateIn, ...output };
+    }),
+    Effect.withLogSpan(`step-${stepNumber}`)
+  ) as Effect.Effect<object, unknown, Scope.Scope>;
 
 /**
  * Execute all steps in sequence, building the Effect chain incrementally.

@@ -12,12 +12,12 @@
  * Safe to re-run: skips existing resources, updates changed files.
  */
 
-import { Effect, Exit, Match, Ref, pipe } from "effect";
+import { Effect, Exit, Match, pipe } from "effect";
 import { loadServiceConfig } from "../../config/loader";
 import type { GlobalConfig } from "../../config/schema";
 import { getServiceUsername } from "../../config/schema";
 import { type DivbanEffectError, ErrorCode, GeneralError } from "../../lib/errors";
-import { logStep, logSuccess } from "../../lib/log";
+import { createStepCounter, logSuccess } from "../../lib/log";
 import {
   configFilePath,
   toAbsolutePathEffect,
@@ -37,6 +37,7 @@ import { ensureUnprivilegedPorts, isUnprivilegedPortEnabled } from "../../system
 import { acquireServiceUser, getUserByName, releaseServiceUser } from "../../system/user";
 import { createServiceLayer, detectSystemCapabilities, getDataDirFromConfig } from "./utils";
 
+/** Options for idempotent service setup. dryRun previews changes without applying. */
 export interface SetupOptions {
   readonly service: ExistentialService;
   readonly configPath: string;
@@ -124,12 +125,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
       Effect.gen(function* () {
         const config = yield* loadServiceConfig(validConfigPath, s.configSchema);
 
-        const stepRef = yield* Ref.make(0);
-        const nextStep = (message: string): Effect.Effect<void> =>
-          Effect.gen(function* () {
-            const step = yield* Ref.updateAndGet(stepRef, (n) => n + 1);
-            yield* logStep(step, totalSteps, message);
-          });
+        const counter = yield* createStepCounter(totalSteps);
 
         // Scoped region: acquireRelease finalizers run in reverse order on any exit
         yield* Effect.scoped(
@@ -138,14 +134,14 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             yield* Effect.if(needsSysctl, {
               onTrue: (): Effect.Effect<void, DivbanEffectError> =>
                 Effect.gen(function* () {
-                  yield* nextStep("Configuring privileged port binding...");
+                  yield* counter.next("Configuring privileged port binding...");
                   yield* ensureUnprivilegedPorts(70, service.definition.name);
                 }),
               onFalse: (): Effect.Effect<void> => Effect.void,
             });
 
             // Only roll back user creation if we created it (idempotent re-run safety)
-            yield* nextStep(`Creating service user: ${username}...`);
+            yield* counter.next(`Creating service user: ${username}...`);
             const userAcq = yield* Effect.acquireRelease(
               acquireServiceUser(service.definition.name, uidSettings),
               (acq, exit): Effect.Effect<void> =>
@@ -162,7 +158,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             const { uid, homeDir } = userAcq.value;
             const gid = userIdToGroupId(uid);
 
-            yield* nextStep("Enabling user linger...");
+            yield* counter.next("Enabling user linger...");
             yield* Effect.acquireRelease(
               enableLingerTracked(username, uid),
               (acq, exit): Effect.Effect<void> =>
@@ -178,7 +174,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Tracked directories enable precise rollback: only remove dirs we created
-            yield* nextStep("Creating service directories...");
+            yield* counter.next("Creating service directories...");
             const dataDir = getDataDirFromConfig(config, userDataDir(homeDir));
             yield* Effect.acquireRelease(
               ensureServiceDirectoriesTracked(dataDir, homeDir, { uid, gid }),
@@ -191,7 +187,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Config copy creates .bak before overwriting; rollback restores from .bak
-            yield* nextStep("Copying configuration file...");
+            yield* counter.next("Copying configuration file...");
             const configDestPath = configFilePath(
               userConfigDir(homeDir),
               `${service.definition.name}.toml`
@@ -224,7 +220,7 @@ export const executeSetup = (options: SetupOptions): Effect.Effect<void, DivbanE
             );
 
             // Service-specific setup runs last because it depends on user, directories, and config
-            yield* nextStep("Running service-specific setup...");
+            yield* counter.next("Running service-specific setup...");
             yield* s.setup().pipe(Effect.provide(layer));
           })
         );

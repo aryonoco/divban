@@ -62,6 +62,7 @@ import {
   serviceArg,
 } from "./options";
 
+/** Resolved runtime context for commands. Merges CLI args > env vars > config file (priority order). */
 interface CommandContext {
   readonly globalConfig: GlobalConfig;
   readonly format: LogFormat;
@@ -80,6 +81,7 @@ const resolveGlobalConfigPath = (
       toAbsolutePathEffect(path),
   });
 
+/** Resolves configuration from CLI, environment, and config file with CLI taking precedence. */
 const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, unknown> =>
   Effect.gen(function* () {
     const validatedPath = yield* resolveGlobalConfigPath(globals);
@@ -121,9 +123,11 @@ const resolveContext = (globals: GlobalOptions): Effect.Effect<CommandContext, u
 
 // Error display
 
+/** Type guard for error display routing. Divban errors have exit codes; unknown errors get generic handling. */
 const isDivbanError = (err: unknown): err is DivbanEffectError =>
   typeof err === "object" && err !== null && "_tag" in err && "code" in err && "message" in err;
 
+/** Formats error for terminal output with optional color. Sync because called in exit path. */
 const displayError = (err: unknown, format: LogFormat): void => {
   if (!isDivbanError(err)) {
     return;
@@ -147,6 +151,7 @@ const displayError = (err: unknown, format: LogFormat): void => {
 /** Centralizes init, context, and error handling so each command stays focused on its logic. */
 const runCommand = (
   globals: GlobalOptions,
+  commandName: string,
   handler: (ctx: CommandContext) => Effect.Effect<void, unknown>
 ): Effect.Effect<void, unknown> =>
   Effect.gen(function* () {
@@ -154,6 +159,7 @@ const runCommand = (
     const ctx = yield* resolveContext(globals);
     yield* pipe(
       handler(ctx),
+      Effect.withLogSpan(`command-${commandName}`),
       Effect.tapError((err) => Effect.sync(() => displayError(err, ctx.format))),
       Effect.provide(
         DivbanLoggerLive({
@@ -199,6 +205,7 @@ const runServiceForAll = (
     });
   });
 
+/** Runs operation on all services, accumulating errors. Continues despite individual failures for maximum progress. */
 const runOnAllServices = (
   runSingle: (service: ExistentialService) => Effect.Effect<void, unknown>
 ): Effect.Effect<void, GeneralError> =>
@@ -269,7 +276,7 @@ const validateCmd = Command.make(
   "validate",
   { ...globalOptions, service: serviceArg, config: configArg },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "validate", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeValidate({ service, configPath: args.config });
@@ -281,7 +288,7 @@ const generateCmd = Command.make(
   "generate",
   { ...globalOptions, service: serviceArg, config: configArg, outputDir },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "generate", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeGenerate({
@@ -300,7 +307,7 @@ const diffCmd = Command.make(
   "diff",
   { ...globalOptions, service: serviceArg, config: configArg },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "diff", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeDiff({
@@ -318,7 +325,7 @@ const setupCmd = Command.make(
   "setup",
   { ...globalOptions, service: serviceArg, config: configArg },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, "setup", (ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeSetup({
@@ -337,7 +344,7 @@ const startCmd = Command.make(
   "start",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "start", (_ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeStart({
           service,
@@ -353,7 +360,7 @@ const stopCmd = Command.make(
   "stop",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "stop", (_ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeStop({
           service,
@@ -369,7 +376,7 @@ const restartCmd = Command.make(
   "restart",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "restart", (_ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeRestart({
           service,
@@ -382,7 +389,7 @@ const restartCmd = Command.make(
 ).pipe(Command.withDescription("Restart a service"));
 
 const reloadCmd = Command.make("reload", { ...globalOptions, service: serviceArg }, (args) =>
-  runCommand(args, (_ctx) =>
+  runCommand(args, "reload", (_ctx) =>
     Effect.gen(function* () {
       const service = yield* getService(args.service);
       yield* executeReload({
@@ -399,7 +406,7 @@ const statusCmd = Command.make(
   "status",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, "status", (ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeStatus({
           service,
@@ -416,7 +423,7 @@ const logsCmd = Command.make(
   "logs",
   { ...globalOptions, service: serviceArg, follow, lines, container },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "logs", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeLogs({
@@ -436,7 +443,7 @@ const updateCmd = Command.make(
   "update",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "update", (_ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeUpdate({
           service,
@@ -450,7 +457,7 @@ const backupCmd = Command.make(
   "backup",
   { ...globalOptions, service: optionalServiceArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, "backup", (ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeBackup({
           service,
@@ -467,7 +474,7 @@ const backupConfigCmd = Command.make(
   "backup-config",
   { ...globalOptions, service: optionalServiceArg, outputPath: optionalConfigArg, all: allFlag },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, "backup-config", (ctx) =>
       requireServiceOrAll(args.service, args.all, (service) =>
         executeBackupConfig({
           service,
@@ -483,7 +490,7 @@ const restoreCmd = Command.make(
   "restore",
   { ...globalOptions, service: serviceArg, backupPath: backupPathArg },
   (args) =>
-    runCommand(args, (ctx) =>
+    runCommand(args, "restore", (ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeRestore({
@@ -502,7 +509,7 @@ const removeCmd = Command.make(
   "remove",
   { ...globalOptions, service: serviceArg, preserveData },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "remove", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeRemove({
@@ -521,7 +528,7 @@ const secretShowCmd = Command.make(
   "show",
   { ...globalOptions, service: serviceArg, name: secretNameArg },
   (args) =>
-    runCommand(args, (_ctx) =>
+    runCommand(args, "secret-show", (_ctx) =>
       Effect.gen(function* () {
         const service = yield* getService(args.service);
         yield* executeSecretShow({
@@ -533,7 +540,7 @@ const secretShowCmd = Command.make(
 ).pipe(Command.withDescription("Show a secret value"));
 
 const secretListCmd = Command.make("list", { ...globalOptions, service: serviceArg }, (args) =>
-  runCommand(args, (ctx) =>
+  runCommand(args, "secret-list", (ctx) =>
     Effect.gen(function* () {
       const service = yield* getService(args.service);
       yield* executeSecretList({
