@@ -75,6 +75,10 @@ Before implementing, read these existing patterns to understand the codebase:
 
 **Core infrastructure**:
 - `src/lib/types.ts` - Branded type definitions (MUST use these)
+- `src/lib/log.ts` - CLI logging utilities (logSuccess, logFail, logStep)
+- `src/lib/traced.ts` - Operation tracing with Effect spans
+- `src/lib/escape-codec.ts` - Bidirectional string escape codecs
+- `src/config/field-values.ts` - Common enum values for schemas
 - `src/services/helpers.ts` - Setup pipeline helpers
 - `src/services/types.ts` - ServiceEffect interface
 - `src/lib/versioning/` - Config and backup schema versioning
@@ -250,6 +254,8 @@ Create `src/services/{servicename}/schema.ts`:
 
 import { Schema } from "effect";
 import { absolutePathSchema, containerImageSchema } from "../../config/schema";
+// For enum constants (log levels, network modes, restart policies, etc.):
+// import { LOG_LEVEL_VALUES, LOG_LEVEL_DEFAULT } from "../../config/field-values";
 // For services with backup support, import the appropriate backup config type:
 // import type { SqliteStopBackupConfig } from "../../lib/db-backup";
 // import type { PostgresBackupConfig } from "../../lib/db-backup";
@@ -262,12 +268,21 @@ import {
   containerImage,
   containerName,
 } from "../../lib/types";
-// For backup configs that need ContainerNameSchema:
+// REQUIRED import for all backup strategies:
 // import { ContainerNameSchema } from "../../lib/types";
 import {
   type DivbanConfigSchemaVersion,
   DivbanConfigSchemaVersionSchema,
 } from "../../lib/versioning";
+
+// ============================================================================
+// Backup Configuration Interfaces (define BEFORE main Config if service has backup)
+// ============================================================================
+
+// For services with backup support, define backup config interfaces here first:
+// export interface {ServiceName}BackupConfigInput { ... }
+// export const {servicename}BackupConfigSchema: Schema.Schema<...> = ...
+// See Section 10 and actual/schema.ts or freshrss/schema.ts for examples.
 
 // ============================================================================
 // Output Interface (after validation, with branded types)
@@ -404,6 +419,11 @@ export const {servicename}ConfigSchema: Schema.Schema<{ServiceName}Config, {Serv
       ),
     })
   ),
+  // Preferred: Use centralized enum values from field-values.ts
+  // logLevel: Schema.optionalWith(Schema.Literal(...LOG_LEVEL_VALUES), {
+  //   default: (): "info" => LOG_LEVEL_DEFAULT,
+  // }),
+  // Or inline (works but less maintainable):
   logLevel: Schema.optionalWith(Schema.Literal("debug", "info", "warn", "error"), {
     default: (): "info" => "info",
   }),
@@ -428,7 +448,7 @@ export const {servicename}Defaults: {ServiceName}Defaults = {
     port: 8080,
     host: "127.0.0.1",
   },
-};
+} as const;
 ```
 
 ### Schema Patterns
@@ -469,6 +489,8 @@ import { Effect } from "effect";
 // For services with backup support, import from db-backup:
 // import { backupService, restoreService } from "../../lib/db-backup";
 import type { BackupError, GeneralError, ServiceError, SystemError } from "../../lib/errors";
+// For CLI output (optional, only if needed for custom logging):
+// import { logSuccess, logFail, logStep } from "../../lib/log";
 import {
   type AbsolutePath,
   containerImage,
@@ -481,7 +503,6 @@ import { createHttpHealthCheck, relabelVolumes } from "../../quadlet";
 import { generateContainerQuadlet } from "../../quadlet/container";
 import { ensureDirectoriesTracked, removeDirectoriesReverse } from "../../system/directories";
 import {
-  type AppLogger,
   ServiceOptions,
   type ServicePaths,
   ServiceUser,
@@ -731,7 +752,7 @@ const enableServicesStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  {ServiceName}ConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  {ServiceName}ConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(generateStep)
@@ -1069,7 +1090,7 @@ const secretsStep: SetupStep<
 const setup = (): Effect.Effect<
   void,
   ServiceError | SystemError | ContainerError | GeneralError,
-  MyServiceConfigTag | ServicePaths | ServiceUser | SystemCapabilities | AppLogger
+  MyServiceConfigTag | ServicePaths | ServiceUser | SystemCapabilities
 > =>
   pipeline<EmptyState>()
     .andThen(secretsStep)        // Generate podman secrets
@@ -1093,12 +1114,11 @@ import type { StackContainer } from "../../stack/types";
 const start = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  MyServiceConfigTag | ServiceUser | AppLogger
+  MyServiceConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* MyServiceConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
     // Build minimal stack structure for orchestrator (only need name + requires)
     const baseContainers: StackContainer[] = [
@@ -1114,18 +1134,17 @@ const start = (): Effect.Effect<
     );
 
     const stack = createStack({ name: "myservice", containers: [...containers] });
-    yield* startStack(stack, { user: user.name, uid: user.uid, logger });
+    yield* startStack(stack, { user: user.name, uid: user.uid });
   });
 
 const stop = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  MyServiceConfigTag | ServiceUser | AppLogger
+  MyServiceConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* MyServiceConfigTag;
     const user = yield* ServiceUser;
-    const logger = yield* AppLogger;
 
     // Stop in reverse dependency order
     const baseContainers: StackContainer[] = [
@@ -1141,21 +1160,51 @@ const stop = (): Effect.Effect<
     );
 
     const stack = createStack({ name: "myservice", containers: [...containers] });
-    yield* stopStack(stack, { user: user.name, uid: user.uid, logger });
+    yield* stopStack(stack, { user: user.name, uid: user.uid });
   });
 
 const restart = (): Effect.Effect<
   void,
   ServiceError | SystemError | GeneralError,
-  MyServiceConfigTag | ServiceUser | AppLogger
+  MyServiceConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
-    const logger = yield* AppLogger;
-    logger.info("Restarting MyService...");
+    yield* Effect.logInfo("Restarting MyService...");
     yield* stop();
     yield* start();
   });
 ```
+
+### 9.7 ExistentialService Pattern
+
+Services with different config types cannot be stored in the same Map without type erasure. The `ExistentialService` wrapper solves this by hiding type parameters externally while preserving them internally.
+
+**Pattern:** Used internally by the service registry in `src/services/index.ts`
+
+**Implementation:**
+- `mkExistentialService(service)` wraps `ServiceEffect<C, I, Tag>` hiding type parameters
+- Registry stores `Map<ServiceName, ExistentialService>`
+- Type safety is preserved internally, but hidden at the collection level
+
+**When relevant:** Understanding CLI architecture and plugin patterns. This pattern implements "exists C. ServiceEffect<C, ...>" semantics, allowing heterogeneous collections of typed services.
+
+**Location:** `src/services/types.ts` (`ExistentialService`, `mkExistentialService`)
+
+### 9.8 Dependency Resolution and Parallelization
+
+The stack orchestrator supports parallel container startup within dependency levels.
+
+**StartOrder Type:**
+- `levels: string[][]` - 2D array where each inner array contains containers that can start in parallel
+- Example: `[["redis"], ["postgres"], ["main", "worker"]]` - main and worker start together after postgres
+
+**Dependency Variants:**
+- `requires: [...]` - Hard dependencies (container fails if dependencies fail)
+- `wants: [...]` - Soft dependencies (container starts even if dependencies fail)
+
+**Resolution:** `resolveStartOrder()` in `src/stack/orchestrator.ts` performs topological sort with cycle detection.
+
+**Parallel Execution:** Containers at the same level start concurrently using `Effect.forEach` with `concurrency: "unbounded"`.
 
 ---
 
@@ -1178,6 +1227,7 @@ divban provides three backup strategies via `src/lib/db-backup/`:
 Add backup config to your schema (see Section 6 for full pattern):
 
 ```typescript
+// REQUIRED imports for all backup strategies:
 import type { SqliteStopBackupConfig } from "../../lib/db-backup";
 import { type ContainerName, ContainerNameSchema, containerName } from "../../lib/types";
 
@@ -1241,7 +1291,7 @@ import type { BackupResult } from "../types";
 const backup = (): Effect.Effect<
   BackupResult,
   BackupError | ServiceError | SystemError | GeneralError,
-  {ServiceName}ConfigTag | ServiceUser | ServiceOptions | AppLogger
+  {ServiceName}ConfigTag | ServiceUser | ServiceOptions
 > =>
   Effect.gen(function* () {
     const config = yield* {ServiceName}ConfigTag;
@@ -1264,7 +1314,7 @@ const restore = (
 ): Effect.Effect<
   void,
   BackupError | ServiceError | SystemError | GeneralError,
-  {ServiceName}ConfigTag | ServiceUser | AppLogger
+  {ServiceName}ConfigTag | ServiceUser
 > =>
   Effect.gen(function* () {
     const config = yield* {ServiceName}ConfigTag;
@@ -1371,6 +1421,8 @@ divban uses a comprehensive branded type system to prevent bugs at compile time.
 | `ContainerImage` | `string` | Valid image reference | `containerImage()`, `decodeContainerImage()` |
 | `DurationString` | `string` | `{number}{ms\|s\|m\|h\|d}` | `duration()`, `decodeDurationString()` |
 | `PrivateIP` | `string` | RFC 1918 IPv4 / RFC 4193 IPv6 | `decodePrivateIP()` |
+| `DatabaseName` | `string` | Valid database identifier | `databaseName()`, `decodeDatabaseName()` |
+| `DatabaseUser` | `string` | Valid database username | `databaseUser()`, `decodeDatabaseUser()` |
 
 ### 11.2 Literal Constructors vs Decoders
 
@@ -1433,6 +1485,33 @@ For backup schemas that need `ContainerNameSchema`:
 ```typescript
 import { ContainerNameSchema } from "../../lib/types";
 ```
+
+### 11.6 Configuration Enum Values
+
+For consistent enum values across schemas, import from `src/config/field-values.ts`:
+
+**Available enum constants:**
+- `LOG_LEVEL_VALUES` - `["debug", "info", "warn", "error"]`
+- `LOG_LEVEL_DEFAULT` - `"info"`
+- `NETWORK_MODE_VALUES` - `["pasta", "slirp4netns", "host", "none"]`
+- `SERVICE_RESTART_VALUES` - `["no", "on-success", "on-failure", "on-abnormal", "on-abort", "always"]`
+- `AUTO_UPDATE_STRING_VALUES` - `["registry", "local"]`
+- `PROTOCOL_VALUES` - `["tcp", "udp"]`
+
+**Usage in schemas:**
+
+```typescript
+import { LOG_LEVEL_VALUES, LOG_LEVEL_DEFAULT } from "../../config/field-values";
+
+logLevel: Schema.optionalWith(Schema.Literal(...LOG_LEVEL_VALUES), {
+  default: (): "info" => LOG_LEVEL_DEFAULT,
+})
+```
+
+**Benefits:**
+- Single source of truth for enum values
+- Consistent across all services
+- Easier to maintain and extend
 
 ---
 
@@ -1523,6 +1602,51 @@ SetupStep.resource(
   })
 );
 ```
+
+### 12.7 Logging Patterns
+
+**Effect's built-in logging:**
+- Use `Effect.logInfo()`, `Effect.logError()`, `Effect.logDebug()` for inline logging within Effect chains
+- Import `logSuccess()`, `logFail()`, `logStep()` from `src/lib/log.ts` for CLI output formatting
+
+**Operation tracing:**
+- Wrap operations with `withOperationLogging(displayName, verb, effect)` from `src/lib/traced.ts`
+- Automatically logs entry/exit and duration via `Effect.withLogSpan`
+
+**Step counters:**
+- Use `createStepCounter(total)` from `src/lib/traced.ts` for concurrent progress tracking
+- Thread-safe via `SynchronizedRef`
+
+**Never:**
+- Don't add AppLogger to service context requirements
+- Don't create custom logger abstractions
+- AppLogger has been removed from the codebase
+
+### 12.8 String Escaping
+
+**Use escape codecs from `src/lib/escape-codec.ts`:**
+- `quoteEscapeCodec` - For Caddyfile and INI file quotes (escapes `"` and `\`)
+- `envEscapeCodec` - For shell-sensitive characters in environment files
+
+**Pattern:**
+```typescript
+import { quoteEscapeCodec, envEscapeCodec } from "../../lib/escape-codec";
+
+// Escape user input for use in quoted strings
+const escaped = quoteEscapeCodec.escape(userInput);
+
+// Unescape back to original
+const original = quoteEscapeCodec.unescape(escaped);
+```
+
+**Guarantees:**
+- Codecs are bidirectional: `unescape(escape(s)) === s`
+- Round-trip identity is guaranteed
+- Character-level validation ensures correctness
+
+**Never:**
+- Don't use inline escape maps or manual string replacement
+- Don't use RegExp for escaping (violates coding standards)
 
 ---
 
@@ -1667,11 +1791,11 @@ getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 
 ### Backup Strategy Types
 
-| Strategy | Config Type | Import From | Requires Force |
-|----------|-------------|-------------|----------------|
-| `postgres` | `PostgresBackupConfig` | `../../lib/db-backup` | No |
-| `sqlite-stop` | `SqliteStopBackupConfig` | `../../lib/db-backup` | Yes |
-| `freshrss-cli` | `FreshRssCliBackupConfig` | `../../lib/db-backup` | No |
+| Strategy | Config Type | Import From | Requires Force | Additional Imports |
+|----------|-------------|-------------|----------------|--------------------|
+| `postgres` | `PostgresBackupConfig` | `../../lib/db-backup` | No | `ContainerNameSchema` (required) |
+| `sqlite-stop` | `SqliteStopBackupConfig` | `../../lib/db-backup` | Yes | `ContainerNameSchema` (required) |
+| `freshrss-cli` | `FreshRssCliBackupConfig` | `../../lib/db-backup` | No | `ContainerNameSchema` (required) |
 
 ---
 
@@ -1697,6 +1821,12 @@ getSecretMountPath("db-password")  // → "/run/secrets/db-password"
 
 **pathJoin losing AbsolutePath:** Ensure base argument is `AbsolutePath` (not `string`) to preserve the brand
 
+**Logger/AppLogger errors:** Remove AppLogger from context requirements - it no longer exists. Use `Effect.logInfo()` or import from `src/lib/log.ts` instead
+
+**Escape codec errors:** Import from `src/lib/escape-codec.ts`, use `.escape()`/`.unescape()` methods. Don't use inline escape maps or RegExp
+
+**Enum literal errors:** Import enum values from `src/config/field-values.ts` instead of hardcoding literals (e.g., use `LOG_LEVEL_VALUES` instead of `["debug", "info", "warn", "error"]`)
+
 ---
 
 ## Checklist
@@ -1720,6 +1850,9 @@ Before submitting, verify:
 - [ ] All domain values use branded types with proper constructors
 - [ ] All interfaces are `readonly`
 - [ ] Full registry prefixes on container images (`docker.io/`, `ghcr.io/`, etc.)
-- [ ] Included `logLevel` in schema (standard field for all services)
-- [ ] Used `as const` for constants objects (CONTAINERS, DEFAULT_IMAGES, etc.)
+- [ ] Included `logLevel` in schema using `LOG_LEVEL_VALUES` from `field-values.ts` (or inline literals)
+- [ ] Used `as const` for constants objects (CONTAINERS, DEFAULT_IMAGES, INTERNAL_URLS, etc.)
 - [ ] Used branded type constructors (`serviceName()`, `containerName()`, etc.) not raw strings
+- [ ] (If backup) Imported `ContainerNameSchema` from `../../lib/types`
+- [ ] Removed AppLogger from all context requirements (setup, backup, restore, operations)
+- [ ] Used escape codecs from `escape-codec.ts` instead of inline escape maps

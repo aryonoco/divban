@@ -1,36 +1,357 @@
- High Impact
-
-  1. Variadic SetupStep pipelines
-  Currently pipeline3, pipeline4, pipeline5 are manually defined. A type-level list or HKT approach would let you compose N steps without
-  writing pipeline6, pipeline7, etc. Effect has Effect.all patterns that might inspire this.
-
-  2. Structured logging with spans
-  The codebase logs, but adding OpenTelemetry-style spans/traces would make debugging multi-step operations (setup → user creation → linger →
-  directories → services) much clearer. Effect has Effect.withSpan for this.
-
-  3. Circuit breakers for external calls
-  You have retry, but no circuit breaker pattern for when a service is persistently failing. Effect.Schedule can do this with
-  Schedule.recurWhile combined with state, or there's @effect/io's circuit breaker.
-
-  Medium Impact
-
-  4. Refined error types per operation
-  Currently SystemError covers a lot. More granular types like UserCreationError, LingerError, DirectoryError would give callers finer control
-  over recovery. The error code enum partially does this, but the type system doesn't enforce it.
-
-  5. Effect Schema codecs for all external boundaries
-  TOML configs are validated, but are all podman/systemctl outputs parsed through schemas? Treating external command output as untrusted and
-  parsing it through schemas would catch edge cases.
-
-  6. Capability-based design
-  Instead of CommandExecutor being one big service, split into UserCommands, SystemctlCommands, PodmanCommands with minimal interfaces.
-  Principle of least authority at the type level.
-
-  Lower Priority (diminishing returns)
-
-  - Property-based tests (when you add tests) — fast-check for schema roundtrips
-  - ADRs — architecture decision records for why Effect, why branded types, etc.
-  - Benchmark suite — prove the retry/backoff doesn't add latency in happy path
-
-  The first three would have the most impact on both correctness and maintainability. The variadic pipeline one is probably the most "Rust
-  evangelist" move — making invalid states unrepresentable at the type level.
+Executive Summary                                                                                                                                                            
+                                                                                                                                                                               
+  This analysis examined the divban codebase for opportunities to deepen Effect integration while maintaining existing functionality, type safety, and FP principles. 13       
+  specialized agents explored both the codebase patterns and Effect documentation.                                                                                             
+                                                                                                                                                                               
+  Key finding: The codebase already demonstrates mature Effect usage. The highest-impact opportunities are in request batching (80-90% syscall reduction) and stream-based     
+  processing (memory efficiency + UX). Lower-priority enhancements focus on testability, observability, and scheduling.                                                        
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  Current Architecture Assessment                                                                                                                                              
+                                                                                                                                                                               
+  Strengths Already Present                                                                                                                                                    
+  ┌──────────────────────┬──────────────────────────────────────────────────────────┬────────────────────────────────────────────────┐                                         
+  │         Area         │                      Implementation                      │                    Location                    │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ State Management     │ SynchronizedRef for atomic counters, Ref for timing      │ src/lib/log.ts:84-100, src/lib/timing.ts:18-31 │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ Resource Management  │ acquireRelease + Effect.scoped with Acquired<A> tracking │ src/services/helpers.ts:60-68                  │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ Error Handling       │ Data.TaggedError, exhaustive Match, typed error codes    │ src/lib/errors.ts                              │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ DI/Layers            │ Context.GenericTag + Layer.succeed + Layer.mergeAll      │ src/services/context/, src/system/services/    │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ Pipeline Builder     │ Type-safe sequential composition with automatic rollback │ src/services/helpers.ts:633-795                │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ Retry Infrastructure │ Exponential backoff, jitter, error classification        │ src/lib/retry.ts                               │                                         
+  ├──────────────────────┼──────────────────────────────────────────────────────────┼────────────────────────────────────────────────┤                                         
+  │ Structured Logging   │ LogStyle ADT with annotations, step counters             │ src/lib/log.ts, src/lib/effect-logger.ts       │                                         
+  └──────────────────────┴──────────────────────────────────────────────────────────┴────────────────────────────────────────────────┘                                         
+  Patterns Not Yet Utilized                                                                                                                                                    
+  ┌─────────────────────────┬───────────────────────────────┬────────────────────────────────────────┐                                                                         
+  │         Pattern         │          Effect API           │           Potential Use Case           │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Request Batching        │ RequestResolver.makeBatched   │ Batch systemctl/file operations        │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Streams                 │ Stream.*                      │ Log tailing, file processing, backups  │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Queue/PubSub            │ Queue.bounded, PubSub.bounded │ Multi-service coordination             │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Deferred                │ Deferred.make                 │ Cross-service synchronization          │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Semaphore               │ Semaphore.make                │ Rate limiting concurrent operations    │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Layer Memoization       │ Cached layer references       │ Reduce allocation, improve testability │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Async Schema Validation │ Schema.filterEffect           │ Validate against external services     │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ Cron Scheduling         │ Schedule.cron                 │ Declarative backup schedules           │                                                                         
+  ├─────────────────────────┼───────────────────────────────┼────────────────────────────────────────┤                                                                         
+  │ OpenTelemetry           │ Effect.withSpan               │ Distributed tracing                    │                                                                         
+  └─────────────────────────┴───────────────────────────────┴────────────────────────────────────────┘                                                                         
+  ---                                                                                                                                                                          
+  High-Impact Recommendations                                                                                                                                                  
+                                                                                                                                                                               
+  1. Request Batching for Systemctl Operations                                                                                                                                 
+                                                                                                                                                                               
+  Current problem: reloadAndEnableServicesTracked in src/services/helpers.ts:250-308 makes 2n individual systemctl calls for n services.                                       
+                                                                                                                                                                               
+  Current flow (5 services = 20 calls):                                                                                                                                        
+  isServiceEnabled(svc1) → enableService(svc1) → isServiceActive(svc1) → startService(svc1)                                                                                    
+  isServiceEnabled(svc2) → enableService(svc2) → isServiceActive(svc2) → startService(svc2)                                                                                    
+  ... (sequential)                                                                                                                                                             
+                                                                                                                                                                               
+  Batched flow (5 services = 4 calls):                                                                                                                                         
+  systemctl is-enabled svc1 svc2 svc3 svc4 svc5  → 1 call                                                                                                                      
+  systemctl enable svc1 svc2 svc3 svc4 svc5      → 1 call                                                                                                                      
+  systemctl is-active svc1 svc2 svc3 svc4 svc5   → 1 call                                                                                                                      
+  systemctl start svc1 svc2 svc3 svc4 svc5       → 1 call                                                                                                                      
+                                                                                                                                                                               
+  Implementation approach:                                                                                                                                                     
+  // src/system/systemctl.ts - Add batch resolver                                                                                                                              
+  const BatchServiceStatusResolver = RequestResolver.makeBatched(                                                                                                              
+    (requests: ReadonlyArray<GetServiceStatusRequest>) =>                                                                                                                      
+      Effect.gen(function* () {                                                                                                                                                
+        const units = requests.map(r => r.unit);                                                                                                                               
+        const [activeStatus, enabledStatus] = yield* Effect.all([                                                                                                              
+          systemctl("is-active", units.join(" "), opts),                                                                                                                       
+          systemctl("is-enabled", units.join(" "), opts),                                                                                                                      
+        ]);                                                                                                                                                                    
+        // Parse and complete all requests                                                                                                                                     
+      })                                                                                                                                                                       
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  // Usage with batching enabled                                                                                                                                               
+  yield* Effect.forEach(services,                                                                                                                                              
+    (svc) => Effect.request(GetServiceStatusRequest({ unit: svc }), resolver),                                                                                                 
+    { batching: true }                                                                                                                                                         
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  Expected impact:                                                                                                                                                             
+  ┌────────────────────────────┬──────────────┬─────────────┬───────────┐                                                                                                      
+  │         Operation          │    Before    │    After    │ Reduction │                                                                                                      
+  ├────────────────────────────┼──────────────┼─────────────┼───────────┤                                                                                                      
+  │ Setup 5 services           │ 20+ syscalls │ 4 syscalls  │ 80%       │                                                                                                      
+  ├────────────────────────────┼──────────────┼─────────────┼───────────┤                                                                                                      
+  │ Check 10 service states    │ 20 systemctl │ 2 systemctl │ 90%       │                                                                                                      
+  ├────────────────────────────┼──────────────┼─────────────┼───────────┤                                                                                                      
+  │ Write 50 files (with stat) │ 100 calls    │ ~25 calls   │ 75%       │                                                                                                      
+  └────────────────────────────┴──────────────┴─────────────┴───────────┘                                                                                                      
+  ---                                                                                                                                                                          
+  2. Stream-Based Log Tailing                                                                                                                                                  
+                                                                                                                                                                               
+  Current problem: journalctl in src/system/systemctl.ts:293-322 uses inherited stdio with no structured handling.                                                             
+                                                                                                                                                                               
+  // Current - no filtering, progress, or cancellation                                                                                                                         
+  const proc = Bun.spawn(["sudo", "-u", options.user, ...args], {                                                                                                              
+    stdout: "inherit",                                                                                                                                                         
+    stderr: "inherit",                                                                                                                                                         
+  });                                                                                                                                                                          
+  await proc.exited;                                                                                                                                                           
+                                                                                                                                                                               
+  Stream-based approach:                                                                                                                                                       
+  // Structured log streaming with filtering and backpressure                                                                                                                  
+  const logStream = Stream.fromAsyncIterable(process.stdout.lines())                                                                                                           
+    .pipe(                                                                                                                                                                     
+      Stream.decodeText("utf-8"),                                                                                                                                              
+      Stream.filter((line) => line.includes(filterPattern)),                                                                                                                   
+      Stream.tap((line) => Console.log(formatLogLine(line))),                                                                                                                  
+      Stream.takeUntil((line) => line.includes("ERROR")),                                                                                                                      
+      Stream.runDrain                                                                                                                                                          
+    );                                                                                                                                                                         
+                                                                                                                                                                               
+  Benefits:                                                                                                                                                                    
+  - Real-time filtering (Stream.filter)                                                                                                                                        
+  - Progress tracking (Stream.tap)                                                                                                                                             
+  - Graceful cancellation (Stream.takeUntil)                                                                                                                                   
+  - Memory-efficient for large log files                                                                                                                                       
+  - Enables divban logs --all for multi-service tailing                                                                                                                        
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  3. Stream-Based Backup Processing                                                                                                                                            
+                                                                                                                                                                               
+  Current problem: collectFilesWithContent in src/lib/backup-utils.ts:88-101 loads ALL files into memory before processing.                                                    
+                                                                                                                                                                               
+  // Current - materializes entire file list                                                                                                                                   
+  const paths = yield* scanDirectoryFiles(dir, exclude);                                                                                                                       
+  const entries = yield* Effect.forEach(paths, readFile, { concurrency: 10 });                                                                                                 
+                                                                                                                                                                               
+  Stream-based approach:                                                                                                                                                       
+  // Process files as discovered                                                                                                                                               
+  const archiveStream = Stream.fromAsyncIterable(glob.scan(pattern))                                                                                                           
+    .pipe(                                                                                                                                                                     
+      Stream.mapEffect((path) => readFileAsEntry(path), { concurrency: 10 }),                                                                                                  
+      Stream.tap(() => progressCallback(++filesProcessed)),                                                                                                                    
+      Stream.runCollect                                                                                                                                                        
+    );                                                                                                                                                                         
+                                                                                                                                                                               
+  Benefits:                                                                                                                                                                    
+  - Process 10GB backup in chunks (not entire in RAM)                                                                                                                          
+  - Real-time progress: "Backed up 2.4GB of 10GB (24%)"                                                                                                                        
+  - Can interrupt and resume                                                                                                                                                   
+  - Predictable memory usage                                                                                                                                                   
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  Medium-Impact Recommendations                                                                                                                                                
+                                                                                                                                                                               
+  4. PubSub for Multi-Service Coordination                                                                                                                                     
+                                                                                                                                                                               
+  Use case: Broadcasting service state changes to multiple subscribers.                                                                                                        
+                                                                                                                                                                               
+  // Create bounded PubSub for service events                                                                                                                                  
+  const pubsub = yield* PubSub.bounded<ServiceEvent>(100);                                                                                                                     
+                                                                                                                                                                               
+  // Publisher: service lifecycle                                                                                                                                              
+  yield* PubSub.publish(pubsub, { service: "caddy", status: "started" });                                                                                                      
+                                                                                                                                                                               
+  // Subscribers: logging, health checks, dependent services                                                                                                                   
+  const subscription = yield* PubSub.subscribe(pubsub);                                                                                                                        
+  yield* Queue.take(subscription).pipe(                                                                                                                                        
+    Effect.tap((event) => handleServiceEvent(event)),                                                                                                                          
+    Effect.forever                                                                                                                                                             
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  Enables:                                                                                                                                                                     
+  - divban logs --all - follow logs from multiple services                                                                                                                     
+  - Cascade restarts when dependencies change                                                                                                                                  
+  - Decouple service lifecycle from notification consumers                                                                                                                     
+                                                                                                                                                                               
+  5. Deferred for Cross-Service Synchronization                                                                                                                                
+                                                                                                                                                                               
+  Use case: Caddy config generation waiting for target services to be ready.                                                                                                   
+                                                                                                                                                                               
+  // Coordinator creates Deferred for each service step                                                                                                                        
+  const immichReady = yield* Deferred.make<void, never>();                                                                                                                     
+  const freshrssReady = yield* Deferred.make<void, never>();                                                                                                                   
+                                                                                                                                                                               
+  // Services signal completion                                                                                                                                                
+  yield* Deferred.succeed(immichReady, undefined);                                                                                                                             
+                                                                                                                                                                               
+  // Caddy waits for dependencies                                                                                                                                              
+  yield* Deferred.await(immichReady);                                                                                                                                          
+  yield* Deferred.await(freshrssReady);                                                                                                                                        
+  yield* generateCaddyConfig();                                                                                                                                                
+                                                                                                                                                                               
+  6. Layer Memoization and Test Builders                                                                                                                                       
+                                                                                                                                                                               
+  Current issue: createServiceLayer() in src/cli/commands/utils.ts:313-335 creates independent layer instances each invocation.                                                
+                                                                                                                                                                               
+  // Current - no memoization                                                                                                                                                  
+  const layer = Layer.mergeAll(                                                                                                                                                
+    Layer.succeed(configTag, config),                                                                                                                                          
+    Layer.succeed(ServicePaths, prereqs.paths),                                                                                                                                
+    // ... recreated each call                                                                                                                                                 
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  Improved approach:                                                                                                                                                           
+  // Cache common layers                                                                                                                                                       
+  const infrastructureLayers = Layer.mergeAll(                                                                                                                                 
+    Layer.succeed(ServicePaths, paths),                                                                                                                                        
+    Layer.succeed(SystemCapabilities, capabilities)                                                                                                                            
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  // Test layer builders with overrides                                                                                                                                        
+  export const createMockServiceLayers = (overrides?: Partial<{                                                                                                                
+    user: ServiceUserValue;                                                                                                                                                    
+    paths: ServicePathsValue;                                                                                                                                                  
+  }>): Layer.Layer<...> => Layer.mergeAll(                                                                                                                                     
+    Layer.succeed(ServicePaths, overrides?.paths ?? defaults.paths),                                                                                                           
+    // ...                                                                                                                                                                     
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  // Layer.fresh() for test isolation                                                                                                                                          
+  const isolatedTestLayer = Layer.fresh(createMockServiceLayers());                                                                                                            
+                                                                                                                                                                               
+  7. Semaphore for Rate Limiting                                                                                                                                               
+                                                                                                                                                                               
+  Use case: Prevent resource exhaustion during parallel container image pulls.                                                                                                 
+                                                                                                                                                                               
+  const pullSemaphore = yield* Semaphore.make(3); // Max 3 concurrent pulls                                                                                                    
+                                                                                                                                                                               
+  yield* Effect.forEach(                                                                                                                                                       
+    images,                                                                                                                                                                    
+    (image) => Semaphore.withPermits(pullSemaphore, 1)(pullImage(image)),                                                                                                      
+    { concurrency: "unbounded" }                                                                                                                                               
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  Lower-Priority Enhancements                                                                                                                                                  
+                                                                                                                                                                               
+  8. Schema.filterEffect for Async Validation                                                                                                                                  
+                                                                                                                                                                               
+  Use case: Validate container images exist in registry during config load.                                                                                                    
+                                                                                                                                                                               
+  export const ValidatedContainerImageSchema =                                                                                                                                 
+    ContainerImageSchema.pipe(                                                                                                                                                 
+      Schema.filterEffect((image) =>                                                                                                                                           
+        Effect.gen(function* () {                                                                                                                                              
+          const registry = yield* ContainerRegistry;                                                                                                                           
+          const exists = yield* registry.imageExists(image);                                                                                                                   
+          return exists ? undefined : "Container image not found";                                                                                                             
+        })                                                                                                                                                                     
+      )                                                                                                                                                                        
+    );                                                                                                                                                                         
+                                                                                                                                                                               
+  9. Cron-Based Backup Scheduling                                                                                                                                              
+                                                                                                                                                                               
+  Use case: Declarative backup schedules instead of external cron.                                                                                                             
+                                                                                                                                                                               
+  const dailyBackup = Schedule.cron(Cron.unsafeParse("0 2 * * *", "UTC"));                                                                                                     
+                                                                                                                                                                               
+  yield* backupOperation(serviceName).pipe(                                                                                                                                    
+    Effect.repeat({ schedule: dailyBackup })                                                                                                                                   
+  );                                                                                                                                                                           
+                                                                                                                                                                               
+  10. OpenTelemetry Tracing                                                                                                                                                    
+                                                                                                                                                                               
+  Foundation already exists: withOperationLogging() uses Effect.withLogSpan().                                                                                                 
+                                                                                                                                                                               
+  Enhancement:                                                                                                                                                                 
+  // Add correlation IDs and span attributes                                                                                                                                   
+  yield* Effect.annotateCurrentSpan("service.name", serviceName);                                                                                                              
+  yield* Effect.annotateCurrentSpan("operation.id", operationId);                                                                                                              
+                                                                                                                                                                               
+  // Enable via environment variable                                                                                                                                           
+  // DIVBAN_TRACE=1 divban setup caddy                                                                                                                                         
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  Implementation Roadmap                                                                                                                                                       
+                                                                                                                                                                               
+  Phase 1: Quick Wins (High Impact, Low Effort)                                                                                                                                
+                                                                                                                                                                               
+  1. Add stream utilities - Create src/lib/stream-utils.ts with splitLines(), fileLineStream(), progressTap()                                                                  
+  2. Stream-based log tailing - Refactor journalctl to use Effect Streams                                                                                                      
+  3. Test layer builders - Add createMockServiceLayers() for isolated testing                                                                                                  
+                                                                                                                                                                               
+  Phase 2: Core Improvements (High Impact, Medium Effort)                                                                                                                      
+                                                                                                                                                                               
+  4. Batch resolver for systemctl - Add RequestResolver.makeBatched to src/system/systemctl.ts                                                                                 
+  5. Batch resolver for file operations - Parallel stat checks with caching                                                                                                    
+  6. Wire batching into helpers - Enable in reloadAndEnableServicesTracked                                                                                                     
+                                                                                                                                                                               
+  Phase 3: Coordination Patterns (Medium Impact)                                                                                                                               
+                                                                                                                                                                               
+  7. PubSub for service events - Create src/services/coordination/pubsub.ts                                                                                                    
+  8. Deferred for step coordination - Enable cross-service dependency sync                                                                                                     
+  9. Semaphore for rate limiting - Add to container pull operations                                                                                                            
+                                                                                                                                                                               
+  Phase 4: Polish (Lower Priority)                                                                                                                                             
+                                                                                                                                                                               
+  10. Stream-based backups - Refactor collectFilesWithContent                                                                                                                  
+  11. Schema.filterEffect - Add async validation for container images                                                                                                          
+  12. Cron scheduling - Optional backup scheduler                                                                                                                              
+  13. OpenTelemetry - Add @effect/opentelemetry integration                                                                                                                    
+                                                                                                                                                                               
+  ---                                                                                                                                                                          
+  Files Most Impacted                                                                                                                                                          
+  ┌───────────────────────────────────┬───────────────────────────────────────────────────┬──────────┐                                                                         
+  │               File                │                      Changes                      │ Priority │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/system/systemctl.ts           │ Add batch resolver, refactor status checks        │ High     │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/services/helpers.ts:250-308   │ Wire batching into reloadAndEnableServicesTracked │ High     │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/system/systemctl.ts:293-322   │ Stream-based journalctl                           │ High     │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/lib/backup-utils.ts:88-101    │ Stream-based file collection                      │ Medium   │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/cli/commands/utils.ts:313-335 │ Layer memoization                                 │ Medium   │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/services/testing/layers.ts    │ New file - test layer builders                    │ Medium   │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/lib/stream-utils.ts           │ New file - stream helpers                         │ High     │                                                                         
+  ├───────────────────────────────────┼───────────────────────────────────────────────────┼──────────┤                                                                         
+  │ src/services/coordination/        │ New directory - PubSub, Deferred patterns         │ Medium   │                                                                         
+  └───────────────────────────────────┴───────────────────────────────────────────────────┴──────────┘                                                                         
+  ---                                                                                                                                                                          
+  Risk Assessment                                                                                                                                                              
+  ┌─────────────────────────┬──────────────────────┬──────────────────────────────────────┐                                                                                    
+  │         Change          │         Risk         │              Mitigation              │                                                                                    
+  ├─────────────────────────┼──────────────────────┼──────────────────────────────────────┤                                                                                    
+  │ Batching systemctl      │ Low - additive       │ Feature flag, fallback to sequential │                                                                                    
+  ├─────────────────────────┼──────────────────────┼──────────────────────────────────────┤                                                                                    
+  │ Stream log tailing      │ Low - isolated       │ Keep legacy path for compatibility   │                                                                                    
+  ├─────────────────────────┼──────────────────────┼──────────────────────────────────────┤                                                                                    
+  │ Layer memoization       │ Low - internal       │ No API changes                       │                                                                                    
+  ├─────────────────────────┼──────────────────────┼──────────────────────────────────────┤                                                                                    
+  │ PubSub coordination     │ Medium - new pattern │ Introduce incrementally              │                                                                                    
+  ├─────────────────────────┼──────────────────────┼──────────────────────────────────────┤                                                                                    
+  │ Async schema validation │ Low - optional       │ Only for new config fields           │                                                                                    
+  └─────────────────────────┴──────────────────────┴──────────────────────────────────────┘                                                                                    
+  ---                                                                                                                                                                          
+  Conclusion                                                                                                                                                                   
+                                                                                                                                                                               
+  The divban codebase demonstrates mature Effect usage with excellent patterns for:                                                                                            
+  - Resource management (Acquired<A>, pipeline builder)                                                                                                                        
+  - Error handling (typed errors, exhaustive matching)                                                                                                                         
+  - State management (SynchronizedRef, Context.Tag)                                                                                                                            
+  - Structured logging (LogStyle ADT)                                                                                                                                          
+                                                                                                                                                                               
+  The highest-value enhancements are:                                                                                                                                          
+                                                                                                                                                                               
+  1. Request batching - 80-90% reduction in systemctl syscalls                                                                                                                 
+  2. Stream processing - Memory-efficient log tailing and backups                                                                                                              
+  3. Layer memoization - Improved testability                                                                                                                                  
+                                                                                                                                                                               
+  All recommendations maintain existing functionality, preserve type safety, and follow FP principles. The implementation can proceed incrementally with minimal risk to       
+  production stability.                                                                     
