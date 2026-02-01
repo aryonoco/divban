@@ -133,6 +133,23 @@ sbin
 getenforce
 gecos
 Silverblue
+newgrp
+ostree
+pacman
+qcow
+
+# Virtualization
+aryonoco
+domifaddr
+libvirtd
+noautoconsole
+runcmd
+undefine
+vcpus
+virt
+virtinst
+virsh
+vnet
 
 # Linux Capabilities
 SETFCAP
