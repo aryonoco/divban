@@ -15,6 +15,94 @@ const IMAGE_CACHE_DIR = "/var/tmp/divban-e2e-images" as const;
 
 // IP address parsing pattern
 const WHITESPACE_PATTERN = /\s+/;
+const NETWORK_ACTIVE_PATTERN = /Active:\s+yes/;
+
+// Helper to run virsh commands with sudo (needed for network/bridge operations)
+const virsh = (args: readonly string[]): ReturnType<typeof exec> =>
+  exec(["sudo", "virsh", ...args]);
+
+// Helper to run virt-install with sudo
+const virtInstall = (args: readonly string[]): ReturnType<typeof exec> =>
+  exec(["sudo", "virt-install", ...args]);
+
+// Default network XML for libvirt
+const DEFAULT_NETWORK_XML = `<network>
+  <name>default</name>
+  <forward mode='nat'/>
+  <bridge name='virbr0' stp='on' delay='0'/>
+  <ip address='192.168.122.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.122.2' end='192.168.122.254'/>
+    </dhcp>
+  </ip>
+</network>`;
+
+// Ensure libvirt directories exist (needed for cloud-init)
+const ensureLibvirtDirs = (): Effect.Effect<void, E2EError> =>
+  Effect.gen(function* () {
+    yield* exec(["sudo", "mkdir", "-p", "/var/lib/libvirt/boot"]).pipe(
+      Effect.catchAll(() => Effect.void)
+    );
+  });
+
+// Ensure libvirt default network exists and is running
+export const ensureDefaultNetwork = (): Effect.Effect<void, E2EError> =>
+  Effect.gen(function* () {
+    // Ensure directories exist
+    yield* ensureLibvirtDirs();
+
+    // Check if default network exists
+    const listResult = yield* virsh(["net-list", "--all"]).pipe(
+      Effect.catchAll(() => Effect.succeed({ exitCode: 1, stdout: "", stderr: "" }))
+    );
+
+    const networkExists = listResult.stdout.includes("default");
+
+    // Create network if it doesn't exist
+    const needsCreate = !networkExists;
+    yield* pipe(
+      needsCreate,
+      Match.value,
+      Match.when(true, () =>
+        Effect.gen(function* () {
+          yield* Effect.logInfo("Creating libvirt default network...");
+          const xmlPath = "/var/tmp/libvirt-default-network.xml";
+          yield* exec(["sh", "-c", `cat > ${xmlPath} <<'EOF'\n${DEFAULT_NETWORK_XML}\nEOF`]);
+          yield* virsh(["net-define", xmlPath]);
+          yield* exec(["rm", "-f", xmlPath]);
+        })
+      ),
+      Match.when(false, () => Effect.void),
+      Match.exhaustive
+    );
+
+    // Check if network is active (handle variable spacing in output)
+    const activeResult = yield* virsh(["net-info", "default"]).pipe(
+      Effect.catchAll(() => Effect.succeed({ exitCode: 1, stdout: "", stderr: "" }))
+    );
+
+    // Match "Active:" followed by spaces and "yes"
+    const isActive = NETWORK_ACTIVE_PATTERN.test(activeResult.stdout);
+
+    // Start network if not active
+    yield* pipe(
+      isActive,
+      Match.value,
+      Match.when(false, () =>
+        Effect.gen(function* () {
+          yield* Effect.logInfo("Starting libvirt default network...");
+          yield* virsh(["net-start", "default"]);
+          // Wait a moment for network to be ready
+          yield* Effect.sleep("1 second");
+        })
+      ),
+      Match.when(true, () => Effect.void),
+      Match.exhaustive
+    );
+
+    // Set autostart
+    yield* virsh(["net-autostart", "default"]).pipe(Effect.catchAll(() => Effect.void));
+  });
 
 // Download cloud image (with caching)
 export const downloadCloudImage = (distro: DistroConfig): Effect.Effect<string, E2EError> =>
@@ -112,6 +200,9 @@ ${runcmdYaml}
 // Create VM using virt-install
 export const createVM = (config: VMConfig): Effect.Effect<VMInfo, E2EError> =>
   Effect.gen(function* () {
+    // Ensure libvirt default network is available
+    yield* ensureDefaultNetwork();
+
     const sshKeyPath = yield* ensureSSHKey();
     const imagePath = yield* downloadCloudImage(config.distro);
 
@@ -126,11 +217,21 @@ export const createVM = (config: VMConfig): Effect.Effect<VMInfo, E2EError> =>
 
     // Create VM disk (copy from base image)
     const vmDiskPath = `/var/tmp/${config.name}.qcow2`;
-    yield* exec(["qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", imagePath, vmDiskPath]);
+    yield* exec([
+      "sudo",
+      "qemu-img",
+      "create",
+      "-f",
+      "qcow2",
+      "-F",
+      "qcow2",
+      "-b",
+      imagePath,
+      vmDiskPath,
+    ]);
 
     // Launch VM with virt-install
-    yield* exec([
-      "virt-install",
+    yield* virtInstall([
       "--name",
       config.name,
       "--memory",
@@ -142,7 +243,9 @@ export const createVM = (config: VMConfig): Effect.Effect<VMInfo, E2EError> =>
       "--cloud-init",
       `user-data=${userDataPath}`,
       "--network",
-      "default",
+      "network=default",
+      "--osinfo",
+      config.distro.osInfo,
       "--graphics",
       "none",
       "--noautoconsole",
@@ -162,41 +265,101 @@ export const createVM = (config: VMConfig): Effect.Effect<VMInfo, E2EError> =>
     };
   });
 
-// Get VM IP address
+// Try to get IP from guest agent
+const getIPFromAgent = (vmName: string): Effect.Effect<IPAddress, E2EError> =>
+  Effect.gen(function* () {
+    const result = yield* virsh(["domifaddr", vmName, "--source", "agent"]);
+
+    // Parse IP from output (format: "vnet0     52:54:00:xx:xx:xx    ipv4         192.168.122.100/24")
+    const lines = result.stdout.split("\n");
+    const ipLine = pipe(
+      lines,
+      Arr.findFirst((line) => line.includes("ipv4") && !line.includes("127.0.0.1"))
+    );
+
+    return yield* pipe(
+      ipLine,
+      Match.value,
+      Match.tag("None", () => Effect.fail(new E2EError("No IP address found from agent"))),
+      Match.tag("Some", ({ value }) =>
+        Effect.gen(function* () {
+          const parts = value.trim().split(WHITESPACE_PATTERN);
+          const ipWithMask = parts.at(-1);
+          const ipPart = ipWithMask?.split("/")[0];
+
+          return yield* pipe(
+            ipPart,
+            Match.value,
+            Match.when(undefined, () => Effect.fail(new E2EError("Failed to parse IP address"))),
+            Match.when(null, () => Effect.fail(new E2EError("Failed to parse IP address"))),
+            Match.orElse((ip) => Effect.succeed(ipAddress(ip)))
+          );
+        })
+      ),
+      Match.exhaustive
+    );
+  });
+
+// Try to get IP from DHCP leases
+const getIPFromDHCP = (vmName: string): Effect.Effect<IPAddress, E2EError> =>
+  Effect.gen(function* () {
+    // Get MAC address from VM
+    const macResult = yield* virsh(["domiflist", vmName]);
+    const macLine = pipe(
+      macResult.stdout.split("\n"),
+      Arr.findFirst((line) => line.includes("network") || line.includes("default"))
+    );
+
+    const mac = yield* pipe(
+      macLine,
+      Match.value,
+      Match.tag("None", () => Effect.fail(new E2EError("No MAC address found"))),
+      Match.tag("Some", ({ value }) => {
+        const parts = value.trim().split(WHITESPACE_PATTERN);
+        const macAddr = parts.at(-1);
+        return macAddr
+          ? Effect.succeed(macAddr)
+          : Effect.fail(new E2EError("Failed to parse MAC address"));
+      }),
+      Match.exhaustive
+    );
+
+    // Get IP from DHCP leases
+    const leaseResult = yield* virsh(["net-dhcp-leases", "default"]);
+    const leaseLine = pipe(
+      leaseResult.stdout.split("\n"),
+      Arr.findFirst((line) => line.toLowerCase().includes(mac.toLowerCase()))
+    );
+
+    return yield* pipe(
+      leaseLine,
+      Match.value,
+      Match.tag("None", () => Effect.fail(new E2EError("No DHCP lease found"))),
+      Match.tag("Some", ({ value }) =>
+        Effect.gen(function* () {
+          const parts = value.trim().split(WHITESPACE_PATTERN);
+          // Format: "Expiry Time          MAC address        Protocol  IP address                Hostname        Client ID or DUID"
+          const ipWithMask = parts.find((p) => p.includes("192.168.") || p.includes("/"));
+          const ipPart = ipWithMask?.split("/")[0];
+
+          return yield* pipe(
+            ipPart,
+            Match.value,
+            Match.when(undefined, () => Effect.fail(new E2EError("Failed to parse IP from DHCP"))),
+            Match.when(null, () => Effect.fail(new E2EError("Failed to parse IP from DHCP"))),
+            Match.orElse((ip) => Effect.succeed(ipAddress(ip)))
+          );
+        })
+      ),
+      Match.exhaustive
+    );
+  });
+
+// Get VM IP address - try agent first, fallback to DHCP
 const waitForIPAddress = (vmName: string): Effect.Effect<IPAddress, E2EError> =>
   pipe(
-    Effect.gen(function* () {
-      const result = yield* exec(["virsh", "domifaddr", vmName, "--source", "agent"]);
-
-      // Parse IP from output (format: "vnet0     52:54:00:xx:xx:xx    ipv4         192.168.122.100/24")
-      const lines = result.stdout.split("\n");
-      const ipLine = pipe(
-        lines,
-        Arr.findFirst((line) => line.includes("ipv4"))
-      );
-
-      return yield* pipe(
-        ipLine,
-        Match.value,
-        Match.tag("None", () => Effect.fail(new E2EError("No IP address found"))),
-        Match.tag("Some", ({ value }) =>
-          Effect.gen(function* () {
-            const parts = value.trim().split(WHITESPACE_PATTERN);
-            const ipWithMask = parts.at(-1);
-            const ipPart = ipWithMask?.split("/")[0];
-
-            return yield* pipe(
-              ipPart,
-              Match.value,
-              Match.when(undefined, () => Effect.fail(new E2EError("Failed to parse IP address"))),
-              Match.when(null, () => Effect.fail(new E2EError("Failed to parse IP address"))),
-              Match.orElse((ip) => Effect.succeed(ipAddress(ip)))
-            );
-          })
-        ),
-        Match.exhaustive
-      );
-    }),
+    // Try agent first, fallback to DHCP
+    getIPFromAgent(vmName).pipe(Effect.catchAll(() => getIPFromDHCP(vmName))),
     Effect.retry(Schedule.exponential("2 seconds").pipe(Schedule.compose(Schedule.recurs(30))))
   );
 
@@ -263,10 +426,10 @@ export const scpCopy = (
 export const destroyVM = (vmName: string): Effect.Effect<void, E2EError> =>
   Effect.gen(function* () {
     // Destroy VM
-    yield* exec(["virsh", "destroy", vmName]).pipe(Effect.catchAll(() => Effect.void));
+    yield* virsh(["destroy", vmName]).pipe(Effect.catchAll(() => Effect.void));
 
     // Undefine VM
-    yield* exec(["virsh", "undefine", vmName]).pipe(Effect.catchAll(() => Effect.void));
+    yield* virsh(["undefine", vmName]).pipe(Effect.catchAll(() => Effect.void));
 
     // Remove disk
     const diskPath = `/var/tmp/${vmName}.qcow2`;

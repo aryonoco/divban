@@ -18,8 +18,9 @@ export const FEDORA_43: DistroConfig = {
     "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.1.x86_64.qcow2"
   ),
   packageManager: DNF,
-  packages: ["podman", "systemd", "sudo", "openssh-server"] as const,
-  initCommands: [] as const,
+  packages: ["podman", "systemd", "sudo", "openssh-server", "qemu-guest-agent"] as const,
+  initCommands: ["systemctl enable --now qemu-guest-agent"] as const,
+  osInfo: "fedora43",
 } as const;
 
 export const ALMA_10_1: DistroConfig = {
@@ -28,8 +29,9 @@ export const ALMA_10_1: DistroConfig = {
     "https://repo.almalinux.org/almalinux/10.1/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2"
   ),
   packageManager: DNF,
-  packages: ["podman", "systemd", "sudo", "openssh-server"] as const,
-  initCommands: [] as const,
+  packages: ["podman", "systemd", "sudo", "openssh-server", "qemu-guest-agent"] as const,
+  initCommands: ["systemctl enable --now qemu-guest-agent"] as const,
+  osInfo: "almalinux10",
 } as const;
 
 export const DEBIAN_13: DistroConfig = {
@@ -38,8 +40,9 @@ export const DEBIAN_13: DistroConfig = {
     "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-generic-amd64-daily.qcow2"
   ),
   packageManager: APT,
-  packages: ["podman", "systemd", "sudo", "openssh-server"] as const,
-  initCommands: ["apt-get update"] as const,
+  packages: ["podman", "systemd", "sudo", "openssh-server", "qemu-guest-agent"] as const,
+  initCommands: ["apt-get update", "systemctl enable --now qemu-guest-agent"] as const,
+  osInfo: "debian12", // Use debian12 as debian13 may not be in osinfo-db yet
 } as const;
 
 export const OPENSUSE_TUMBLEWEED: DistroConfig = {
@@ -48,8 +51,9 @@ export const OPENSUSE_TUMBLEWEED: DistroConfig = {
     "https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-JeOS.x86_64-OpenStack-Cloud.qcow2"
   ),
   packageManager: ZYPPER,
-  packages: ["podman", "systemd", "sudo", "openssh"] as const,
-  initCommands: [] as const,
+  packages: ["podman", "systemd", "sudo", "openssh", "qemu-guest-agent"] as const,
+  initCommands: ["systemctl enable --now qemu-guest-agent"] as const,
+  osInfo: "opensusetumbleweed",
 } as const;
 
 export const ARCH_LINUX: DistroConfig = {
@@ -58,8 +62,9 @@ export const ARCH_LINUX: DistroConfig = {
     "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
   ),
   packageManager: PACMAN,
-  packages: ["podman", "systemd", "sudo", "openssh"] as const,
-  initCommands: ["pacman -Sy"] as const,
+  packages: ["podman", "systemd", "sudo", "openssh", "qemu-guest-agent"] as const,
+  initCommands: ["pacman -Sy", "systemctl enable --now qemu-guest-agent"] as const,
+  osInfo: "archlinux",
 } as const;
 
 export const ALL_DISTROS: readonly DistroConfig[] = [

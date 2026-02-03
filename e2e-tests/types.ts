@@ -48,6 +48,7 @@ export interface DistroConfig {
   readonly packageManager: PackageManager;
   readonly packages: readonly string[];
   readonly initCommands: readonly string[];
+  readonly osInfo: string; // virt-install --osinfo value
 }
 
 // VM configuration
